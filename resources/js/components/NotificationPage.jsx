@@ -27,6 +27,25 @@ const TYPE_LABELS = {
 };
 const CHANNEL_LABELS = { web: 'Web', mail: 'Email', command: 'Command', sms: 'SMS' };
 
+// Traccar's alarm sub-types (Position.ALARM_*) — for type=alarm notifications, attributes.alarms
+// holds a comma-separated list of these keys to filter which alarms trigger the notification.
+const ALARM_TYPES = [
+    ['general', 'General'], ['sos', 'SOS'], ['vibration', 'Vibration'], ['movement', 'Movement'],
+    ['lowspeed', 'Low Speed'], ['overspeed', 'Overspeed'], ['fallDown', 'Fall Down'],
+    ['lowPower', 'Low Power'], ['lowBattery', 'Low Battery'], ['fault', 'Fault'],
+    ['powerOff', 'Power Off'], ['powerOn', 'Power On'], ['door', 'Door'], ['lock', 'Lock'],
+    ['unlock', 'Unlock'], ['geofence', 'Geofence'], ['geofenceEnter', 'Geofence Enter'],
+    ['geofenceExit', 'Geofence Exit'], ['tow', 'Tow'], ['idle', 'Idle'], ['highRpm', 'High RPM'],
+    ['hardAcceleration', 'Hard Acceleration'], ['hardBraking', 'Hard Braking'],
+    ['hardCornering', 'Hard Cornering'], ['laneChange', 'Lane Change'],
+    ['fatigueDriving', 'Fatigue Driving'], ['powerCut', 'Power Cut'],
+    ['powerRestored', 'Power Restored'], ['jamming', 'Jamming'], ['temperature', 'Temperature'],
+    ['parking', 'Parking'], ['bonnet', 'Bonnet'], ['footBrake', 'Foot Brake'],
+    ['fuelLeak', 'Fuel Leak'], ['tampering', 'Tampering'], ['removing', 'Removing'],
+];
+const ALARM_LABELS = Object.fromEntries(ALARM_TYPES);
+const alarmLabel = (key) => ALARM_LABELS[key] || humanize(null, key);
+
 function humanize(label, raw) {
     if (label) return label;
     if (!raw) return '';
@@ -93,9 +112,31 @@ function DevicesField({ allDevices, linkedIds, onAdd, onRemove, disabled }) {
     );
 }
 
+function AlarmsField({ selected, onChange, disabled }) {
+    const toggle = (key) => {
+        if (disabled) return;
+        onChange(selected.includes(key) ? selected.filter(k => k !== key) : [...selected, key]);
+    };
+    return (
+        <div style={{ border: '1px solid #d1d5db', borderRadius: 8, maxHeight: 220, overflowY: 'auto' }}>
+            {ALARM_TYPES.map(([key, label]) => (
+                <label key={key} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', fontSize: 13,
+                    cursor: disabled ? 'not-allowed' : 'pointer', background: selected.includes(key) ? '#eff6ff' : '#fff',
+                    borderBottom: '1px solid #f1f5f9',
+                }}>
+                    <input type="checkbox" checked={selected.includes(key)} disabled={disabled} onChange={() => toggle(key)} />
+                    {label}
+                </label>
+            ))}
+        </div>
+    );
+}
+
 function NotificationModal({ notification, onClose, onSaved }) {
     const isNew = !notification;
     const [type, setType]               = useState(notification?.type || '');
+    const [alarms, setAlarms]           = useState((notification?.attributes?.alarms || '').split(',').filter(Boolean));
     const [channels, setChannels]       = useState((notification?.notificators || '').split(',').filter(Boolean));
     const [always, setAlways]           = useState(notification?.always ?? true);
     const [description, setDescription] = useState(notification?.description || '');
@@ -181,6 +222,7 @@ function NotificationModal({ notification, onClose, onSaved }) {
             commandId:  commandId || 0,
             notificators: channels.join(','),
             description: description || null,
+            attributes: type === 'alarm' && alarms.length ? { alarms: alarms.join(',') } : {},
         };
         try {
             if (isNew) {
@@ -225,6 +267,16 @@ function NotificationModal({ notification, onClose, onSaved }) {
                                         {allTypes.map(t => <option key={t.type} value={t.type}>{typeLabel(t.type)}</option>)}
                                     </select>
                                 </div>
+
+                                {type === 'alarm' && (
+                                    <div style={{ marginBottom: 14 }}>
+                                        <label style={fieldLabelStyle}>Alarms</label>
+                                        <AlarmsField selected={alarms} disabled={saving} onChange={setAlarms} />
+                                        {alarms.length > 0 && (
+                                            <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#6b7280' }}>{alarms.map(alarmLabel).join(', ')}</p>
+                                        )}
+                                    </div>
+                                )}
 
                                 <div style={{ marginBottom: 14 }}>
                                     <label style={fieldLabelStyle}>Channels</label>
@@ -386,7 +438,7 @@ export default function NotificationPage() {
                                 <td style={TD}>{n.description || '—'}</td>
                                 <td style={{ ...TD, fontWeight: 500 }}>{typeLabel(n.type)}</td>
                                 <td style={{ ...TD, textAlign: 'center' }}>{n.always ? 'Yes' : 'No'}</td>
-                                <td style={TD}>{n.attributes?.alarms || '—'}</td>
+                                <td style={TD}>{n.attributes?.alarms ? n.attributes.alarms.split(',').map(alarmLabel).join(', ') : '—'}</td>
                                 <td style={TD}>{channelsLabel(n.notificators)}</td>
                                 <td style={{ ...TD, textAlign: 'center', whiteSpace: 'nowrap' }}>
                                     <button style={iconBtn} title="Edit" onClick={() => setEditing(n)}>✏</button>

@@ -57,10 +57,10 @@ const LogoutSVG = () => (
 const REPORT_DEVICE = [
     'Internal Battery','External Battery','Fuel Consumption','Current fuel Value',
     'Temperature & Humidity','Driver Behavior','Positioning & Battery',
-    'Logistics','Travel statistics (OBD)','Vehicle fault statistics (OBD)',
+    'Travel statistics (OBD)',
 ];
 const REPORT_MOTION = [
-    'Track Details','Mileage','Trips','Overspeed','Parking','Idling','Ignition','Geo Fence',
+    'Track Details','Replay','Mileage','Trips','Overspeed','Parking','Idling','Ignition','Geo Fence',
 ];
 const REPORT_ALERT = ['Alert Details'];
 
@@ -112,6 +112,8 @@ const FLEET_ITEMS = [
     { label: 'Dashboard',       key: 'Dashboard' },
     { label: 'Driver',          key: 'Driver' },
     { label: 'Vehicle',         key: 'Vehicle' },
+    { label: 'Vehicle Track',   key: 'VehicleTrack' },
+    { label: 'Fuel Management', key: 'FuelManagement' },
     { label: 'Check in Record', key: 'CheckIn' },
     { label: 'Route Planning',  key: 'RoutePlanning' },
     { label: 'Fleet Report',    key: 'FleetReport' },

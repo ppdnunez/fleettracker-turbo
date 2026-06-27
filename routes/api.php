@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\DriverController;
 use App\Http\Controllers\TraccarController;
 
 // Public
@@ -14,6 +15,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user',    [AuthController::class, 'me']);
 
     Route::apiResource('devices', DeviceController::class);
+    Route::apiResource('drivers', DriverController::class)->except(['show']);
 
     Route::prefix('traccar')->group(function () {
         Route::get('/devices',   [TraccarController::class, 'devices']);
@@ -37,7 +39,23 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/external-battery', [TraccarController::class, 'externalBatteryReport']);
         Route::get('/reports/fuel', [TraccarController::class, 'fuelConsumptionReport']);
         Route::get('/reports/current-fuel', [TraccarController::class, 'currentFuel']);
+        Route::get('/reports/fuel-curve', [TraccarController::class, 'fuelCurveReport']);
+        Route::get('/reports/fuel-refuelling', [TraccarController::class, 'refuellingReport']);
+        Route::get('/reports/fuel-abnormal-loss', [TraccarController::class, 'abnormalFuelLossReport']);
+        Route::get('/reports/fuel-idle', [TraccarController::class, 'idleFuelReport']);
+        Route::get('/reports/fuel-ranking', [TraccarController::class, 'fuelRankingReport']);
         Route::get('/reports/temperature', [TraccarController::class, 'temperatureHumidityReport']);
+        Route::get('/reports/positioning', [TraccarController::class, 'positioningBatteryReport']);
+        Route::get('/reports/travel', [TraccarController::class, 'travelStatisticsReport']);
+        Route::get('/reports/mileage', [TraccarController::class, 'mileageReport']);
+        Route::get('/reports/trips-detail', [TraccarController::class, 'tripsReport']);
+        Route::get('/reports/overspeed', [TraccarController::class, 'overspeedReport']);
+        Route::get('/reports/parking', [TraccarController::class, 'parkingReport']);
+        Route::get('/reports/idling', [TraccarController::class, 'idlingReport']);
+        Route::get('/reports/ignition', [TraccarController::class, 'ignitionReport']);
+        Route::get('/reports/geofence', [TraccarController::class, 'geofenceReport']);
+        Route::get('/reports/online', [TraccarController::class, 'onlineDevicesReport']);
+        Route::get('/reports/offline', [TraccarController::class, 'offlineDevicesReport']);
         Route::get('/devices/{id}/position', [TraccarController::class, 'position']);
         Route::get('/devices/{id}/route',    [TraccarController::class, 'routeHistory']);
         Route::get('/devices/{id}/trips',        [TraccarController::class, 'trips']);
