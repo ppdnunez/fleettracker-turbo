@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'gps' => [
+        'provider' => env('GPS_PROVIDER', 'traccar'),
+    ],
     'traccar' => [
         'url'      => env('TRACCAR_URL', 'http://localhost:8082'),
         'email'    => env('TRACCAR_EMAIL', 'admin@traccar.org'),

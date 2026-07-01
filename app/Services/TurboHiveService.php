@@ -2,9 +2,10 @@
 
 namespace App\Services;
 
+use App\Contracts\GpsProviderInterface;
 use Illuminate\Support\Facades\Http;
 
-class TurboHiveService
+class TurboHiveService implements GpsProviderInterface
 {
     protected string $baseUrl;
     protected string $token;
@@ -23,29 +24,30 @@ class TurboHiveService
         ])->baseUrl($this->baseUrl);
     }
 
-    public function getAlerts(array $params = [])
+    public function getDevices(): array
     {
-        return $this->client()->get('/v3/alerts', $params)->json();
+        return $this->client()->get('/v3/devices')->json();
     }
 
-    public function getTagLocation(string $imei)
+    public function getAlerts(string $imei, array $params = []): array
     {
-        return $this->client()->get('/v3/tag/location', ['imei' => $imei])->json();
+        return $this->client()->get('/v3/alerts', array_merge(['imei' => $imei], $params))->json();
     }
 
-    public function fetchEventVideo(string $imei, int $alertTime)
+    public function getTrack(string $imei, string $from, string $to): array
     {
-        return $this->client()->get('/v3/alerts/video/fetch', [
+        return $this->client()->get('/v3/track', [
             'imei' => $imei,
-            'alertTime' => $alertTime,
+            'from' => $from,
+            'to' => $to,
         ])->json();
     }
 
-    public function fetchAlertVideo(string $imei, int $alertTimeMs)
+    public function sendCommand(string $imei, string $command): array
     {
-        return $this->client()->get('/v3/alerts/video/fetch', [
+        return $this->client()->post('/v3/command', [
             'imei' => $imei,
-            'alertTime' => $alertTimeMs,
-        ]);
+            'command' => $command,
+        ])->json();
     }
 }
