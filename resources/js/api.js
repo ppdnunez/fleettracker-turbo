@@ -35,6 +35,7 @@ export const api = {
     getTraccarGroups:     ()             => axios.get('/api/traccar/groups'),
     getTraccarCalendars:  ()             => axios.get('/api/traccar/calendars'),
     getLatestPositions:   ()             => axios.get('/api/traccar/positions'),
+    getTurboHiveDeviceLocation: (imei)   => axios.get(`/api/turbohive/device/${imei}/location`),
     getWsToken:           ()             => axios.get('/api/traccar/ws-token'),
     getAlertEvents:       (params)       => axios.get('/api/traccar/reports/events', { params }),
     getBatteryReport:         (params)   => axios.get('/api/traccar/reports/battery', { params }),

@@ -5,6 +5,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DriverController;
+use App\Http\Controllers\TurboHiveController;
 use App\Http\Controllers\TraccarController;
 
 // Public
@@ -103,5 +104,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/geofences',        [TraccarController::class, 'storeGeofence']);
         Route::put('/geofences/{id}',    [TraccarController::class, 'updateGeofence']);
         Route::delete('/geofences/{id}', [TraccarController::class, 'destroyGeofence']);
+    });
+
+    Route::prefix('turbohive')->group(function () {
+        Route::get('/device/{imei}/location', [TurboHiveController::class, 'location']);
     });
 });

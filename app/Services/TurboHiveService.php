@@ -43,6 +43,11 @@ class TurboHiveService implements GpsProviderInterface
         ])->json();
     }
 
+    public function getDeviceLocation(string $imei): array
+    {
+        return $this->client()->get('/v3/tag/location', ['imei' => $imei])->json();
+    }
+
     public function sendCommand(string $imei, string $command): array
     {
         return $this->client()->post('/v3/command', [
