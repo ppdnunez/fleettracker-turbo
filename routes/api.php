@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\TraccarController;
@@ -16,6 +17,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('devices', DeviceController::class);
     Route::apiResource('drivers', DriverController::class)->except(['show']);
+    Route::get('/clients',      [ClientController::class, 'index']);
+    Route::post('/clients',     [ClientController::class, 'store']);
+    Route::put('/clients/{id}', [ClientController::class, 'update']);
 
     Route::prefix('traccar')->group(function () {
         Route::get('/devices',   [TraccarController::class, 'devices']);

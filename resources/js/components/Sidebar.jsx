@@ -39,6 +39,14 @@ const FleetSVG = () => (
         <rect x="13" y="1" width="3" height="14" rx="1"/>
     </svg>
 );
+const ClientsSVG = () => (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <circle cx="6" cy="5" r="2.4"/>
+        <path d="M1.5 14c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4"/>
+        <circle cx="13" cy="6" r="1.8"/>
+        <path d="M10.5 9.2c1.7.2 3.5 1.3 4 3.8"/>
+    </svg>
+);
 const ChevSVG = ({ open }) => (
     <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
         style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease', flexShrink: 0 }}>
@@ -154,21 +162,6 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
                 </button>
             </div>
 
-            {/* User info (only when expanded) */}
-            {open && (
-                <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                            {user.name[0]}
-                        </div>
-                        <div style={{ overflow: 'hidden' }}>
-                            <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</p>
-                            <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', textTransform: 'capitalize' }}>{user.role || 'Administrator'}</p>
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {/* Nav */}
             <nav style={{ flex: 1, padding: open ? '10px 8px' : '10px 6px', overflowY: 'auto', overflowX: 'hidden' }}>
                 {/* Dashboard */}
@@ -260,6 +253,12 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
                                 onClick={() => { navTo('Fleet'); setFleetPage(key); }} />
                         ))}
                     </div>
+                )}
+
+                {/* Clients (SaaS tenants) - super_admin only */}
+                {user.role === 'super_admin' && (
+                    <NavItem icon={<ClientsSVG />} label="Clients" active={page === 'Clients'}
+                        onClick={() => navTo('Clients')} sidebarOpen={open} />
                 )}
             </nav>
 

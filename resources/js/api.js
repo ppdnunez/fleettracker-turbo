@@ -25,6 +25,10 @@ export const api = {
     updateFleetDriver:  (id, data) => axios.put(`/api/drivers/${id}`, data),
     deleteFleetDriver:  (id)       => axios.delete(`/api/drivers/${id}`),
 
+    getClients:   ()         => axios.get('/api/clients'),
+    createClient: (data)     => axios.post('/api/clients', data),
+    updateClient: (id, data) => axios.put(`/api/clients/${id}`, data),
+
     getTraccarDevices:    ()             => axios.get('/api/traccar/devices'),
     createTraccarDevice:  (data)         => axios.post('/api/traccar/devices', data),
     updateTraccarDevice:  (id, data)     => axios.put(`/api/traccar/devices/${id}`, data),

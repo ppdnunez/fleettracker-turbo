@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\TraccarCalendarOwner;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -20,11 +21,117 @@ class TraccarController extends Controller
         ];
     }
 
+    /* ── Multi-tenancy ───────────────────────────────────────────────────────────────────────
+     * Every Traccar call in this controller goes out under the one shared admin credential above,
+     * which can see every device/group on the server - so tenant isolation between SaaS clients
+     * has to be enforced here, not by Traccar. A non-super_admin user is restricted to their
+     * client's traccar_group_id (set at provisioning time, see ClientProvisioningService); a
+     * super_admin or a user with no client_id is unrestricted. Every device-list fetch and every
+     * by-id device endpoint in this controller routes through the helpers below. */
+
+    private function restrictedGroupId(): ?int
+    {
+        $user = request()->user();
+        if (!$user || $user->isSuperAdmin()) {
+            return null;
+        }
+        return $user->client?->traccar_group_id;
+    }
+
+    // Devices list, filtered to the caller's client group (or unfiltered for super_admin).
+    private function scopedDevices(): array
+    {
+        $devices = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $groupId = $this->restrictedGroupId();
+        if ($groupId === null) {
+            return $devices;
+        }
+        return array_values(array_filter($devices, fn ($d) => ($d['groupId'] ?? null) === $groupId));
+    }
+
+    // Positions list, filtered down to devices the caller's client owns.
+    private function scopedPositions(): array
+    {
+        $positions = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/positions")->json() ?? [];
+        $groupId = $this->restrictedGroupId();
+        if ($groupId === null) {
+            return $positions;
+        }
+        $allowedIds = array_column($this->scopedDevices(), 'id');
+        return array_values(array_filter($positions, fn ($p) => in_array($p['deviceId'] ?? null, $allowedIds, true)));
+    }
+
+    // Any array of Traccar rows carrying a deviceId (events/positions/trips/stops/...) - drops
+    // rows for devices outside the caller's client group. Report methods call this right after
+    // fetching from Traccar, since those endpoints have no group filter of their own and would
+    // otherwise return every client's data when no specific deviceId is requested.
+    private function filterRowsToScope(array $rows): array
+    {
+        $groupId = $this->restrictedGroupId();
+        if ($groupId === null) {
+            return $rows;
+        }
+        $allowedIds = array_column($this->scopedDevices(), 'id');
+        return array_values(array_filter($rows, fn ($r) => in_array($r['deviceId'] ?? null, $allowedIds, true)));
+    }
+
+    // Guard for endpoints that take a specific device id directly (position/route/trips/connections/
+    // update...) - 403s if that device doesn't belong to the caller's client.
+    private function assertDeviceAccessible(int $deviceId): void
+    {
+        $groupId = $this->restrictedGroupId();
+        if ($groupId === null) {
+            return;
+        }
+        $device = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices", ['id' => $deviceId])->json()[0] ?? null;
+        abort_if(!$device || ($device['groupId'] ?? null) !== $groupId, 403, 'You do not have access to this device.');
+    }
+
+    // geofences/notifications/(native)drivers/commands/computed-attributes/maintenance all extend
+    // Traccar's ExtendedObjectResource, which supports a `groupId` query param that returns only
+    // the rows linked to that group via /api/permissions - same mechanism groupConnections()
+    // already relies on. Calendars don't support this (see TraccarCalendarOwner) - everything
+    // else funnels through here.
+    private function scopedGroupList(string $path): array
+    {
+        $groupId = $this->restrictedGroupId();
+        $query = $groupId !== null ? ['groupId' => $groupId] : [];
+        return Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/{$path}", $query)->json() ?? [];
+    }
+
+    // Guard for by-id update/destroy endpoints on those same resource types - 403s unless the
+    // resource is linked to the caller's client group.
+    private function assertGroupResourceAccessible(string $path, int $resourceId): void
+    {
+        $groupId = $this->restrictedGroupId();
+        if ($groupId === null) {
+            return;
+        }
+        $linked = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/{$path}", ['groupId' => $groupId])->json() ?? [];
+        abort_if(!in_array($resourceId, array_column($linked, 'id'), true), 403, 'You do not have access to this resource.');
+    }
+
+    // Traccar's POST /{resource} never auto-links the new row to anything - without this, a
+    // restricted user's own newly-created geofence/notification/etc. would be invisible in their
+    // own scopedGroupList() right after creating it, since nothing would have linked it to their
+    // group yet.
+    private function autoLinkToOwnGroup(string $connectionType, int $resourceId): void
+    {
+        $groupId = $this->restrictedGroupId();
+        if ($groupId === null) {
+            return;
+        }
+        Http::withBasicAuth(...$this->auth)
+            ->withHeaders(['Content-Type' => 'application/json'])
+            ->post("{$this->baseUrl}/permissions", [
+                'groupId' => $groupId,
+                self::CONNECTION_KEYS[$connectionType] => $resourceId,
+            ]);
+    }
+
     public function devices()
     {
-        $response = Http::withBasicAuth(...$this->auth)
-            ->get("{$this->baseUrl}/devices");
-        return response()->json($response->json(), $response->status());
+        return response()->json($this->scopedDevices());
     }
 
     public function storeDevice(Request $request)
@@ -47,6 +154,13 @@ class TraccarController extends Controller
         // Traccar expects `attributes` to be a JSON object, never a JSON array.
         $data['attributes'] = (object) ($data['attributes'] ?? []);
 
+        // A restricted (non-super_admin) user can only ever create devices inside their own
+        // client's group - silently force it rather than trusting a client-supplied groupId.
+        $restrictedGroupId = $this->restrictedGroupId();
+        if ($restrictedGroupId !== null) {
+            $data['groupId'] = $restrictedGroupId;
+        }
+
         $response = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Content-Type' => 'application/json'])
             ->post("{$this->baseUrl}/devices", $data);
@@ -55,6 +169,7 @@ class TraccarController extends Controller
 
     public function updateDevice(Request $request, int $id)
     {
+        $this->assertDeviceAccessible($id);
         $data = $request->validate([
             'name'           => 'required|string|max:100',
             'groupId'        => 'nullable|integer',
@@ -66,6 +181,12 @@ class TraccarController extends Controller
             'expirationTime' => 'nullable|date',
             'disabled'       => 'nullable|boolean',
         ]);
+
+        // Same as storeDevice() - a restricted user can't move a device into another group.
+        $restrictedGroupId = $this->restrictedGroupId();
+        if ($restrictedGroupId !== null) {
+            $data['groupId'] = $restrictedGroupId;
+        }
 
         $existing = Http::withBasicAuth(...$this->auth)
             ->get("{$this->baseUrl}/devices", ['id' => $id]);
@@ -86,16 +207,12 @@ class TraccarController extends Controller
 
     public function notifications()
     {
-        $response = Http::withBasicAuth(...$this->auth)
-            ->get("{$this->baseUrl}/notifications");
-        return response()->json($response->json(), $response->status());
+        return response()->json($this->scopedGroupList('notifications'));
     }
 
     public function drivers()
     {
-        $response = Http::withBasicAuth(...$this->auth)
-            ->get("{$this->baseUrl}/drivers");
-        return response()->json($response->json(), $response->status());
+        return response()->json($this->scopedGroupList('drivers'));
     }
 
     private function driverValidationRules(): array
@@ -115,11 +232,15 @@ class TraccarController extends Controller
         $response = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Content-Type' => 'application/json'])
             ->post("{$this->baseUrl}/drivers", $data);
+        if ($response->successful()) {
+            $this->autoLinkToOwnGroup('driver', $response->json('id'));
+        }
         return response()->json($response->json(), $response->status());
     }
 
     public function updateDriver(Request $request, int $id)
     {
+        $this->assertGroupResourceAccessible('drivers', $id);
         $data = $request->validate($this->driverValidationRules());
 
         $existing = Http::withBasicAuth(...$this->auth)
@@ -140,6 +261,7 @@ class TraccarController extends Controller
 
     public function destroyDriver(int $id)
     {
+        $this->assertGroupResourceAccessible('drivers', $id);
         $response = Http::withBasicAuth(...$this->auth)
             ->delete("{$this->baseUrl}/drivers/{$id}");
         return response()->json(null, $response->status());
@@ -159,6 +281,7 @@ class TraccarController extends Controller
 
     public function deviceConnections(int $id)
     {
+        $this->assertDeviceAccessible($id);
         $fetch = fn (string $path) => Http::withBasicAuth(...$this->auth)
             ->get("{$this->baseUrl}/{$path}", ['deviceId' => $id])
             ->json();
@@ -175,6 +298,7 @@ class TraccarController extends Controller
 
     public function linkDeviceConnection(Request $request, int $id)
     {
+        $this->assertDeviceAccessible($id);
         $data = $request->validate([
             'type' => 'required|in:geofence,notification,driver,attribute,maintenance,command',
             'id'   => 'required|integer',
@@ -191,6 +315,7 @@ class TraccarController extends Controller
 
     public function unlinkDeviceConnection(Request $request, int $id)
     {
+        $this->assertDeviceAccessible($id);
         $data = $request->validate([
             'type' => 'required|in:geofence,notification,driver,attribute,maintenance,command',
             'id'   => 'required|integer',
@@ -249,9 +374,7 @@ class TraccarController extends Controller
 
     public function commands()
     {
-        $response = Http::withBasicAuth(...$this->auth)
-            ->get("{$this->baseUrl}/commands");
-        return response()->json($response->json(), $response->status());
+        return response()->json($this->scopedGroupList('commands'));
     }
 
     public function commandTypes()
@@ -289,11 +412,15 @@ class TraccarController extends Controller
         $response = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Content-Type' => 'application/json'])
             ->post("{$this->baseUrl}/commands", $payload);
+        if ($response->successful()) {
+            $this->autoLinkToOwnGroup('command', $response->json('id'));
+        }
         return response()->json($response->json(), $response->status());
     }
 
     public function updateSavedCommand(Request $request, int $id)
     {
+        $this->assertGroupResourceAccessible('commands', $id);
         $data = $request->validate($this->savedCommandValidationRules());
         $payload = $this->savedCommandPayload($data);
 
@@ -314,6 +441,7 @@ class TraccarController extends Controller
 
     public function destroySavedCommand(int $id)
     {
+        $this->assertGroupResourceAccessible('commands', $id);
         $response = Http::withBasicAuth(...$this->auth)
             ->delete("{$this->baseUrl}/commands/{$id}");
         return response()->json(null, $response->status());
@@ -321,9 +449,7 @@ class TraccarController extends Controller
 
     public function computedAttributes()
     {
-        $response = Http::withBasicAuth(...$this->auth)
-            ->get("{$this->baseUrl}/attributes/computed");
-        return response()->json($response->json(), $response->status());
+        return response()->json($this->scopedGroupList('attributes/computed'));
     }
 
     private function attributeValidationRules(): array
@@ -344,11 +470,15 @@ class TraccarController extends Controller
         $response = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Content-Type' => 'application/json'])
             ->post("{$this->baseUrl}/attributes/computed", $data);
+        if ($response->successful()) {
+            $this->autoLinkToOwnGroup('attribute', $response->json('id'));
+        }
         return response()->json($response->json(), $response->status());
     }
 
     public function updateComputedAttribute(Request $request, int $id)
     {
+        $this->assertGroupResourceAccessible('attributes/computed', $id);
         $data = $request->validate($this->attributeValidationRules());
 
         $existing = Http::withBasicAuth(...$this->auth)
@@ -368,6 +498,7 @@ class TraccarController extends Controller
 
     public function destroyComputedAttribute(int $id)
     {
+        $this->assertGroupResourceAccessible('attributes/computed', $id);
         $response = Http::withBasicAuth(...$this->auth)
             ->delete("{$this->baseUrl}/attributes/computed/{$id}");
         return response()->json(null, $response->status());
@@ -384,6 +515,7 @@ class TraccarController extends Controller
             'priority'    => 'nullable|integer',
         ]);
         $deviceId = $data['deviceId'];
+        $this->assertDeviceAccessible($deviceId);
         unset($data['deviceId']);
 
         $response = Http::withBasicAuth(...$this->auth)
@@ -398,9 +530,7 @@ class TraccarController extends Controller
 
     public function maintenances()
     {
-        $response = Http::withBasicAuth(...$this->auth)
-            ->get("{$this->baseUrl}/maintenance");
-        return response()->json($response->json(), $response->status());
+        return response()->json($this->scopedGroupList('maintenance'));
     }
 
     private function maintenanceValidationRules(): array
@@ -420,11 +550,15 @@ class TraccarController extends Controller
         $response = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Content-Type' => 'application/json'])
             ->post("{$this->baseUrl}/maintenance", $data);
+        if ($response->successful()) {
+            $this->autoLinkToOwnGroup('maintenance', $response->json('id'));
+        }
         return response()->json($response->json(), $response->status());
     }
 
     public function updateMaintenance(Request $request, int $id)
     {
+        $this->assertGroupResourceAccessible('maintenance', $id);
         $data = $request->validate($this->maintenanceValidationRules());
 
         $existing = Http::withBasicAuth(...$this->auth)
@@ -445,6 +579,7 @@ class TraccarController extends Controller
 
     public function destroyMaintenance(int $id)
     {
+        $this->assertGroupResourceAccessible('maintenance', $id);
         $response = Http::withBasicAuth(...$this->auth)
             ->delete("{$this->baseUrl}/maintenance/{$id}");
         return response()->json(null, $response->status());
@@ -452,6 +587,7 @@ class TraccarController extends Controller
 
     public function notification(int $id)
     {
+        $this->assertGroupResourceAccessible('notifications', $id);
         $response = Http::withBasicAuth(...$this->auth)
             ->get("{$this->baseUrl}/notifications/{$id}");
         return response()->json($response->json(), $response->status());
@@ -480,11 +616,15 @@ class TraccarController extends Controller
         $response = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Content-Type' => 'application/json'])
             ->post("{$this->baseUrl}/notifications", $data);
+        if ($response->successful()) {
+            $this->autoLinkToOwnGroup('notification', $response->json('id'));
+        }
         return response()->json($response->json(), $response->status());
     }
 
     public function updateNotification(Request $request, int $id)
     {
+        $this->assertGroupResourceAccessible('notifications', $id);
         $data = $request->validate($this->notificationValidationRules());
 
         // Unlike geofences, a path-based GET-by-id works fine for notifications, so we can
@@ -508,6 +648,7 @@ class TraccarController extends Controller
 
     public function destroyNotification(int $id)
     {
+        $this->assertGroupResourceAccessible('notifications', $id);
         $response = Http::withBasicAuth(...$this->auth)
             ->delete("{$this->baseUrl}/notifications/{$id}");
         return response()->json(null, $response->status());
@@ -519,7 +660,7 @@ class TraccarController extends Controller
     // relation by asking each device for its own notifications (a filter that does work).
     public function notificationDevices(int $id)
     {
-        $devices = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices = $this->scopedDevices();
         if (empty($devices)) {
             return response()->json([]);
         }
@@ -542,11 +683,20 @@ class TraccarController extends Controller
     {
         $response = Http::withBasicAuth(...$this->auth)
             ->get("{$this->baseUrl}/groups");
-        return response()->json($response->json(), $response->status());
+        $groups = $response->json() ?? [];
+        $groupId = $this->restrictedGroupId();
+        if ($groupId !== null) {
+            $groups = array_values(array_filter($groups, fn ($g) => ($g['id'] ?? null) === $groupId));
+        }
+        return response()->json($groups, $response->status());
     }
 
     public function storeGroup(Request $request)
     {
+        // Provisioning a client's one group is ClientProvisioningService's job - a restricted
+        // user creating additional top-level groups would step outside their own tenant boundary.
+        abort_if($this->restrictedGroupId() !== null, 403, 'Only super admins can create groups.');
+
         $data = $request->validate([
             'name'       => 'required|string|max:100',
             'groupId'    => 'nullable|integer',
@@ -563,6 +713,7 @@ class TraccarController extends Controller
 
     public function updateGroup(Request $request, int $id)
     {
+        $this->assertGroupAccessible($id);
         $data = $request->validate([
             'name'       => 'required|string|max:100',
             'groupId'    => 'nullable|integer',
@@ -588,6 +739,8 @@ class TraccarController extends Controller
 
     public function destroyGroup(int $id)
     {
+        // Same reasoning as storeGroup() - a client's group is its tenant boundary, not theirs to delete.
+        abort_if($this->restrictedGroupId() !== null, 403, 'Only super admins can delete groups.');
         $response = Http::withBasicAuth(...$this->auth)
             ->delete("{$this->baseUrl}/groups/{$id}");
         return response()->json(null, $response->status());
@@ -598,8 +751,17 @@ class TraccarController extends Controller
     // at its group via deviceId.groupId, not the other way around), so only the 6 shared
     // connection types apply. tc_group_{geofence,notification,...} link tables are groupId-first,
     // same ordering requirement as the device-keyed tables.
+    // Restricted users may only ever look at / change their own client's group connections -
+    // every group is some other client's tenant boundary otherwise.
+    private function assertGroupAccessible(int $groupId): void
+    {
+        $restrictedGroupId = $this->restrictedGroupId();
+        abort_if($restrictedGroupId !== null && $groupId !== $restrictedGroupId, 403, 'You do not have access to this group.');
+    }
+
     public function groupConnections(int $id)
     {
+        $this->assertGroupAccessible($id);
         $fetch = fn (string $path) => Http::withBasicAuth(...$this->auth)
             ->get("{$this->baseUrl}/{$path}", ['groupId' => $id])
             ->json();
@@ -616,6 +778,7 @@ class TraccarController extends Controller
 
     public function linkGroupConnection(Request $request, int $id)
     {
+        $this->assertGroupAccessible($id);
         $data = $request->validate([
             'type' => 'required|in:geofence,notification,driver,attribute,maintenance,command',
             'id'   => 'required|integer',
@@ -632,6 +795,7 @@ class TraccarController extends Controller
 
     public function unlinkGroupConnection(Request $request, int $id)
     {
+        $this->assertGroupAccessible($id);
         $data = $request->validate([
             'type' => 'required|in:geofence,notification,driver,attribute,maintenance,command',
             'id'   => 'required|integer',
@@ -646,11 +810,35 @@ class TraccarController extends Controller
         return response()->json(null, $response->status());
     }
 
+    // Traccar has no group/device permission link for calendars - unlike geofences, notifications,
+    // drivers, commands, and attributes, CalendarResource doesn't extend ExtendedObjectResource, so
+    // there's no `groupId` query filter to lean on. Ownership is tracked locally instead, in
+    // traccar_calendar_owners, recorded at creation time (see TraccarCalendarOwner).
     public function calendars()
     {
         $response = Http::withBasicAuth(...$this->auth)
             ->get("{$this->baseUrl}/calendars");
-        return response()->json($response->json(), $response->status());
+        $calendars = $response->json() ?? [];
+
+        if ($this->restrictedGroupId() === null) {
+            return response()->json($calendars, $response->status());
+        }
+
+        $clientId = request()->user()?->client_id;
+        $ownedIds = TraccarCalendarOwner::where('client_id', $clientId)->pluck('traccar_calendar_id')->all();
+        $calendars = array_values(array_filter($calendars, fn ($c) => in_array($c['id'] ?? null, $ownedIds, true)));
+
+        return response()->json($calendars, $response->status());
+    }
+
+    private function assertCalendarAccessible(int $calendarId): void
+    {
+        if ($this->restrictedGroupId() === null) {
+            return;
+        }
+        $clientId = request()->user()?->client_id;
+        $owned = TraccarCalendarOwner::where('traccar_calendar_id', $calendarId)->where('client_id', $clientId)->exists();
+        abort_if(!$owned, 403, 'You do not have access to this calendar.');
     }
 
     public function storeCalendar(Request $request)
@@ -663,11 +851,18 @@ class TraccarController extends Controller
         $response = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Content-Type' => 'application/json'])
             ->post("{$this->baseUrl}/calendars", $data);
+        if ($response->successful()) {
+            TraccarCalendarOwner::create([
+                'traccar_calendar_id' => $response->json('id'),
+                'client_id'           => request()->user()?->client_id,
+            ]);
+        }
         return response()->json($response->json(), $response->status());
     }
 
     public function updateCalendar(Request $request, int $id)
     {
+        $this->assertCalendarAccessible($id);
         $data = $request->validate([
             'name' => 'required|string|max:100',
             'data' => 'required|string',
@@ -691,16 +886,18 @@ class TraccarController extends Controller
 
     public function destroyCalendar(int $id)
     {
+        $this->assertCalendarAccessible($id);
         $response = Http::withBasicAuth(...$this->auth)
             ->delete("{$this->baseUrl}/calendars/{$id}");
+        if ($response->successful()) {
+            TraccarCalendarOwner::where('traccar_calendar_id', $id)->delete();
+        }
         return response()->json(null, $response->status());
     }
 
     public function latestPositions()
     {
-        $response = Http::withBasicAuth(...$this->auth)
-            ->get("{$this->baseUrl}/positions");
-        return response()->json($response->json(), $response->status());
+        return response()->json($this->scopedPositions());
     }
 
     // Mints a short-lived Traccar bearer token for the browser to open Traccar's own websocket
@@ -729,6 +926,7 @@ class TraccarController extends Controller
 
     public function position(int $id)
     {
+        $this->assertDeviceAccessible($id);
         $response = Http::withBasicAuth(...$this->auth)
             ->get("{$this->baseUrl}/positions", ['deviceId' => $id]);
         return response()->json($response->json(), $response->status());
@@ -764,9 +962,9 @@ class TraccarController extends Controller
         if (!$eventsResponse->successful()) {
             return response()->json(['message' => 'Failed to load alert events.'], $eventsResponse->status());
         }
-        $events = $eventsResponse->json() ?? [];
+        $events = $this->filterRowsToScope($eventsResponse->json() ?? []);
 
-        $devices    = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices    = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
         $groups      = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/groups")->json() ?? [];
         $groupsById  = collect($groups)->keyBy('id');
@@ -846,9 +1044,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load battery report.'], $response->status());
         }
-        $positions = $response->json() ?? [];
+        $positions = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $statusOf = function ($level) {
@@ -934,9 +1132,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load external battery report.'], $response->status());
         }
-        $positions = $response->json() ?? [];
+        $positions = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $rows = [];
@@ -996,9 +1194,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load fuel consumption report.'], $response->status());
         }
-        $positions = $response->json() ?? [];
+        $positions = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $byDevice = [];
@@ -1108,7 +1306,7 @@ class TraccarController extends Controller
         $positions = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/positions")->json() ?? [];
         $positionsByDeviceId = collect($positions)->keyBy('deviceId');
 
-        $devices = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices = $this->scopedDevices();
         if ($request->filled('deviceId')) {
             $devices = array_values(array_filter($devices, fn ($d) => $d['id'] == $request->deviceId));
         }
@@ -1182,9 +1380,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load fuel curve.'], $response->status());
         }
-        $positions = $response->json() ?? [];
+        $positions = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $rows = [];
@@ -1247,9 +1445,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return [];
         }
-        $positions = $response->json() ?? [];
+        $positions = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $byDevice = [];
@@ -1341,7 +1539,7 @@ class TraccarController extends Controller
         $routeResponse = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Accept' => 'application/json'])
             ->get("{$this->baseUrl}/reports/route", $params);
-        $positions = $routeResponse->successful() ? ($routeResponse->json() ?? []) : [];
+        $positions = $this->filterRowsToScope($routeResponse->successful() ? ($routeResponse->json() ?? []) : []);
 
         $byDevice = [];
         foreach ($positions as $p) {
@@ -1352,7 +1550,7 @@ class TraccarController extends Controller
         }
         unset($pts);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $rows = [];
@@ -1416,13 +1614,13 @@ class TraccarController extends Controller
             $params['deviceId'] = $request->deviceId;
         }
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $routeResponse = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Accept' => 'application/json'])
             ->get("{$this->baseUrl}/reports/route", $params);
-        $positions = $routeResponse->successful() ? ($routeResponse->json() ?? []) : [];
+        $positions = $this->filterRowsToScope($routeResponse->successful() ? ($routeResponse->json() ?? []) : []);
         $byDevice  = [];
         foreach ($positions as $p) {
             $byDevice[$p['deviceId']][] = $p;
@@ -1461,7 +1659,7 @@ class TraccarController extends Controller
         $tripsResponse = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Accept' => 'application/json'])
             ->get("{$this->baseUrl}/reports/trips", $params);
-        $trips = $tripsResponse->successful() ? ($tripsResponse->json() ?? []) : [];
+        $trips = $this->filterRowsToScope($tripsResponse->successful() ? ($tripsResponse->json() ?? []) : []);
 
         $drivers           = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/drivers")->json() ?? [];
         $driversByUniqueId = collect($drivers)->keyBy('uniqueId');
@@ -1549,9 +1747,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load temperature & humidity report.'], $response->status());
         }
-        $positions = $response->json() ?? [];
+        $positions = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $rows = [];
@@ -1605,9 +1803,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load positioning & battery report.'], $response->status());
         }
-        $positions = $response->json() ?? [];
+        $positions = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $rows = [];
@@ -1665,16 +1863,16 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load travel statistics report.'], $response->status());
         }
-        $trips = $response->json() ?? [];
+        $trips = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $routeResponse = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Accept' => 'application/json'])
             ->get("{$this->baseUrl}/reports/route", $params);
         $positionsByDevice = [];
-        foreach ($routeResponse->successful() ? ($routeResponse->json() ?? []) : [] as $p) {
+        foreach ($this->filterRowsToScope($routeResponse->successful() ? ($routeResponse->json() ?? []) : []) as $p) {
             $positionsByDevice[$p['deviceId']][] = $p;
         }
 
@@ -1755,9 +1953,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load mileage report.'], $response->status());
         }
-        $summary = $response->json() ?? [];
+        $summary = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $byDevice = [];
@@ -1828,16 +2026,16 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load trips report.'], $response->status());
         }
-        $trips = $response->json() ?? [];
+        $trips = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $routeResponse = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Accept' => 'application/json'])
             ->get("{$this->baseUrl}/reports/route", $params);
         $positionsByDevice = [];
-        foreach ($routeResponse->successful() ? ($routeResponse->json() ?? []) : [] as $p) {
+        foreach ($this->filterRowsToScope($routeResponse->successful() ? ($routeResponse->json() ?? []) : []) as $p) {
             $positionsByDevice[$p['deviceId']][] = $p;
         }
 
@@ -1912,9 +2110,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load overspeed report.'], $response->status());
         }
-        $positions = $response->json() ?? [];
+        $positions = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $byDevice = [];
@@ -1999,9 +2197,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return [];
         }
-        $stops = $response->json() ?? [];
+        $stops = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
         $groups      = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/groups")->json() ?? [];
         $groupsById  = collect($groups)->keyBy('id');
@@ -2094,9 +2292,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load ignition report.'], $response->status());
         }
-        $events = $response->json() ?? [];
+        $events = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices     = $this->scopedDevices();
         $devicesById = collect($devices)->keyBy('id');
 
         $byDevice = [];
@@ -2162,9 +2360,9 @@ class TraccarController extends Controller
         if (!$response->successful()) {
             return response()->json(['message' => 'Failed to load geofence report.'], $response->status());
         }
-        $events = $response->json() ?? [];
+        $events = $this->filterRowsToScope($response->json() ?? []);
 
-        $devices       = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices       = $this->scopedDevices();
         $devicesById   = collect($devices)->keyBy('id');
         $geofences     = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/geofences")->json() ?? [];
         $geofencesById = collect($geofences)->keyBy('id');
@@ -2228,7 +2426,7 @@ class TraccarController extends Controller
     // read from attributes.sim, blank if the device has none set.
     private function deviceStatusRows(bool $online): array
     {
-        $devices   = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/devices")->json() ?? [];
+        $devices   = $this->scopedDevices();
         $positions = Http::withBasicAuth(...$this->auth)->get("{$this->baseUrl}/positions")->json() ?? [];
         $positionsByDeviceId = collect($positions)->keyBy('deviceId');
 
@@ -2274,6 +2472,7 @@ class TraccarController extends Controller
 
     public function routeHistory(Request $request, int $id)
     {
+        $this->assertDeviceAccessible($id);
         $request->validate([
             'from' => 'required|date',
             'to'   => 'required|date|after:from',
@@ -2291,6 +2490,7 @@ class TraccarController extends Controller
 
     public function trips(Request $request, int $id)
     {
+        $this->assertDeviceAccessible($id);
         $request->validate([
             'from' => 'required|date',
             'to'   => 'required|date|after:from',
@@ -2308,6 +2508,7 @@ class TraccarController extends Controller
 
     public function exportTrips(Request $request, int $id)
     {
+        $this->assertDeviceAccessible($id);
         $request->validate([
             'from' => 'required|date',
             'to'   => 'required|date|after:from',
@@ -2333,9 +2534,7 @@ class TraccarController extends Controller
 
     public function geofences()
     {
-        $response = Http::withBasicAuth(...$this->auth)
-            ->get("{$this->baseUrl}/geofences");
-        return response()->json($response->json(), $response->status());
+        return response()->json($this->scopedGroupList('geofences'));
     }
 
     public function storeGeofence(Request $request)
@@ -2349,11 +2548,15 @@ class TraccarController extends Controller
         $response = Http::withBasicAuth(...$this->auth)
             ->withHeaders(['Content-Type' => 'application/json'])
             ->post("{$this->baseUrl}/geofences", $data);
+        if ($response->successful()) {
+            $this->autoLinkToOwnGroup('geofence', $response->json('id'));
+        }
         return response()->json($response->json(), $response->status());
     }
 
     public function updateGeofence(Request $request, int $id)
     {
+        $this->assertGroupResourceAccessible('geofences', $id);
         $data = $request->validate([
             'name'        => 'required|string|max:100',
             'area'        => 'required|string',
@@ -2373,6 +2576,7 @@ class TraccarController extends Controller
 
     public function destroyGeofence(int $id)
     {
+        $this->assertGroupResourceAccessible('geofences', $id);
         $response = Http::withBasicAuth(...$this->auth)
             ->delete("{$this->baseUrl}/geofences/{$id}");
         return response()->json(null, $response->status());

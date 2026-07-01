@@ -28,7 +28,7 @@ class AuthController extends Controller
         $token = $user->createToken('fleet-token')->plainTextToken;
 
         return response()->json([
-            'user'  => $user->only(['id', 'name', 'email', 'role']),
+            'user'  => $user->only(['id', 'name', 'email', 'role', 'client_id']),
             'token' => $token,
         ]);
     }
@@ -41,6 +41,6 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        return response()->json($request->user()->only(['id', 'name', 'email', 'role']));
+        return response()->json($request->user()->only(['id', 'name', 'email', 'role', 'client_id']));
     }
 }

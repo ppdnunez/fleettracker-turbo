@@ -17,6 +17,7 @@ import MaintenancePage  from '../components/MaintenancePage.jsx';
 import SavedCommandPage from '../components/SavedCommandPage.jsx';
 import GroupPage        from '../components/GroupPage.jsx';
 import DriverPage       from '../components/DriverPage.jsx';
+import ClientsPage      from '../components/ClientsPage.jsx';
 
 /* Traccar's device/position shape -> the shape DeviceList/MapCanvas/TopBar already expect,
    plus the raw Traccar fields (groupId, phone, model, ...) EditDeviceModal needs to edit a device. */
@@ -189,6 +190,16 @@ export default function Dashboard({ user, onLogout }) {
             />
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ height: 46, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9, padding: '0 18px', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                        {user.name[0]}
+                    </div>
+                    <div style={{ overflow: 'hidden' }}>
+                        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{user.name}</p>
+                        <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', textTransform: 'capitalize' }}>{user.role || 'Administrator'}</p>
+                    </div>
+                </div>
+
                 {page === 'Device Management' ? (
                     <DeviceManagement devices={liveDevices} loading={liveLoading} onRefresh={fetchLiveDevices} />
                 ) : page === 'Geofence' ? (
@@ -207,6 +218,8 @@ export default function Dashboard({ user, onLogout }) {
                     <GroupPage />
                 ) : page === 'Drivers' ? (
                     <DriverPage />
+                ) : page === 'Clients' ? (
+                    <ClientsPage />
                 ) : page === 'Report' ? (
                     <ReportPage reportSection={reportSection} setReportSection={setReportSection} />
                 ) : page === 'Fleet' ? (
