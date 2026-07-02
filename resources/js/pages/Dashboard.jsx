@@ -11,6 +11,7 @@ import ReportPage       from '../components/ReportPage.jsx';
 import FleetPage        from '../components/FleetPage.jsx';
 import GeofencePage     from '../components/GeofencePage.jsx';
 import NotificationPage from '../components/NotificationPage.jsx';
+import { turboHiveEnabled, applyTurboHivePosition } from '../turbohive-mqtt.js';
 import CalendarPage     from '../components/CalendarPage.jsx';
 import ComputedAttributePage from '../components/ComputedAttributePage.jsx';
 import MaintenancePage  from '../components/MaintenancePage.jsx';
@@ -18,6 +19,30 @@ import SavedCommandPage from '../components/SavedCommandPage.jsx';
 import GroupPage        from '../components/GroupPage.jsx';
 import DriverPage       from '../components/DriverPage.jsx';
 import ClientsPage      from '../components/ClientsPage.jsx';
+
+// TurboHive's device-list endpoint (/v3/devices/page) has no position fields at all — lat/lng
+// only exist on the separate /v3/track/location snapshot, keyed by "device.imei" (TurboHive's
+// flat dotted-key convention). `positionsByImei` merges that in on initial load, same as the
+// Traccar path already does; live updates then keep it fresh via applyTurboHivePosition() (MQTT).
+function normalizeTurboHiveDevice(device, positionsByImei = {}) {
+    const imei = String(device.imei ?? device.deviceId ?? device.uniqueId ?? device.id ?? '');
+    const pos = positionsByImei[imei];
+    return {
+        id:     imei || String(device.id ?? ''),
+        name:   device.name ?? device.deviceName ?? device.label ?? imei ?? 'Unknown',
+        tracker: imei,
+        imei,
+        status: (device.onlineStatus === 1 || device.online === true || device.status === 'ONLINE' || device.status === 'online') ? 'ONLINE' : 'OFFLINE',
+        lat:      pos ? pos['gnss.lat'] ?? null : device.lat ?? device.latitude ?? null,
+        lng:      pos ? pos['gnss.lng'] ?? null : device.lng ?? device.longitude ?? null,
+        speed:    pos?.['gnss.speed']     ?? null,
+        heading:  pos?.['gnss.course']    ?? null,
+        acc:      pos?.['status.acc']     ?? null,
+        altitude: pos?.['gnss.altitude']  ?? null,
+        lastUpdate: pos?.['server.time']  ?? null,
+        signal: device.batteryLevel ?? device.battery ?? device.signal ?? 0,
+    };
+}
 
 /* Traccar's device/position shape -> the shape DeviceList/MapCanvas/TopBar already expect,
    plus the raw Traccar fields (groupId, phone, model, ...) EditDeviceModal needs to edit a device. */
@@ -95,28 +120,43 @@ export default function Dashboard({ user, onLogout }) {
     const [sidebarOpen,    setSidebarOpen]    = useState(true);
     const [reportSection,  setReportSection]  = useState('Internal Battery');
     const [fleetPage,      setFleetPage]      = useState('Dashboard');
+    const [geofenceAlerts, setGeofenceAlerts] = useState([]); // live enter/exit toasts
 
-    // Live Traccar data (Device Management + Device Map & Video) — initial load via REST,
-    // then kept live via Traccar's own websocket (see effect below).
-    const [liveDevices, setLiveDevices] = useState([]);
-    const [liveSelected, setLiveSelected] = useState(null);
-    const [liveLoading, setLiveLoading] = useState(true);
+    // Live device data — initial load via REST, then kept live via WebSocket (Traccar) or MQTT (TurboHive)
+    const [liveDevices,   setLiveDevices]   = useState([]);
+    const [liveSelected,  setLiveSelected]  = useState(null);
+    const [liveLoading,   setLiveLoading]   = useState(true);
+    const [mqttConnected, setMqttConnected] = useState(false);
     const wsRef = useRef(null);
     const wsReconnectRef = useRef(null);
 
     const fetchLiveDevices = async () => {
         try {
-            const [devicesRes, positionsRes] = await Promise.all([
-                api.getTraccarDevices(),
-                api.getLatestPositions(),
-            ]);
-            const positionsByDeviceId = {};
-            for (const p of positionsRes.data) positionsByDeviceId[p.deviceId] = p;
-            const normalized = devicesRes.data.map(d => normalizeLiveDevice(d, positionsByDeviceId));
-            setLiveDevices(normalized);
-            setLiveSelected(curr => curr ?? normalized[0]?.id ?? null);
+            if (turboHiveEnabled) {
+                const [{ data }, locationsRes] = await Promise.all([
+                    api.getTurboHiveDevices(),
+                    api.getTurboHiveAllLocations().catch(() => ({ data: [] })),
+                ]);
+                const rawList = Array.isArray(data) ? data : (data?.list ?? data?.data ?? []);
+                const positionsByImei = {};
+                for (const loc of locationsRes.data ?? []) {
+                    const imei = loc['device.imei'];
+                    if (imei) positionsByImei[imei] = loc;
+                }
+                const normalized = rawList.map(d => normalizeTurboHiveDevice(d, positionsByImei));
+                setLiveDevices(normalized);
+                setLiveSelected(curr => curr ?? normalized[0]?.id ?? null);
+            } else {
+                const devicesRes   = await api.getTraccarDevices();
+                const positionsRes = await api.getLatestPositions();
+                const positionsByDeviceId = {};
+                for (const p of positionsRes.data) positionsByDeviceId[p.deviceId] = p;
+                const normalized = devicesRes.data.map(d => normalizeLiveDevice(d, positionsByDeviceId));
+                setLiveDevices(normalized);
+                setLiveSelected(curr => curr ?? normalized[0]?.id ?? null);
+            }
         } catch (e) {
-            console.error('Failed to load Traccar devices:', e);
+            console.error('Failed to load live devices:', e);
         } finally {
             setLiveLoading(false);
         }
@@ -131,6 +171,10 @@ export default function Dashboard({ user, onLogout }) {
     // (GET /api/traccar/ws-token, behind auth:sanctum) and handed to the browser, which passes
     // it as ?token=... on the websocket URL — the Traccar admin password never reaches the browser.
     useEffect(() => {
+        if (turboHiveEnabled) {
+            return;
+        }
+
         let cancelled = false;
 
         const connect = async () => {
@@ -145,7 +189,7 @@ export default function Dashboard({ user, onLogout }) {
                     let msg;
                     try { msg = JSON.parse(evt.data); } catch { return; }
                     if (msg.positions) setLiveDevices(ds => applyLivePositions(ds, msg.positions));
-                    if (msg.devices)   setLiveDevices(ds => applyLiveDevices(ds, msg.devices));
+                    if (msg.devices)   setLiveDevices(ds => applyLivePositions(ds, msg.devices));
                 };
 
                 ws.onclose = () => {
@@ -167,6 +211,44 @@ export default function Dashboard({ user, onLogout }) {
         };
     }, []);
 
+    // Listen for TurboHive position updates broadcast from the mqtt:worker via Laravel Reverb
+    useEffect(() => {
+        if (!turboHiveEnabled || !window.Echo) return;
+
+        const channel = window.Echo.channel('fleet');
+
+        channel.subscribed(() => setMqttConnected(true));
+
+        channel.listen('.position.updated', (data) => {
+            setLiveDevices(ds => applyTurboHivePosition(ds, {
+                deviceKey:  data.imei,
+                latitude:   data.lat,
+                longitude:  data.lng,
+                speed:      data.speed,
+                heading:    data.heading,
+                acc:        data.acc,
+                altitude:   data.altitude,
+                deviceTime: data.timestamp,
+                signal:     data.signal,
+            }));
+        });
+
+        // Live geofence enter/exit — broadcast by GeofenceMonitorService from the same MQTT
+        // position stream (see app/Services/GeofenceMonitorService.php).
+        channel.listen('.geofence.event', (data) => {
+            const id = `${data.geofenceId}-${data.triggeredAt}`;
+            setGeofenceAlerts(a => [...a, { id, ...data }]);
+            setTimeout(() => setGeofenceAlerts(a => a.filter(x => x.id !== id)), 8000);
+        });
+
+        channel.error(() => setMqttConnected(false));
+
+        return () => {
+            window.Echo.leaveChannel('fleet');
+            setMqttConnected(false);
+        };
+    }, []);
+
     const filtered       = liveDevices.filter(d =>
         d.name.toLowerCase().includes(search.toLowerCase()) ||
         (d.tracker || '').toLowerCase().includes(search.toLowerCase())
@@ -176,6 +258,24 @@ export default function Dashboard({ user, onLogout }) {
 
     return (
         <div style={{ display: 'flex', height: '100vh', fontFamily: 'Inter,system-ui,sans-serif', background: '#f1f5f9', overflow: 'hidden' }}>
+            {geofenceAlerts.length > 0 && (
+                <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 2000, display: 'flex', flexDirection: 'column', gap: 8, width: 300 }}>
+                    {geofenceAlerts.map(a => {
+                        const deviceName = liveDevices.find(d => d.imei === a.imei)?.name ?? a.imei;
+                        const isEnter = a.type === 'enter';
+                        return (
+                            <div key={a.id} style={{ background: '#fff', borderLeft: `4px solid ${isEnter ? '#16a34a' : '#f59e0b'}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', padding: '10px 14px' }}>
+                                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                                    {deviceName} {isEnter ? 'entered' : 'exited'} {a.geofenceName}
+                                </p>
+                                <p style={{ margin: '2px 0 0', fontSize: 11.5, color: '#6b7280' }}>
+                                    {new Date(a.triggeredAt).toLocaleTimeString()}
+                                </p>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
             <Sidebar
                 user={user}
                 page={page}
@@ -201,7 +301,7 @@ export default function Dashboard({ user, onLogout }) {
                 </div>
 
                 {page === 'Device Management' ? (
-                    <DeviceManagement devices={liveDevices} loading={liveLoading} onRefresh={fetchLiveDevices} />
+                    <DeviceManagement />
                 ) : page === 'Geofence' ? (
                     <GeofencePage onBack={() => setPage('Dashboard')} />
                 ) : page === 'Notification' ? (
@@ -254,6 +354,7 @@ export default function Dashboard({ user, onLogout }) {
                                     onSelect={setLiveSelected}
                                     selectedDevice={selectedDevice}
                                     mapMode={mapMode}
+                                    mqttConnected={turboHiveEnabled ? mqttConnected : undefined}
                                 />
                             )}
                         </div>

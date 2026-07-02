@@ -213,6 +213,8 @@ export default function GeofencePage({ onBack }) {
     const [editingId,  setEditingId]  = useState(null);
     const [error,      setError]      = useState('');
     const [pendingDeleteId, setPendingDeleteId] = useState(null);
+    const [devices,    setDevices]    = useState([]);
+    const [linking,    setLinking]    = useState(null); // imei currently being toggled
 
     const fetchGeofences = async () => {
         try {
@@ -225,7 +227,27 @@ export default function GeofencePage({ onBack }) {
         }
     };
 
-    useEffect(() => { fetchGeofences(); }, []);
+    useEffect(() => {
+        fetchGeofences();
+        api.getTurboHiveDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
+    }, []);
+
+    // Mirrors Traccar's separate /api/permissions step — a geofence is only checked against
+    // devices explicitly linked here (see GeofenceController::linkDevice/unlinkDevice).
+    const toggleLink = async (geofenceId, imei, currentlyLinked) => {
+        setLinking(imei);
+        try {
+            if (currentlyLinked) await api.unlinkGeofenceDevice(geofenceId, imei);
+            else await api.linkGeofenceDevice(geofenceId, imei);
+            await fetchGeofences();
+        } catch (e) {
+            setError('Failed to update device link.');
+        } finally {
+            setLinking(null);
+        }
+    };
 
     const handleCreate = async (name, area) => {
         try {
@@ -299,6 +321,33 @@ export default function GeofencePage({ onBack }) {
                         </div>
                     ))}
                 </div>
+
+                {selectedId && (() => {
+                    const selected = geofences.find(g => g.id === selectedId);
+                    const linkedImeis = selected?.imeis ?? [];
+                    return (
+                        <div style={{ borderTop: '1px solid #e2e8f0', flexShrink: 0, maxHeight: 240, display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ padding: '10px 16px 6px', fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                                Linked Devices — {selected?.name}
+                            </div>
+                            <div style={{ overflowY: 'auto', padding: '0 8px 10px' }}>
+                                {devices.length === 0 ? (
+                                    <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, padding: 12 }}>No TurboHive devices found.</p>
+                                ) : devices.map(d => {
+                                    const isLinked = linkedImeis.includes(d.imei);
+                                    return (
+                                        <label key={d.imei}
+                                            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: linking === d.imei ? 'default' : 'pointer', fontSize: 12.5, color: '#374151', opacity: linking === d.imei ? 0.6 : 1 }}>
+                                            <input type="checkbox" checked={isLinked} disabled={linking === d.imei}
+                                                onChange={() => toggleLink(selectedId, d.imei, isLinked)} />
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.deviceName ?? d.imei}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
 
             {/* Map */}

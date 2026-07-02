@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import Hls from 'hls.js';
+import { api } from '../api.js';
+import { turboHiveEnabled } from '../turbohive-mqtt.js';
 
 const GRID_LAYOUTS = [
     { cols: 1, rows: 1 },
@@ -85,34 +88,151 @@ const CornerSVG = () => (
     </svg>
 );
 
-const iconBtn = (active) => ({
-    background: 'none', border: 'none', cursor: 'pointer',
-    color: active ? '#3b82f6' : '#94a3b8',
+const iconBtn = (active, disabled) => ({
+    background: 'none', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+    color: active ? '#3b82f6' : disabled ? '#cbd5e1' : '#94a3b8',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     padding: 4, borderRadius: 4, transition: 'color 0.15s',
 });
 
-function VideoPanel({ index, onExpand }) {
-    const [playing,   setPlaying]   = useState(false);
-    const [muted,     setMuted]     = useState(false);
-    const [chName,    setChName]    = useState(`CH-${index + 1}`);
-    const [editing,   setEditing]   = useState(false);
+function VideoPanel({ index, device, onExpand }) {
+    const channel = index + 1;
+    const [playing,       setPlaying]       = useState(false);
+    const [muted,         setMuted]         = useState(false);
+    const [chName,        setChName]        = useState(`CH-${channel}`);
+    const [editing,       setEditing]       = useState(false);
+    const [streamUrls,    setStreamUrls]    = useState(null);
+    const [streamError,   setStreamError]   = useState(null);
+    const [streamLoading, setStreamLoading] = useState(false);
+    const videoRef      = useRef(null);
+    const hlsRef        = useRef(null);
+    const activeImeiRef = useRef(null);
+
+    const destroyHls = () => {
+        if (hlsRef.current) {
+            hlsRef.current.destroy();
+            hlsRef.current = null;
+        }
+        const v = videoRef.current;
+        if (v) { v.pause(); v.removeAttribute('src'); v.load(); }
+    };
+
+    const doStop = (imei) => {
+        destroyHls();
+        const target = imei ?? activeImeiRef.current;
+        if (turboHiveEnabled && target) {
+            api.stopTurboHiveVideo(target, channel).catch(() => {});
+        }
+        activeImeiRef.current = null;
+        setPlaying(false);
+        setStreamUrls(null);
+        setStreamError(null);
+        setStreamLoading(false);
+    };
+
+    // Stop stream when device selection changes
+    useEffect(() => {
+        const newImei = device?.imei ?? null;
+        if (activeImeiRef.current && activeImeiRef.current !== newImei) {
+            doStop(activeImeiRef.current);
+        }
+    }, [device?.imei]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            destroyHls();
+            if (turboHiveEnabled && activeImeiRef.current) {
+                api.stopTurboHiveVideo(activeImeiRef.current, channel).catch(() => {});
+            }
+        };
+    }, []);
+
+    // Attach HLS player when stream URLs arrive
+    useEffect(() => {
+        if (!streamUrls?.hls) { setStreamLoading(false); return; }
+        const video = videoRef.current;
+        if (!video) return;
+
+        if (Hls.isSupported()) {
+            const hls = new Hls({ enableWorker: true });
+            hlsRef.current = hls;
+            hls.loadSource(streamUrls.hls);
+            hls.attachMedia(video);
+            hls.once(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(() => {});
+                setStreamLoading(false);
+            });
+            hls.on(Hls.Events.ERROR, (_, data) => {
+                if (data.fatal) { setStreamError('Stream error'); setStreamLoading(false); }
+            });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native HLS (Safari)
+            video.src = streamUrls.hls;
+            video.play().catch(() => {});
+            setStreamLoading(false);
+        } else {
+            setStreamError('HLS not supported in this browser');
+            setStreamLoading(false);
+        }
+
+        return destroyHls;
+    }, [streamUrls?.hls]);
+
+    const startStream = async () => {
+        if (!turboHiveEnabled) { setStreamError('TurboHive not enabled'); return; }
+        if (!device?.imei) { setStreamError(device ? 'No IMEI for device' : 'No device selected'); return; }
+        setStreamLoading(true);
+        setStreamError(null);
+        try {
+            const { data } = await api.startTurboHiveVideo(device.imei, channel);
+            activeImeiRef.current = device.imei;
+            setStreamUrls(data);
+            setPlaying(true);
+        } catch {
+            setStreamError('Failed to start stream');
+            setStreamLoading(false);
+        }
+    };
+
+    const handlePlayToggle = () => {
+        if (playing) doStop();
+        else startStream();
+    };
+
+    const showVideo = playing && streamUrls?.hls;
 
     return (
         <div style={{ position: 'relative', background: 'linear-gradient(135deg,#bfdbfe 0%,#dbeafe 45%,#eff6ff 100%)', display: 'flex', flexDirection: 'column', border: '1px solid #e2e8f0', overflow: 'hidden', minHeight: 0 }}>
-            {/* Top-right corner icon */}
-            <button onClick={onExpand} style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(255,255,255,0.65)', border: '1px solid rgba(255,255,255,0.9)', borderRadius: 4, padding: 3, cursor: 'pointer', color: '#64748b', display: 'flex', lineHeight: 0 }}>
+            <button onClick={onExpand} style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, background: 'rgba(255,255,255,0.65)', border: '1px solid rgba(255,255,255,0.9)', borderRadius: 4, padding: 3, cursor: 'pointer', color: '#64748b', display: 'flex', lineHeight: 0 }}>
                 <CornerSVG />
             </button>
 
-            {/* Camera placeholder */}
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
-                <CameraPlaceholder />
+            {/* Video / placeholder area */}
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0, position: 'relative', background: showVideo ? '#000' : undefined }}>
+                <video
+                    ref={videoRef}
+                    muted={muted}
+                    autoPlay
+                    playsInline
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: showVideo ? 'block' : 'none' }}
+                />
+                {!showVideo && <CameraPlaceholder />}
+                {streamLoading && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(239,246,255,0.75)' }}>
+                        <span style={{ fontSize: 12, color: '#3b82f6', fontWeight: 600 }}>Connecting…</span>
+                    </div>
+                )}
+                {streamError && !streamLoading && (
+                    <div style={{ position: 'absolute', bottom: 8, left: 0, right: 0, display: 'flex', justifyContent: 'center' }}>
+                        <span style={{ fontSize: 10, color: '#ef4444', background: 'rgba(255,255,255,0.9)', padding: '2px 8px', borderRadius: 4 }}>{streamError}</span>
+                    </div>
+                )}
             </div>
 
             {/* Toolbar */}
             <div style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', background: '#fff', borderTop: '1px solid #e2e8f0', gap: 2, flexShrink: 0 }}>
-                <button onClick={() => setPlaying(p => !p)} style={iconBtn(playing)}><PlaySVG /></button>
+                <button onClick={handlePlayToggle} disabled={streamLoading} style={iconBtn(playing, streamLoading)}><PlaySVG /></button>
                 <button style={iconBtn(false)}><RecordSVG /></button>
                 <button onClick={() => setMuted(m => !m)} style={iconBtn(muted)}><MuteSVG on={muted} /></button>
                 <button style={iconBtn(false)}><SnapSVG /></button>
@@ -139,14 +259,22 @@ export default function VideoMode({ selectedDevice }) {
     const [expanded, setExpanded] = useState(null);
     const { cols, rows } = GRID_LAYOUTS[gridIdx];
     const count = cols * rows;
+    const selectedLabel = selectedDevice
+        ? (selectedDevice.name || selectedDevice.tracker || selectedDevice.imei || `Device ${selectedDevice.id}`)
+        : 'No device selected';
 
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f8fafc' }}>
             {/* Grid selector bar */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 16px', borderBottom: '1px solid #e2e8f0', background: '#fff', flexShrink: 0 }}>
-                {GRID_LAYOUTS.map((g, i) => (
-                    <GridIcon key={i} cols={g.cols} rows={g.rows} active={i === gridIdx} onClick={() => { setGridIdx(i); setExpanded(null); }} />
-                ))}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '7px 16px', borderBottom: '1px solid #e2e8f0', background: '#fff', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {GRID_LAYOUTS.map((g, i) => (
+                        <GridIcon key={i} cols={g.cols} rows={g.rows} active={i === gridIdx} onClick={() => { setGridIdx(i); setExpanded(null); }} />
+                    ))}
+                </div>
+                <div style={{ color: '#475569', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {selectedLabel}
+                </div>
             </div>
 
             {/* Video panels */}
@@ -157,10 +285,20 @@ export default function VideoMode({ selectedDevice }) {
                 gap: 2, padding: 2,
             }}>
                 {expanded !== null ? (
-                    <VideoPanel index={expanded} onExpand={() => setExpanded(null)} />
+                    <VideoPanel
+                        key={`${selectedDevice?.id ?? 'none'}-${expanded}`}
+                        index={expanded}
+                        device={selectedDevice}
+                        onExpand={() => setExpanded(null)}
+                    />
                 ) : (
                     Array.from({ length: count }, (_, i) => (
-                        <VideoPanel key={i} index={i} onExpand={() => setExpanded(i)} />
+                        <VideoPanel
+                            key={`${selectedDevice?.id ?? 'none'}-${i}`}
+                            index={i}
+                            device={selectedDevice}
+                            onExpand={() => setExpanded(i)}
+                        />
                     ))
                 )}
             </div>

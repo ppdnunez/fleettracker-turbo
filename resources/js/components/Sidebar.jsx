@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { turboHiveEnabled } from '../turbohive-mqtt.js';
 
 /* ── SVG icons ─────────────────────────────────────────────── */
 const HamSVG = () => (
@@ -215,6 +216,7 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
                         <NavItem label="Geofence" depth={1} sidebarOpen={open}
                             active={page === 'Geofence'}
                             onClick={() => navTo('Geofence')} />
+                        {!turboHiveEnabled && <>
                         <NavItem label="Notification" depth={1} sidebarOpen={open}
                             active={page === 'Notification'}
                             onClick={() => navTo('Notification')} />
@@ -233,6 +235,7 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
                         <NavItem label="Groups" depth={1} sidebarOpen={open}
                             active={page === 'Groups'}
                             onClick={() => navTo('Groups')} />
+                        </>}
                         <NavItem label="Drivers" depth={1} sidebarOpen={open}
                             active={page === 'Drivers'}
                             onClick={() => navTo('Drivers')} />

@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import MapCanvas from './MapCanvas.jsx';
 import ReportPage from './ReportPage.jsx';
 import GeofenceManagementPage from './GeofencePage.jsx';
+import { turboHiveEnabled, connectTurboHiveMqtt, applyTurboHivePosition } from '../turbohive-mqtt.js';
 
 /* ── icons ───────────────────────────────────────────────────── */
 const SearchSVG = () => (
@@ -593,15 +594,16 @@ function VehiclePage() {
 // the existing live map (MapCanvas) and geofence management page (GeofencePage) — no duplicated
 // logic, just reused as-is under a single Fleet-side module.
 function liveTrackDeviceShape(device, positionsByDeviceId) {
-    const pos = positionsByDeviceId[device.id];
+    const pos = positionsByDeviceId[device.id] || positionsByDeviceId[device.identifier] || positionsByDeviceId[device.uniqueId];
     return {
         id:      device.id,
-        name:    device.name,
-        tracker: device.model || device.uniqueId,
-        status:  device.status === 'online' ? 'ONLINE' : 'OFFLINE',
-        lat:     pos ? pos.latitude  : null,
-        lng:     pos ? pos.longitude : null,
-        signal:  pos?.attributes?.batteryLevel ?? pos?.attributes?.rssi ?? 0,
+        name:    device.name || device.identifier || device.uniqueId || device.tracker,
+        tracker: device.model || device.uniqueId || device.identifier || device.tracker,
+        imei:    device.uniqueId ?? device.identifier ?? device.tracker,
+        status:  device.status === 'online' ? 'ONLINE' : (device.status || 'OFFLINE'),
+        lat:     pos ? pos.latitude  : device.lat ?? null,
+        lng:     pos ? pos.longitude : device.lng ?? null,
+        signal:  pos?.attributes?.batteryLevel ?? pos?.attributes?.rssi ?? device.signal ?? 0,
     };
 }
 
@@ -612,7 +614,9 @@ function LiveLocationTab() {
 
     const load = async () => {
         try {
-            const [devRes, posRes] = await Promise.all([api.getTraccarDevices(), api.getLatestPositions()]);
+            const deviceRequest = turboHiveEnabled ? api.getDevices() : api.getTraccarDevices();
+            const positionRequest = turboHiveEnabled ? Promise.resolve({ data: [] }) : api.getLatestPositions();
+            const [devRes, posRes] = await Promise.all([deviceRequest, positionRequest]);
             const positionsByDeviceId = {};
             posRes.data.forEach(p => { positionsByDeviceId[p.deviceId] = p; });
             setDevices(devRes.data.map(d => liveTrackDeviceShape(d, positionsByDeviceId)));
@@ -627,6 +631,22 @@ function LiveLocationTab() {
         load();
         const t = setInterval(load, 10000);
         return () => clearInterval(t);
+    }, []);
+
+    useEffect(() => {
+        if (!turboHiveEnabled) {
+            return;
+        }
+
+        const client = connectTurboHiveMqtt((location) => {
+            setDevices(ds => applyTurboHivePosition(ds, location));
+        }, (error) => {
+            console.error('TurboHive MQTT error:', error);
+        });
+
+        return () => {
+            client?.end(true);
+        };
     }, []);
 
     const selectedDevice = devices.find(d => d.id === selected) || null;

@@ -2,57 +2,405 @@
 
 namespace App\Services;
 
-use App\Contracts\GpsProviderInterface;
 use Illuminate\Support\Facades\Http;
 
-class TurboHiveService implements GpsProviderInterface
+class TurboHiveService
 {
     protected string $baseUrl;
     protected string $token;
 
     public function __construct()
     {
-        $this->baseUrl = config('services.turbohive.base_url');
-        $this->token = config('services.turbohive.token');
+        $this->baseUrl = rtrim(config('services.turbohive.base_url'), '/');
+        $this->token   = config('services.turbohive.token');
     }
 
     protected function client()
     {
         return Http::withHeaders([
             'Authorization' => "Bearer {$this->token}",
-            'Content-Type' => 'application/json',
+            'Content-Type'  => 'application/json',
         ])->baseUrl($this->baseUrl);
     }
 
-    public function getDevices(): array
+    // ── Devices ─────────────────────────────────────────────────────────────
+
+    public function getDevices(array $params = []): array
     {
-        return $this->client()->get('/v3/devices')->json();
+        $query = array_merge(['page' => 1, 'size' => 20], $params);
+        $body  = $this->client()->get('/v3/devices/page', $query)->json();
+        // Return full paginated envelope so the controller can forward page/total to the frontend
+        return $body['data'] ?? [];
     }
 
-    public function getAlerts(string $imei, array $params = []): array
+    public function getDeviceStatus(array $imeis): array
     {
-        return $this->client()->get('/v3/alerts', array_merge(['imei' => $imei], $params))->json();
+        $body = $this->client()->post('/v3/devices/status/bulk', ['imeis' => $imeis])->json();
+        return $body['data'] ?? [];
     }
 
-    public function getTrack(string $imei, string $from, string $to): array
-    {
-        return $this->client()->get('/v3/track', [
-            'imei' => $imei,
-            'from' => $from,
-            'to' => $to,
-        ])->json();
-    }
+    // ── Location / Track ────────────────────────────────────────────────────
 
+    /**
+     * Real-time location from Redis cache.
+     * type=0: all devices, type=1: specific IMEI list.
+     */
     public function getDeviceLocation(string $imei): array
     {
-        return $this->client()->get('/v3/tag/location', ['imei' => $imei])->json();
+        $body = $this->client()->post('/v3/track/location', [
+            'type'  => 1,
+            'imeis' => [$imei],
+        ])->json();
+
+        $list = $body['data']['list'] ?? [];
+        return $list[0] ?? [];
     }
 
-    public function sendCommand(string $imei, string $command): array
+    public function getAllLocations(): array
     {
-        return $this->client()->post('/v3/command', [
-            'imei' => $imei,
-            'command' => $command,
+        $body = $this->client()->post('/v3/track/location', ['type' => 0])->json();
+        return $body['data']['list'] ?? [];
+    }
+
+    /**
+     * Same source as getAllLocations()/getDeviceLocation() (POST /v3/track/location), but flattens
+     * the dotted key format (e.g. "gnss.lat", "device.batteryVoltage") into plain fields for the
+     * Positioning & Battery report.
+     */
+    public function getPositioningBattery(array $imeis = []): array
+    {
+        $body = $imeis
+            ? $this->client()->post('/v3/track/location', ['type' => 1, 'imeis' => $imeis])->json()
+            : $this->client()->post('/v3/track/location', ['type' => 0])->json();
+
+        if ((int) ($body['code'] ?? 0) !== 1000) {
+            return ['list' => [], 'error' => $body['message'] ?? 'Failed to query positions.'];
+        }
+
+        $list = array_map(fn (array $p) => [
+            'imei'       => $p['device.imei'] ?? null,
+            'latitude'   => $p['gnss.lat'] ?? null,
+            'longitude'  => $p['gnss.lng'] ?? null,
+            'altitude'   => $p['gnss.altitude'] ?? null,
+            'course'     => $p['gnss.course'] ?? null,
+            'satellites' => $p['gnss.satellites'] ?? null,
+            'fixType'    => $p['gnss.fixType'] ?? null,
+            'acc'        => $p['status.acc'] ?? null,
+            'battery'    => $p['device.batteryVoltage'] ?? null,
+            'serverTime' => $p['server.time'] ?? null,
+        ], $body['data']['list'] ?? []);
+
+        return ['list' => $list];
+    }
+
+    /**
+     * Flattens a normalized track point's dotted key format (e.g. "gnss.lat", "device.time")
+     * into plain fields, shared by getTrack() and getTrackList().
+     */
+    private function normalizeTrackPoint(array $p): array
+    {
+        return [
+            'deviceTime' => $p['device.time'] ?? null,
+            'meter'      => $p['device.meter'] ?? null,
+            'latitude'   => $p['gnss.lat'] ?? null,
+            'longitude'  => $p['gnss.lng'] ?? null,
+            'altitude'   => $p['gnss.altitude'] ?? null,
+            'speed'      => $p['gnss.speed'] ?? null,
+            'course'     => $p['gnss.course'] ?? null,
+            'satellites' => $p['gnss.satellites'] ?? null,
+            'fixType'    => $p['gnss.fixType'] ?? null,
+            'method'     => $p['positioning.method'] ?? null,
+            'acc'        => $p['status.acc'] ?? null,
+        ];
+    }
+
+    /**
+     * Historical GNSS track, paginated (max 30-day range). See normalizeTrackPoint().
+     *
+     * @param int $startTime Unix timestamp in milliseconds
+     * @param int $endTime   Unix timestamp in milliseconds
+     */
+    public function getTrack(string $imei, int $startTime, int $endTime, int $pageSize = 1000): array
+    {
+        $body = $this->client()->get('/v3/track', [
+            'imei'      => $imei,
+            'startTime' => $startTime,
+            'endTime'   => $endTime,
+            'pageSize'  => $pageSize,
         ])->json();
+
+        if ((int) ($body['code'] ?? 0) !== 1000) {
+            return ['list' => [], 'error' => $body['message'] ?? 'Failed to query track.'];
+        }
+
+        $list = array_map(
+            fn (array $p) => $this->normalizeTrackPoint($p),
+            $body['data']['list'] ?? []
+        );
+
+        return [
+            'list'            => $list,
+            'hasNext'         => $body['data']['hasNext'] ?? false,
+            'nextPageState'   => $body['data']['nextPageState'] ?? null,
+            'currentPageSize' => $body['data']['currentPageSize'] ?? count($list),
+        ];
+    }
+
+    /**
+     * Historical GNSS track, complete and unpaginated (max 30-day range) — used for Replay, which
+     * needs the whole route loaded up front to animate. See normalizeTrackPoint().
+     *
+     * @param int $startTime Unix timestamp in milliseconds
+     * @param int $endTime   Unix timestamp in milliseconds
+     */
+    public function getTrackList(string $imei, int $startTime, int $endTime): array
+    {
+        $body = $this->client()->get('/v3/track/list', [
+            'imei'      => $imei,
+            'startTime' => $startTime,
+            'endTime'   => $endTime,
+        ])->json();
+
+        if ((int) ($body['code'] ?? 0) !== 1000) {
+            return ['list' => [], 'error' => $body['message'] ?? 'Failed to query track.'];
+        }
+
+        $list = array_map(
+            fn (array $p) => $this->normalizeTrackPoint($p),
+            $body['data']['list'] ?? []
+        );
+
+        return [
+            'list'       => $list,
+            'totalCount' => $body['data']['totalCount'] ?? count($list),
+        ];
+    }
+
+    // ── Mileage ─────────────────────────────────────────────────────────────
+
+    /**
+     * Realtime per-device mileage totals (total / today / subtotal), current ACC and speed, and
+     * online status. Paginated — not a date-range report.
+     */
+    public function getRealtimeMileage(array $params = []): array
+    {
+        $defaults = ['page' => 1, 'size' => 20];
+        $body = $this->client()->get('/v3/mileage/realtime', array_merge($defaults, $params))->json();
+
+        if ((int) ($body['code'] ?? 0) !== 1000) {
+            return ['data' => [], 'page' => 1, 'size' => $defaults['size'], 'total' => 0, 'totalPages' => 0, 'error' => $body['message'] ?? 'Failed to query mileage.'];
+        }
+
+        return $body['data'] ?? ['data' => []];
+    }
+
+    // ── Trips ───────────────────────────────────────────────────────────────
+
+    public function getTripList(string $imei, int $startTime, int $endTime): array
+    {
+        $body = $this->client()->get('/v3/trip/list', [
+            'imei'      => $imei,
+            'startTime' => $startTime,
+            'endTime'   => $endTime,
+        ])->json();
+
+        return $body['data'] ?? [];
+    }
+
+    // ── Alerts ──────────────────────────────────────────────────────────────
+
+    /**
+     * Flattens dotted-key alert fields (e.g. "alert.time", "device.imei") into plain fields, and
+     * pulls `speed` out of alert.extraInfo's JSON-encoded gpsSpeed when the device reports it
+     * (only observed on some alert types).
+     */
+    public function getAlerts(array $params = []): array
+    {
+        $defaults = ['page' => 1, 'size' => 50];
+        $body = $this->client()->get('/v3/alerts/page', array_merge($defaults, $params))->json();
+
+        if ((int) ($body['code'] ?? 0) !== 1000) {
+            return ['list' => [], 'page' => 1, 'size' => $defaults['size'], 'total' => 0, 'error' => $body['message'] ?? 'Failed to query alerts.'];
+        }
+
+        $list = array_map(function (array $a) {
+            $extra = json_decode($a['alert.extraInfo'] ?? '', true) ?: [];
+
+            return [
+                'id'           => $a['alert.id'] ?? null,
+                'imei'         => $a['device.imei'] ?? null,
+                'name'         => $a['alert.name'] ?? null,
+                'description'  => $a['alert.description'] ?? null,
+                'code'         => $a['alert.code'] ?? null,
+                'type'         => $a['alert.type'] ?? null,
+                'triggerType'  => $a['alert.triggerType'] ?? null,
+                'firingStatus' => $a['alert.firingStatus'] ?? null,
+                'time'         => $a['alert.time'] ?? null,
+                'latitude'     => $a['gnss.lat'] ?? null,
+                'longitude'    => $a['gnss.lng'] ?? null,
+                'speed'        => $extra['gpsSpeed'] ?? null,
+            ];
+        }, $body['data']['list'] ?? []);
+
+        return [
+            'list'  => $list,
+            'page'  => $body['data']['page'] ?? 1,
+            'size'  => $body['data']['size'] ?? $defaults['size'],
+            'total' => $body['data']['total'] ?? count($list),
+        ];
+    }
+
+    // ── OBD ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Historical OBD telemetry (max 30-day range). Field `batteryVoltage` (mV) is the vehicle's
+     * external power-supply voltage, as opposed to the internal device battery reported via
+     * getBatteryStatus().
+     *
+     * @param int $startTime Unix timestamp in milliseconds
+     * @param int $endTime   Unix timestamp in milliseconds
+     */
+    public function getObdData(string $imei, int $startTime, int $endTime, int $pageSize = 100, ?string $pagingState = null): array
+    {
+        $query = array_filter([
+            'imei'        => $imei,
+            'startTime'   => $startTime,
+            'endTime'     => $endTime,
+            'pageSize'    => $pageSize,
+            'pagingState' => $pagingState,
+        ], fn ($v) => $v !== null);
+
+        $body = $this->client()->get('/v3/obd', $query)->json();
+
+        if ((int) ($body['code'] ?? 0) !== 1000) {
+            return ['obdData' => [], 'error' => $body['message'] ?? 'Failed to query OBD data.'];
+        }
+
+        return $body['data'] ?? ['obdData' => []];
+    }
+
+    // ── Commands ────────────────────────────────────────────────────────────
+
+    public function sendCommand(string $imei, string $content, bool $sync = true, int $timeout = 30): array
+    {
+        $body = $this->client()->post('/v3/command/send', [
+            'imei'    => $imei,
+            'content' => $content,
+            'sync'    => $sync,
+            'offline' => true,
+            'timeout' => $timeout,
+        ])->json();
+
+        return $body ?? [];
+    }
+
+    // ── Battery ─────────────────────────────────────────────────────────────
+
+    /**
+     * TurboHive has no REST endpoint for internal battery on non-Tag devices — this
+     * sends the "status#" query command and parses the device's text response, e.g.
+     * "Battery:4.12V,NORMAL; SOC:Link Up; LTE Signal Level:Strong; GPS:OFF; ACC:OFF; ...".
+     */
+    public function getBatteryStatus(string $imei): array
+    {
+        $result  = $this->sendCommand($imei, 'status#');
+        $content = $result['data']['content'] ?? '';
+
+        $voltage = null;
+        $status  = null;
+        if (preg_match('/Battery:([\d.]+)V,(\w+)/i', $content, $m)) {
+            $voltage = (float) $m[1];
+            $status  = strtoupper($m[2]);
+        }
+
+        // TurboHive returns code=1000 on success; anything else (2004 device offline,
+        // 2001 not found, 1001 internal error, ...) means content has no battery reading.
+        $error = ((int) ($result['code'] ?? 0) !== 1000 && $voltage === null)
+            ? ($result['message'] ?? 'Failed to query battery.')
+            : null;
+
+        return [
+            'imei'      => $imei,
+            'voltage'   => $voltage,
+            'status'    => $status,
+            'error'     => $error,
+            'raw'       => $content,
+            'checkedAt' => now()->getTimestampMs(),
+        ];
+    }
+
+    // ── Live Video ──────────────────────────────────────────────────────────
+
+    public function startLiveVideo(string $imei, int $channel = 1, string $dataType = 'audio_video'): array
+    {
+        $body = $this->client()->post('/v3/video/live/start', [
+            'imei'     => $imei,
+            'channel'  => $channel,
+            'dataType' => $dataType,
+        ])->json();
+
+        return $body ?? [];
+    }
+
+    public function stopLiveVideo(string $imei, int $channel = 1): array
+    {
+        $body = $this->client()->post('/v3/video/live/stop', [
+            'imei'    => $imei,
+            'channel' => $channel,
+        ])->json();
+
+        return $body ?? [];
+    }
+
+    // ── Video Files & Playback ──────────────────────────────────────────────
+
+    public function listVideoFiles(string $imei, int $channel, int $startTime, int $endTime): array
+    {
+        $body = $this->client()->post('/v3/video/files/list', [
+            'imei'      => $imei,
+            'channel'   => $channel,
+            'startTime' => (string) $startTime,
+            'endTime'   => (string) $endTime,
+        ])->json();
+
+        return $body ?? [];
+    }
+
+    public function startPlayback(string $imei, int $channel, array $fileNames): array
+    {
+        $body = $this->client()->post('/v3/video/playback/start', [
+            'imei'      => $imei,
+            'channel'   => $channel,
+            'fileNames' => $fileNames,
+        ])->json();
+
+        return $body ?? [];
+    }
+
+    public function stopPlayback(string $imei, int $channel = 1): array
+    {
+        $body = $this->client()->post('/v3/video/playback/stop', [
+            'imei'    => $imei,
+            'channel' => $channel,
+        ])->json();
+
+        return $body ?? [];
+    }
+
+    // ── Capture ─────────────────────────────────────────────────────────────
+
+    /**
+     * @param int $type 1=single snapshot, 2=continuous snapshot, 3=recording
+     */
+    public function startCapture(string $imei, int $channel = 1, int $type = 1, int $duration = 5): array
+    {
+        $body = $this->client()->post('/v3/video/capture/start', [
+            'imei'     => $imei,
+            'channel'  => $channel,
+            'type'     => $type,
+            'duration' => $duration,
+        ])->json();
+
+        return $body ?? [];
     }
 }

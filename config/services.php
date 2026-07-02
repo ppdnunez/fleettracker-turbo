@@ -11,6 +11,16 @@ return [
     ],
     'turbohive' => [
         'base_url' => env('TURBOHIVE_BASE_URL', 'https://turbohive.ai/api'),
-        'token' => env('TURBOHIVE_TOKEN'),
+        'token'    => env('TURBOHIVE_TOKEN'),
+    ],
+
+    // Used by the mqtt:worker Artisan command (TCP connection, server-side only)
+    'turbohive_mqtt' => [
+        'host'      => env('TURBOHIVE_MQTT_HOST', 'turbohive.ai'),
+        'port'      => env('TURBOHIVE_MQTT_PORT', 1883),
+        'username'  => env('TURBOHIVE_MQTT_USERNAME'),
+        'password'  => env('TURBOHIVE_MQTT_PASSWORD'),
+        'client_id' => env('TURBOHIVE_MQTT_CLIENT_ID', 'fleettrack-worker'),
+        'user_id'   => env('TURBOHIVE_MQTT_USER_ID'),
     ],
 ];
