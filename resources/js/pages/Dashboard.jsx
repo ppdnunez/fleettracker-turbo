@@ -20,6 +20,11 @@ import GroupPage        from '../components/GroupPage.jsx';
 import DriverPage       from '../components/DriverPage.jsx';
 import ClientsPage      from '../components/ClientsPage.jsx';
 
+// How often the live map re-polls TurboHive's device list (covers both devices and their
+// locations — fetchLiveDevices fetches both in one call) to catch devices going offline, which
+// MQTT alone can't express (see fetchLiveDevices' polling effect below).
+const DEVICE_POLL_SECONDS = 30;
+
 // TurboHive's device-list endpoint (/v3/devices/page) has no position fields at all — lat/lng
 // only exist on the separate /v3/track/location snapshot, keyed by "device.imei" (TurboHive's
 // flat dotted-key convention). `positionsByImei` merges that in on initial load, same as the
@@ -127,6 +132,7 @@ export default function Dashboard({ user, onLogout }) {
     const [liveSelected,  setLiveSelected]  = useState(null);
     const [liveLoading,   setLiveLoading]   = useState(true);
     const [mqttConnected, setMqttConnected] = useState(false);
+    const [nextRefreshIn, setNextRefreshIn] = useState(DEVICE_POLL_SECONDS);
     const wsRef = useRef(null);
     const wsReconnectRef = useRef(null);
 
@@ -134,7 +140,7 @@ export default function Dashboard({ user, onLogout }) {
         try {
             if (turboHiveEnabled) {
                 const [{ data }, locationsRes] = await Promise.all([
-                    api.getTurboHiveDevices(),
+                    api.getTurboHiveTrackableDevices(),
                     api.getTurboHiveAllLocations().catch(() => ({ data: [] })),
                 ]);
                 const rawList = Array.isArray(data) ? data : (data?.list ?? data?.data ?? []);
@@ -162,8 +168,31 @@ export default function Dashboard({ user, onLogout }) {
         }
     };
 
+    // MQTT only ever pushes position updates (and always marks a device ONLINE when one arrives —
+    // see applyTurboHivePosition) — there's no "device went offline" push to catch the opposite
+    // case. Re-polling the REST device list periodically is what actually notices a device has
+    // gone offline in TurboHive, the same way FleetPage's LiveLocationTab already does.
+    //
+    // A single 1s tick drives both the countdown display and the actual re-fetch (devices +
+    // locations are already one combined call in fetchLiveDevices) — two independent timers (a
+    // 1s display tick plus a separate 30s fetch interval) can drift apart, so the badge would hit
+    // 0 and reset slightly before/after the real fetch actually fired.
     useEffect(() => {
         fetchLiveDevices();
+        if (!turboHiveEnabled) return;
+
+        setNextRefreshIn(DEVICE_POLL_SECONDS);
+        const tick = setInterval(() => {
+            setNextRefreshIn(s => {
+                if (s <= 1) {
+                    fetchLiveDevices();
+                    return DEVICE_POLL_SECONDS;
+                }
+                return s - 1;
+            });
+        }, 1000);
+
+        return () => clearInterval(tick);
     }, []);
 
     // Open Traccar's websocket directly from the browser for live position/device updates.
@@ -355,6 +384,7 @@ export default function Dashboard({ user, onLogout }) {
                                     selectedDevice={selectedDevice}
                                     mapMode={mapMode}
                                     mqttConnected={turboHiveEnabled ? mqttConnected : undefined}
+                                    nextRefreshIn={turboHiveEnabled ? nextRefreshIn : undefined}
                                 />
                             )}
                         </div>

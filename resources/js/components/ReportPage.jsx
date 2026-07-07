@@ -17,7 +17,6 @@ L.Icon.Default.mergeOptions({
 const TH = { padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: 13, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', background: '#f9fafb' };
 const TD = { padding: '11px 14px', fontSize: 13, borderBottom: '1px solid #f1f5f9', color: '#374151' };
 
-const humanize = (raw) => raw ? raw.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase()) : '';
 const fmtTime = (iso) => iso ? new Date(iso).toLocaleString() : '—';
 const toLocalInput = (d) => {
     const pad = n => String(n).padStart(2, '0');
@@ -124,7 +123,7 @@ function InternalBattery() {
 
     const loadDevices = () => {
         setLoadingList(true);
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]))
             .finally(() => setLoadingList(false));
@@ -209,7 +208,7 @@ function ExternalBattery() {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => {
                 const list = res.data?.data ?? [];
                 setDevices(list);
@@ -309,7 +308,7 @@ function FuelConsumption() {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);
@@ -417,7 +416,7 @@ function CurrentFuelValue() {
     const [mqttConnected, setMqttConnected] = useState(false);
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]))
             .finally(() => setLoading(false));
@@ -489,11 +488,30 @@ function CurrentFuelValue() {
 /* ══════════════════════════════════════════════════════════════ */
 /*  FUEL MANAGEMENT (Fleet) — Fuel Curve / Refuelling / Idle / Abnormal Loss / Ranking */
 /* ══════════════════════════════════════════════════════════════ */
+// Shared by every report below: fetches a device's OBD telemetry for a date range (max 30 days,
+// max 100 readings per query — same TurboHive limits Fuel Consumption/Travel Statistics (OBD) hit),
+// sorted ascending by time. See TurboHiveService::getObdData.
+async function loadObdPoints(imei, fromLocal, toLocal, pageSize = 100) {
+    const startTime = new Date(fromLocal).getTime();
+    const endTime   = new Date(toLocal).getTime();
+    const res = await api.getTurboHiveObdData(imei, startTime, endTime, pageSize);
+    if (res.data?.error) throw new Error(res.data.error);
+    return [...(res.data?.obdData ?? [])].sort((a, b) => (a.gateTime ?? 0) - (b.gateTime ?? 0));
+}
+
+// TurboHive's /v3/obd response documents odometer/totalFuelConsumption/vehicleSpeed (confirmed via
+// Fuel Consumption/Travel Statistics (OBD)) but not an instantaneous tank-level percentage field —
+// Fuel Curve/Refuelling/Abnormal Loss below inherently need one (totalFuelConsumption is a
+// monotonic totalizer that can't show a refuel or a level drop), so this tries the same best-effort
+// fallback names DeviceSensorUpdated.php already guesses for the MQTT sensor feed.
+function obdFuelLevel(p) {
+    return p.fuelLevel ?? p.fuel_level ?? p.fuelPercent ?? p.fuel ?? null;
+}
+
 // Single-line sparkline, same hand-rolled approach as TempHumidityChart below (no chart dependency
 // in this project), plotted from the same rows the table renders.
 function FuelCurveChart({ rows }) {
-    const ordered = [...rows]; // already chronological from the backend
-    const pts = ordered.filter(r => r.percent != null);
+    const pts = rows.filter(r => r.percent != null);
     if (pts.length < 2) {
         return (
             <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 10, height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13, marginBottom: 14 }}>
@@ -521,9 +539,9 @@ function FuelCurveChart({ rows }) {
     );
 }
 
-// Built from Traccar's GET /api/reports/route — reads attributes.fuel per reading, plotted
-// chronologically. See TraccarController::fuelCurveReport. Distinct from the existing Fuel
-// Consumption report, which only returns one summary total per device for the period.
+// Built from TurboHive's GET /v3/obd (see loadObdPoints above), plotting each reading's fuel-level
+// percentage chronologically. Distinct from Fuel Consumption, which only returns one summary total
+// per device for the whole period.
 function FuelCurve() {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
@@ -534,28 +552,25 @@ function FuelCurve() {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTraccarDevices().then(res => setDevices(res.data)).catch(() => {});
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
     }, []);
 
-    const search = async (overrides = {}) => {
-        const f = overrides.from ?? from, t = overrides.to ?? to;
-        const dId = 'deviceId' in overrides ? overrides.deviceId : deviceId;
-        setLoading(true);
+    const search = async () => {
+        if (!deviceId) { setError('Select a device.'); return; }
         setError('');
+        setLoading(true);
         try {
-            const params = { from: new Date(f).toISOString(), to: new Date(t).toISOString() };
-            if (dId) params.deviceId = dId;
-            const res = await api.getFuelCurveReport(params);
-            setRows(res.data);
+            const points = await loadObdPoints(deviceId, from, to);
+            setRows(points.map(p => ({ time: p.gateTime, percent: obdFuelLevel(p) })));
         } catch (e) {
-            setError(e.response?.data?.message || 'Failed to load fuel curve.');
+            setError(e.message || e.response?.data?.message || 'Failed to load fuel curve.');
             setRows([]);
         } finally {
             setLoading(false);
         }
     };
-
-    useEffect(() => { search(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const reset = () => {
         const d = new Date(); d.setHours(0,0,0,0);
@@ -563,24 +578,26 @@ function FuelCurve() {
         setRows([]); setError('');
     };
 
-    const COLS = ['No.','Device name','IMEI','Fuel (%)','Fuel (L)','Coordinates','Record Time'];
+    const selectedDevice = devices.find(d => d.imei === deviceId);
+    const COLS = ['No.','Device name','IMEI','Fuel Level (%)','Record Time'];
 
     return (
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    <option value="">Select device</option>
+                    {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
+                </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
-                    <option value="">All devices</option>
-                    {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-                <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
+            <Notice color="#dbeafe" icon="ℹ" text="Only OBD-capable devices reporting a fuel-level reading show data here (max 30-day range, up to 100 readings per query)." />
             <FuelCurveChart rows={rows} />
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
@@ -594,12 +611,10 @@ function FuelCurve() {
                     ) : [...rows].reverse().map((r, i) => (
                         <tr key={i}>
                             <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{r.deviceName ?? '—'}</td>
-                            <td style={TD}>{r.imei ?? '—'}</td>
+                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
+                            <td style={TD}>{deviceId}</td>
                             <td style={TD}>{r.percent != null ? `${r.percent}%` : '—'}</td>
-                            <td style={TD}>{r.liters ?? '—'}</td>
-                            <td style={TD}>{fmtCoords(r.latitude, r.longitude)}</td>
-                            <td style={TD}>{fmtTime(r.fixTime)}</td>
+                            <td style={TD}>{fmtTime(r.time)}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -608,9 +623,10 @@ function FuelCurve() {
     );
 }
 
-// Shared by Refuelling and Abnormal Loss — both read GET /api/traccar/reports/fuel-refuelling or
-// fuel-abnormal-loss (TraccarController::fuelLevelEvents), differing only in event type/labels.
-function FuelEventReport({ apiFn, eventLabel, noticeText }) {
+// Shared by Refuelling and Abnormal Loss — both scan consecutive OBD readings (see loadObdPoints)
+// for a level jump past a threshold, differing only in direction/threshold/labels. Amount in liters
+// can't be shown (TurboHive doesn't expose tank capacity), so only the percentage change is reported.
+function FuelEventReport({ detect, eventLabel, noticeText }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -620,28 +636,30 @@ function FuelEventReport({ apiFn, eventLabel, noticeText }) {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTraccarDevices().then(res => setDevices(res.data)).catch(() => {});
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
     }, []);
 
-    const search = async (overrides = {}) => {
-        const f = overrides.from ?? from, t = overrides.to ?? to;
-        const dId = 'deviceId' in overrides ? overrides.deviceId : deviceId;
-        setLoading(true);
+    const search = async () => {
+        if (!deviceId) { setError('Select a device.'); return; }
         setError('');
+        setLoading(true);
         try {
-            const params = { from: new Date(f).toISOString(), to: new Date(t).toISOString() };
-            if (dId) params.deviceId = dId;
-            const res = await apiFn(params);
-            setRows(res.data);
+            const points = await loadObdPoints(deviceId, from, to);
+            const events = [];
+            for (let i = 1; i < points.length; i++) {
+                const event = detect(points[i - 1], points[i]);
+                if (event) events.push(event);
+            }
+            setRows(events);
         } catch (e) {
-            setError(e.response?.data?.message || `Failed to load ${eventLabel.toLowerCase()} report.`);
+            setError(e.message || e.response?.data?.message || `Failed to load ${eventLabel.toLowerCase()} report.`);
             setRows([]);
         } finally {
             setLoading(false);
         }
     };
-
-    useEffect(() => { search(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const reset = () => {
         const d = new Date(); d.setHours(0,0,0,0);
@@ -649,26 +667,27 @@ function FuelEventReport({ apiFn, eventLabel, noticeText }) {
         setRows([]); setError('');
     };
 
-    const COLS = ['No.','Device name','IMEI','Model','From (%)','To (%)','Amount (L)','Time','Coordinates','Address'];
+    const selectedDevice = devices.find(d => d.imei === deviceId);
+    const COLS = ['No.','Device name','IMEI','From (%)','To (%)','Change (%)','Time'];
 
     return (
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    <option value="">Select device</option>
+                    {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
+                </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
-                    <option value="">All devices</option>
-                    {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-                <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            {noticeText && <Notice text={noticeText} />}
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+            {noticeText && <Notice color="#dbeafe" icon="ℹ" text={noticeText} />}
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
@@ -680,15 +699,12 @@ function FuelEventReport({ apiFn, eventLabel, noticeText }) {
                     ) : rows.map((r, i) => (
                         <tr key={i}>
                             <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{r.deviceName ?? '—'}</td>
-                            <td style={TD}>{r.imei ?? '—'}</td>
-                            <td style={TD}>{r.model ?? '—'}</td>
+                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
+                            <td style={TD}>{deviceId}</td>
                             <td style={TD}>{r.fromPercent}%</td>
                             <td style={TD}>{r.toPercent}%</td>
-                            <td style={TD}>{r.amountLiters ?? '—'}</td>
+                            <td style={TD}>{r.changePercent > 0 ? '+' : ''}{r.changePercent}%</td>
                             <td style={TD}>{fmtTime(r.time)}</td>
-                            <td style={TD}>{fmtCoords(r.latitude, r.longitude)}</td>
-                            <td style={TD}>{r.address ?? '—'}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -697,18 +713,40 @@ function FuelEventReport({ apiFn, eventLabel, noticeText }) {
     );
 }
 
+const REFUEL_RISE_THRESHOLD = 5;   // percentage points between two consecutive readings
+const ABNORMAL_DROP_THRESHOLD = 8; // percentage points
+const ABNORMAL_DROP_MAX_KM = 1;    // "almost no distance travelled" cutoff
+
 function Refuelling() {
-    return <FuelEventReport apiFn={api.getRefuellingReport} eventLabel="Refuelling"
-        noticeText="A level rise of at least 5% of tank capacity between two readings is treated as a refuel." />;
+    const detect = (prev, curr) => {
+        const from = obdFuelLevel(prev), to = obdFuelLevel(curr);
+        if (from == null || to == null) return null;
+        const change = +(to - from).toFixed(1);
+        return change >= REFUEL_RISE_THRESHOLD
+            ? { fromPercent: from, toPercent: to, changePercent: change, time: curr.gateTime }
+            : null;
+    };
+    return <FuelEventReport detect={detect} eventLabel="Refuelling"
+        noticeText={`A level rise of at least ${REFUEL_RISE_THRESHOLD}% between two consecutive OBD readings is treated as a refuel.`} />;
 }
 
 function AbnormalFuelLoss() {
-    return <FuelEventReport apiFn={api.getAbnormalFuelLossReport} eventLabel="Abnormal Loss"
-        noticeText="A level drop of at least 8% with almost no distance travelled is flagged as an abnormal loss (leak/siphon), distinct from normal consumption while driving." />;
+    const detect = (prev, curr) => {
+        const from = obdFuelLevel(prev), to = obdFuelLevel(curr);
+        if (from == null || to == null) return null;
+        const change = +(to - from).toFixed(1);
+        const distanceKm = (prev.odometer != null && curr.odometer != null) ? curr.odometer - prev.odometer : null;
+        return (change <= -ABNORMAL_DROP_THRESHOLD && distanceKm != null && distanceKm <= ABNORMAL_DROP_MAX_KM)
+            ? { fromPercent: from, toPercent: to, changePercent: change, time: curr.gateTime }
+            : null;
+    };
+    return <FuelEventReport detect={detect} eventLabel="Abnormal Loss"
+        noticeText={`A level drop of at least ${ABNORMAL_DROP_THRESHOLD}% with under ${ABNORMAL_DROP_MAX_KM}km travelled between two consecutive OBD readings is flagged as an abnormal loss (leak/siphon), distinct from normal consumption while driving.`} />;
 }
 
-// Built from classifiedStops()'s existing Idling classification, with fuel burned during each idle
-// window summed from the same /reports/route data. See TraccarController::idleFuelReport.
+// Sums fuel burned (via the confirmed totalFuelConsumption totalizer) across contiguous runs of
+// near-zero-speed OBD readings — same IDLE_SPEED_KMH threshold Parking/Idling/Ignition use on the
+// GNSS track, applied here to OBD's vehicleSpeed field instead.
 function IdleFuel() {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
@@ -719,28 +757,41 @@ function IdleFuel() {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTraccarDevices().then(res => setDevices(res.data)).catch(() => {});
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
     }, []);
 
-    const search = async (overrides = {}) => {
-        const f = overrides.from ?? from, t = overrides.to ?? to;
-        const dId = 'deviceId' in overrides ? overrides.deviceId : deviceId;
-        setLoading(true);
+    const search = async () => {
+        if (!deviceId) { setError('Select a device.'); return; }
         setError('');
+        setLoading(true);
         try {
-            const params = { from: new Date(f).toISOString(), to: new Date(t).toISOString() };
-            if (dId) params.deviceId = dId;
-            const res = await api.getIdleFuelReport(params);
-            setRows(res.data);
+            const points = await loadObdPoints(deviceId, from, to);
+            const idleRuns = [];
+            let run = [];
+            const flush = () => {
+                if (run.length >= 2) {
+                    const first = run[0], last = run[run.length - 1];
+                    const fuelUsed = (first.totalFuelConsumption != null && last.totalFuelConsumption != null)
+                        ? +(last.totalFuelConsumption - first.totalFuelConsumption).toFixed(2) : null;
+                    idleRuns.push({ startTime: first.gateTime, endTime: last.gateTime, idleDurationMs: last.gateTime - first.gateTime, fuelUsed });
+                }
+                run = [];
+            };
+            for (const p of points) {
+                const speed = p.vehicleSpeed ?? p.speed ?? 0;
+                if (speed <= IDLE_SPEED_KMH) run.push(p); else flush();
+            }
+            flush();
+            setRows(idleRuns);
         } catch (e) {
-            setError(e.response?.data?.message || 'Failed to load idle fuel report.');
+            setError(e.message || e.response?.data?.message || 'Failed to load idle fuel report.');
             setRows([]);
         } finally {
             setLoading(false);
         }
     };
-
-    useEffect(() => { search(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const reset = () => {
         const d = new Date(); d.setHours(0,0,0,0);
@@ -748,25 +799,26 @@ function IdleFuel() {
         setRows([]); setError('');
     };
 
-    const COLS = ['No.','Device name','IMEI','Model','Start time','End Time','Idle Duration','Fuel Used (L)','Coordinates','Address'];
+    const selectedDevice = devices.find(d => d.imei === deviceId);
+    const COLS = ['No.','Device name','IMEI','Start time','End Time','Idle Duration','Fuel Used (L)'];
 
     return (
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    <option value="">Select device</option>
+                    {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
+                </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
-                    <option value="">All devices</option>
-                    {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-                <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
@@ -778,15 +830,12 @@ function IdleFuel() {
                     ) : rows.map((r, i) => (
                         <tr key={i}>
                             <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{r.deviceName ?? '—'}</td>
-                            <td style={TD}>{r.imei ?? '—'}</td>
-                            <td style={TD}>{r.model ?? '—'}</td>
+                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
+                            <td style={TD}>{deviceId}</td>
                             <td style={TD}>{fmtTime(r.startTime)}</td>
                             <td style={TD}>{fmtTime(r.endTime)}</td>
                             <td style={TD}>{formatHMS(r.idleDurationMs)}</td>
-                            <td style={TD}>{r.fuelUsed}</td>
-                            <td style={TD}>{fmtCoords(r.latitude, r.longitude)}</td>
-                            <td style={TD}>{r.address ?? '—'}</td>
+                            <td style={TD}>{r.fuelUsed ?? '—'}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -795,13 +844,35 @@ function IdleFuel() {
     );
 }
 
-// Ranks by vehicle (overall L/100km + tonne-km via attributes.cargoTonnes), driver, or route (each
-// individual trip) — see TraccarController::fuelRankingReport.
+// Shared by Ranking and Tonne-Kilometre Fuel Analytics below — computes each device's fuel
+// efficiency for the period from its first/last OBD reading (same delta approach as Fuel
+// Consumption), run once per device since /v3/obd is per-imei only. Tonne-km assumes a uniform 1
+// tonne per vehicle since TurboHive exposes no cargo-weight attribute the way Traccar's
+// attributes.cargoTonnes did.
+async function computeFuelEfficiencyRows(devices, from, to) {
+    const results = await Promise.all(devices.map(async (d) => {
+        try {
+            const points = await loadObdPoints(d.imei, from, to);
+            if (points.length < 2) return null;
+            const first = points[0], last = points[points.length - 1];
+            const distanceKm = (first.odometer != null && last.odometer != null) ? +(last.odometer - first.odometer).toFixed(2) : null;
+            const fuelUsed = (first.totalFuelConsumption != null && last.totalFuelConsumption != null) ? +(last.totalFuelConsumption - first.totalFuelConsumption).toFixed(2) : null;
+            if (distanceKm == null || fuelUsed == null || distanceKm <= 0) return null;
+            const fuelPer100km = +((fuelUsed / distanceKm) * 100).toFixed(2);
+            const tonneKm = distanceKm; // assumes 1 tonne per vehicle
+            return { imei: d.imei, deviceName: d.deviceName, distanceKm, fuelUsed, fuelPer100km, tonneKm, fuelPerTonneKm: +(fuelUsed / tonneKm).toFixed(3) };
+        } catch {
+            return null;
+        }
+    }));
+    return results.filter(Boolean);
+}
+
+// Ranks vehicles best (lowest L/100km) to worst. TurboHive has no driver/route assignment data
+// (unlike Traccar, which this report used to also rank by), so this dimension is vehicle-only now
+// — see Tonne-Kilometre Fuel Analytics below for the cargo-weighted efficiency view.
 function FuelRanking() {
     const [devices, setDevices]   = useState([]);
-    const [deviceId, setDeviceId] = useState('');
-    const [by, setBy]             = useState('vehicle');
-    const [method, setMethod]     = useState('none');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
     const [to, setTo]             = useState(() => toLocalInput(new Date()));
     const [rows, setRows]         = useState([]);
@@ -809,20 +880,18 @@ function FuelRanking() {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTraccarDevices().then(res => setDevices(res.data)).catch(() => {});
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
     }, []);
 
     const search = async (overrides = {}) => {
         const f = overrides.from ?? from, t = overrides.to ?? to;
-        const dId = 'deviceId' in overrides ? overrides.deviceId : deviceId;
-        const b   = overrides.by ?? by;
         setLoading(true);
         setError('');
         try {
-            const params = { from: new Date(f).toISOString(), to: new Date(t).toISOString(), by: b, method };
-            if (dId) params.deviceId = dId;
-            const res = await api.getFuelRankingReport(params);
-            setRows(res.data);
+            const results = await computeFuelEfficiencyRows(devices, f, t);
+            setRows(results.sort((a, b) => a.fuelPer100km - b.fuelPer100km));
         } catch (e) {
             setError(e.response?.data?.message || 'Failed to load fuel ranking.');
             setRows([]);
@@ -831,19 +900,15 @@ function FuelRanking() {
         }
     };
 
-    useEffect(() => { search(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => { if (devices.length) search(); }, [devices]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const reset = () => {
         const d = new Date(); d.setHours(0,0,0,0);
-        setDeviceId(''); setBy('vehicle'); setMethod('none'); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
-        setRows([]); setError('');
+        setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
+        search({ from: toLocalInput(d), to: toLocalInput(new Date()) });
     };
 
-    const COLS = by === 'vehicle'
-        ? ['No.','Device name','IMEI','Model','Distance (km)','Fuel Used (L)','L/100km','Tonne-km','L/Tonne-km']
-        : by === 'route'
-        ? ['No.','Device name','Driver','Start Time','Start location','End location','Distance (km)','Fuel Used (L)','L/100km']
-        : ['No.','Driver','Trips','Distance (km)','Fuel Used (L)','L/100km'];
+    const COLS = ['No.','Device name','IMEI','Distance (km)','Fuel Used (L)','L/100km','Tonne-km','L/Tonne-km'];
 
     return (
         <>
@@ -853,29 +918,10 @@ function FuelRanking() {
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <select value={by} onChange={e => { setBy(e.target.value); search({ by: e.target.value }); }}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer' }}>
-                    <option value="vehicle">By Vehicle</option>
-                    <option value="driver">By Driver</option>
-                    <option value="route">By Route</option>
-                </select>
-                {by === 'vehicle' && (
-                    <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                        style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
-                        <option value="">All devices</option>
-                        {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
-                )}
-                {by === 'vehicle' && (
-                    <select value={method} onChange={e => setMethod(e.target.value)}
-                        style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer' }}>
-                        {FUEL_METHODS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                    </select>
-                )}
                 <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice text="Ranked best (lowest L/100km) to worst. Tonne-km uses each device's attributes.cargoTonnes custom attribute, defaulting to 1 tonne when unset." />
+            <Notice color="#dbeafe" icon="ℹ" text="Ranked best (lowest L/100km) to worst, across every OBD-capable device. TurboHive has no driver/route assignment data, so ranking is vehicle-only." />
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
@@ -886,41 +932,104 @@ function FuelRanking() {
                     ) : rows.length === 0 ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
-                        <tr key={i}>
+                        <tr key={r.imei}>
                             <td style={TD}>{i + 1}</td>
-                            {by === 'vehicle' && (
-                                <>
-                                    <td style={TD}>{r.deviceName ?? '—'}</td>
-                                    <td style={TD}>{r.imei ?? '—'}</td>
-                                    <td style={TD}>{r.model ?? '—'}</td>
-                                    <td style={TD}>{r.distanceKm}</td>
-                                    <td style={TD}>{r.fuelUsed}</td>
-                                    <td style={TD}>{r.fuelPer100km}</td>
-                                    <td style={TD}>{r.tonneKm}</td>
-                                    <td style={TD}>{r.fuelPerTonneKm}</td>
-                                </>
-                            )}
-                            {by === 'route' && (
-                                <>
-                                    <td style={TD}>{r.deviceName ?? '—'}</td>
-                                    <td style={TD}>{r.driverName ?? '—'}</td>
-                                    <td style={TD}>{fmtTime(r.startTime)}</td>
-                                    <td style={TD}>{r.startLocation ?? '—'}</td>
-                                    <td style={TD}>{r.endLocation ?? '—'}</td>
-                                    <td style={TD}>{r.distanceKm}</td>
-                                    <td style={TD}>{r.fuelUsed}</td>
-                                    <td style={TD}>{r.fuelPer100km}</td>
-                                </>
-                            )}
-                            {by === 'driver' && (
-                                <>
-                                    <td style={TD}>{r.driverName ?? '—'}</td>
-                                    <td style={TD}>{r.trips}</td>
-                                    <td style={TD}>{r.distanceKm}</td>
-                                    <td style={TD}>{r.fuelUsed}</td>
-                                    <td style={TD}>{r.fuelPer100km ?? '—'}</td>
-                                </>
-                            )}
+                            <td style={TD}>{r.deviceName ?? '—'}</td>
+                            <td style={TD}>{r.imei}</td>
+                            <td style={TD}>{r.distanceKm}</td>
+                            <td style={TD}>{r.fuelUsed}</td>
+                            <td style={TD}>{r.fuelPer100km}</td>
+                            <td style={TD}>{r.tonneKm}</td>
+                            <td style={TD}>{r.fuelPerTonneKm}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </>
+    );
+}
+
+// New sub-module: tonne-kilometre fuel analytics, called out as its own item in the Fuel
+// Management spec (alongside fuel curve/refuelling/idle fuel/abnormal loss/ranking) but previously
+// only surfaced as extra columns on Ranking. Same underlying per-device computation, but ranked and
+// framed around L/Tonne-km specifically — the fuel cost of moving a tonne of cargo one kilometre.
+function TonneKmAnalytics() {
+    const [devices, setDevices]   = useState([]);
+    const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
+    const [to, setTo]             = useState(() => toLocalInput(new Date()));
+    const [rows, setRows]         = useState([]);
+    const [loading, setLoading]   = useState(false);
+    const [error, setError]       = useState('');
+
+    useEffect(() => {
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
+    }, []);
+
+    const search = async (overrides = {}) => {
+        const f = overrides.from ?? from, t = overrides.to ?? to;
+        setLoading(true);
+        setError('');
+        try {
+            const results = await computeFuelEfficiencyRows(devices, f, t);
+            setRows(results.sort((a, b) => a.fuelPerTonneKm - b.fuelPerTonneKm));
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to load tonne-km fuel analytics.');
+            setRows([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { if (devices.length) search(); }, [devices]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const reset = () => {
+        const d = new Date(); d.setHours(0,0,0,0);
+        setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
+        search({ from: toLocalInput(d), to: toLocalInput(new Date()) });
+    };
+
+    const totalTonneKm = rows.reduce((sum, r) => sum + r.tonneKm, 0);
+    const totalFuel = rows.reduce((sum, r) => sum + r.fuelUsed, 0);
+    const COLS = ['No.','Device name','IMEI','Distance (km)','Tonne-km','Fuel Used (L)','L/Tonne-km'];
+
+    return (
+        <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <span style={{ color: '#9ca3af' }}>-</span>
+                <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+            </div>
+            <Notice color="#dbeafe" icon="ℹ" text="TurboHive exposes no cargo-weight attribute, so Tonne-km assumes a uniform 1 tonne per vehicle — treat L/Tonne-km as relative between vehicles here, not an absolute figure. Ranked best (lowest L/Tonne-km) to worst." />
+            {rows.length > 0 && (
+                <p style={{ fontSize: 13, color: '#374151', margin: '0 0 10px' }}>
+                    <strong>Fleet total:</strong> {totalTonneKm.toFixed(2)} tonne-km &nbsp;·&nbsp; {totalFuel.toFixed(2)} L used
+                    &nbsp;·&nbsp; {totalTonneKm > 0 ? (totalFuel / totalTonneKm).toFixed(3) : '—'} L/Tonne-km overall
+                </p>
+            )}
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <tbody>
+                    {loading ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                    ) : rows.length === 0 ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                    ) : rows.map((r, i) => (
+                        <tr key={r.imei}>
+                            <td style={TD}>{i + 1}</td>
+                            <td style={TD}>{r.deviceName ?? '—'}</td>
+                            <td style={TD}>{r.imei}</td>
+                            <td style={TD}>{r.distanceKm}</td>
+                            <td style={TD}>{r.tonneKm}</td>
+                            <td style={TD}>{r.fuelUsed}</td>
+                            <td style={TD}>{r.fuelPerTonneKm}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -987,7 +1096,7 @@ function TemperatureHumidity() {
     const [mqttConnected, setMqttConnected] = useState(false);
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]))
             .finally(() => setLoading(false));
@@ -1067,29 +1176,125 @@ function TemperatureHumidity() {
     );
 }
 
-// TurboHive doesn't document a fixed alertType enum for hard-acceleration/braking/cornering the
-// way it does for OVERSPEED (see the Overspeed report), so these are classified client-side by
-// keyword-matching each alert's type/name/description. This works against both the live MQTT
-// alert/{imei} feed and the historical GET /v3/alerts/page response since both are flattened to
-// the same field names (type/name/description/latitude/longitude/time/speed) — see
-// TurboHiveService::getAlerts and DeviceAlertReceived::broadcastWith. Anything that doesn't match
-// one of these keyword groups is excluded from both feeds (e.g. it's an OVERSPEED or geofence alert).
-const DRIVER_BEHAVIOR_TYPES = [
-    ['harshAcceleration', 'Harsh Acceleration', ['accel']],
-    ['harshBraking',      'Harsh Braking',      ['brak', 'decel']],
-    ['harshCornering',    'Harsh Cornering',    ['corner', 'turn', 'swerv']],
-    ['fatigueDriving',    'Fatigue Driving',     ['fatigue', 'drowsy', 'tired']],
+// TurboHive's full alert.name catalog (every alert type the platform can fire, across GNSS/power/
+// door/fuel/DMS/ADAS/security categories — not just driving-behavior ones). Used to populate the
+// Alert Type filter with exact, authoritative names instead of guessing keywords, since alert.name
+// is what TurboHiveService::getAlerts and DeviceAlertReceived::broadcastWith both expose as `name`.
+const ALERT_TYPE_NAMES = [
+    'SD Card Fault', 'DMS Camera Communication Abnormality', 'Driver Eyes Closed', 'Face Recognition Succeeded',
+    'Face Recognition Failed', 'Face Data Uploaded', 'Geofence Entry', 'Geofence Exit', 'GNSS Dead Zone Entry',
+    'GNSS Dead Zone Exit', 'First Fix', 'Route In/Out', 'Road Section Time Issue', 'Route Deviation',
+    'External GNSS Antenna Disconnected', 'GNSS Module Failure', 'GNSS Antenna Disconnected', 'GNSS Antenna Short',
+    'GNSS Module Error', 'UBI GNSS Chip Error', 'Geofence Speeding', 'Long Time To Fix', 'Device Normal',
+    'External Power Off', 'Device Power On', 'External Power Undervoltage', 'Low Power Protection', 'Manual Shutdown',
+    'Airplane Mode', 'Device Removed', 'Low Power Shutdown', 'Cover Opened', 'Internal Battery Undervoltage',
+    'About To Sleep', 'Device Plugged Out', 'Device Plugged In', 'Land Transport Mode', 'Water Transport Mode',
+    'Stationary Mode', 'Deep Sleep', 'Cover Or Collision', 'Light Detected', 'Active Offline', 'Device Locked',
+    'Device Unlocked', 'Unexpected Unlock', 'Unlock Failed', 'Out Of Range', 'Stationary Too Long',
+    'Battery Fully Charged', 'Battery Error', 'Battery Temperature High', 'Battery Charging Started',
+    'Battery Charging Stopped', 'Battery Almost Full', 'Battery Charge Complete', 'External Voltage High',
+    'Voltage Exception', 'Device Signed In', 'Device Signed Out', 'Device Installed', 'Temperature Rising',
+    'Temperature Dropping', 'Device Restarted', 'Device Tilted', 'Device Muted', 'Fuel Power Reconnected',
+    'Fuel Power Cut Off', 'Engine Failure', 'Vehicle Battery Undervoltage', 'Long Parking', 'High Water Temperature',
+    'Ignition On', 'Ignition Off', 'VSS Failure', 'Illegal Ignition', 'Engine On', 'Speed Normal',
+    'ADC1 Voltage High', 'ADC1 Voltage Low', 'ADC1 Voltage Rising', 'ADC1 Voltage Dropping', 'Live Wire Exception',
+    'Door Status Abnormal', 'Door Opened', 'Door Closed', 'Low Fuel', 'Fuel Level Abnormal', 'Fuel Level Increased',
+    'Fuel Level Dropped', 'Exit Transport Mode', 'Idling Too Long', 'Illegal Door Opening', 'Mirror Vibration',
+    'Truck Opened', 'Emergency SOS', 'Fall Down', 'Body Temperature Abnormal', 'Danger Warning',
+    'Unexpected Vibration', 'Unexpected Movement', 'Collision', 'Rollover', 'Stability Exception',
+    'Attitude Exception', 'Airbag Deployed', 'Vehicle May Be Stolen', 'Unexpected Start', 'Unexpected Towing',
+    'Suspected Fuel Theft', 'Vehicle Stolen', 'Vehicle Finding', 'SIM Changed', 'SD Card Inserted', 'SD Card Removed',
+    'SD Card Corrupted', 'SD Card Mounted', 'No SD Card', 'Video Signal Lost', 'Video Blocked', 'Storage Failure',
+    'LCD Failure', 'TTS Failure', 'Camera Failure', 'IC Card Failure', 'Charger Connected', 'DLT Card Login',
+    'DLT Card Logout', 'DLT Unregistered Card', 'No USB Camera', 'Temp Or Humidity Abnormal', 'Temperature Recovered',
+    'Environment Abnormal', 'Fuel Sensor Comm Error', 'Fuel Sensor Comm Resumed', 'Temp Sensor Comm Error',
+    'Temp Sensor Error', 'Temp Sensor Timeout', 'RFID Sensor Error', 'Memory Card Space Low', 'RFID Card Swipe',
+    '3D Acceleration Error', 'UBI Sensor Chip Error', 'UBI Encrypted IC Error', 'Flash Error', 'CAN Module Error',
+    'Speeding', 'Harsh Acceleration', 'Sharp Left Turn', 'Sharp Right Turn', 'Hard Braking', 'Sharp Turn',
+    'Fatigue Warning', 'Daily Driving Timeout', 'Over Driving', 'Forward Collision Warning', 'Lane Departure Warning',
+    'Headway Monitor Warning', 'Pedestrian Collision Warning', 'Lane Change Warning', 'Road Sign Overrun',
+    'Obstacle Warning', 'Road Sign Recognition', 'Active Capture', 'Fatigue Driving', 'Using Phone', 'Smoking',
+    'Driver Distraction', 'No Face Detected', 'Camera Blocked', 'Seatbelt Unfastened', 'Sunglasses Detected',
+    'Hands Off Wheel', 'Answering Phone', 'Auto Capture', 'Driver Change', 'DSM Calibration Anomaly',
+    'Frequent Blinking', 'Yawning', 'Seatbelt Fastened', 'Capture Completed', 'Driver Info Changed',
+    'Face Alignment Error', 'Head Lowered', 'Driver Drinking', 'Pseudo Base Station', 'Suspected Herd Departure',
+    'Away From Beacon', 'Left Herd', 'Voice Control', 'Identification', 'Key Press Event', 'Exit Defense Mode',
+    'Enter Defense Mode', 'Reserved 1', 'Reserved 2', 'Reserved 3', 'Pet Lost', 'Package Opened', 'Pulse Exception',
+    'Near Bluetooth Beacon', 'Bluetooth MAC Found', 'No Bluetooth MAC', 'INPUT1 On', 'INPUT1 Off', 'INPUT2 On',
+    'INPUT2 Off', 'Motion Start', 'Motion Stop', 'File Uploaded', 'Loud Ambient Sound', 'Data Usage Exception',
 ];
 
-function classifyDriverBehavior(r) {
-    const text = `${r.type ?? ''} ${r.name ?? ''} ${r.description ?? ''}`.toLowerCase();
-    return DRIVER_BEHAVIOR_TYPES.find(([, , keywords]) => keywords.some(k => text.includes(k))) ?? null;
+// The live MQTT alert feed carries no alert.name/description at all (only a numeric alert.type
+// and alert.code) — DeviceAlertReceived::broadcastWith maps a few confirmed codes to names, but
+// falls back to showing the raw code for anything unmapped rather than a meaningless "Unknown".
+function alertLabel(r) {
+    return r.name ?? r.description ?? (r.code ? `Alert Code ${r.code}` : 'Unknown');
 }
-function isDriverBehaviorRow(r) {
-    return classifyDriverBehavior(r) !== null;
+
+// Lightweight searchable combobox (label above, click-to-open panel with a search box) — used for
+// both the Alert Type and Devices filters so long option lists (200+ alert names) stay usable.
+function SearchSelect({ label, placeholder, value, onChange, options }) {
+    const [open, setOpen]   = useState(false);
+    const [query, setQuery] = useState('');
+    const ref = useRef(null);
+
+    useEffect(() => {
+        const onDocClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, []);
+
+    const selected = options.find(o => o.value === value);
+    const filtered = query ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase())) : options;
+
+    return (
+        <div ref={ref} style={{ position: 'relative', minWidth: 220 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 6 }}>{label}</label>
+            <div onClick={() => setOpen(o => !o)}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', border: `1px solid ${open ? '#6366f1' : '#d1d5db'}`, borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, color: selected ? '#111827' : '#9ca3af' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected ? selected.label : placeholder}</span>
+                <span style={{ color: '#9ca3af', marginLeft: 8 }}>▾</span>
+            </div>
+            {open && (
+                <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, marginTop: 4, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.15)', maxHeight: 320, display: 'flex', flexDirection: 'column' }}>
+                    <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search…"
+                        style={{ margin: 8, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                    <div style={{ overflowY: 'auto', flex: 1 }}>
+                        <div onClick={() => { onChange(''); setOpen(false); setQuery(''); }}
+                            style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: !value ? '#4f46e5' : '#374151', fontWeight: !value ? 600 : 400 }}>
+                            {placeholder}
+                        </div>
+                        {filtered.map(o => (
+                            <div key={o.value} onClick={() => { onChange(o.value); setOpen(false); setQuery(''); }}
+                                style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: o.value === value ? '#4f46e5' : '#374151', fontWeight: o.value === value ? 600 : 400, background: o.value === value ? '#eef2ff' : 'transparent' }}>
+                                {o.label}
+                            </div>
+                        ))}
+                        {filtered.length === 0 && <div style={{ padding: '8px 12px', fontSize: 13, color: '#9ca3af' }}>No matches</div>}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 }
-function driverBehaviorLabel(r) {
-    return classifyDriverBehavior(r)?.[1] ?? r.name ?? r.description ?? 'Unknown';
+
+// TurboHive attaches dashcam/ADAS evidence (photos/videos, e.g. for Camera Fault or harsh-driving
+// alerts) to some historical alerts via GET /v3/alerts/page's `attachment` array — see
+// TurboHiveService::getAlerts. Not observed on the live MQTT alert feed, so historical-only.
+function AttachmentLinks({ attachments }) {
+    if (!attachments || attachments.length === 0) return <span style={{ color: '#94a3b8' }}>—</span>;
+    return (
+        <span style={{ display: 'inline-flex', gap: 6 }}>
+            {attachments.map((m, i) => {
+                const isVideo = /\.(mp4|mov|avi|mkv)$/i.test(m.fileName ?? m.url ?? '');
+                return (
+                    <a key={m.id ?? i} href={m.url} target="_blank" rel="noreferrer" title={m.fileName ?? 'Evidence'} style={{ textDecoration: 'none', fontSize: 16 }}>
+                        {isVideo ? '🎬' : '📷'}
+                    </a>
+                );
+            })}
+        </span>
+    );
 }
 
 function MqttBadge({ connected }) {
@@ -1101,28 +1306,22 @@ function MqttBadge({ connected }) {
     );
 }
 
-// Live half: TurboHive pushes driver-behavior alerts over MQTT ({userId}/alert/{imei}) the moment
-// its device firmware detects them; mqtt:worker broadcasts every alert as sensor.updated's sibling
-// event, alert.received, on the shared 'fleet' Reverb channel (see MqttWorker.php). Historical half:
-// GET /v3/alerts/page (see TurboHiveService::getAlerts), same endpoint the Overspeed report uses,
-// just without the alertType=OVERSPEED filter and classified client-side instead.
-function DriverBehavior() {
+// Live-only sibling of this report — see DriverBehavior() below for the historical half. TurboHive
+// pushes alerts over MQTT ({userId}/alert/{imei}) the moment its device firmware detects them;
+// mqtt:worker broadcasts every alert as alert.received on the shared 'fleet' Reverb channel (see
+// MqttWorker.php). No REST call and no time range — just a rolling buffer of whatever arrives
+// while this page is open.
+function DriverBehaviorLive() {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
-    const [eventType, setEventType] = useState('');
+    const [alertType, setAlertType] = useState('');
 
     const [liveEvents, setLiveEvents]       = useState([]); // newest-first, capped at 30
     const [mqttConnected, setMqttConnected] = useState(false);
     const liveKeyRef = useRef(0);
 
-    const [from, setFrom]       = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
-    const [to, setTo]           = useState(() => toLocalInput(new Date()));
-    const [rows, setRows]       = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError]     = useState('');
-
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);
@@ -1132,10 +1331,8 @@ function DriverBehavior() {
         const channel = window.Echo.channel('fleet');
         channel.listen('.alert.received', (data) => {
             setMqttConnected(true);
-            if (isDriverBehaviorRow(data)) {
-                liveKeyRef.current += 1;
-                setLiveEvents(evts => [{ ...data, _key: liveKeyRef.current }, ...evts].slice(0, 30));
-            }
+            liveKeyRef.current += 1;
+            setLiveEvents(evts => [{ ...data, _key: liveKeyRef.current }, ...evts].slice(0, 30));
         });
         channel.error(() => setMqttConnected(false));
 
@@ -1155,20 +1352,85 @@ function DriverBehavior() {
         return () => { window.Echo.leaveChannel('fleet'); setMqttConnected(false); };
     }, []);
 
+    const filteredLive = liveEvents.filter(r => (!deviceId || r.imei === deviceId) && (!alertType || r.name === alertType));
+    const resolveDeviceName = (r) => r.deviceName || devices.find(d => d.imei === r.imei)?.deviceName || r.imei;
+    const COLS = ['No.', 'Device name', 'IMEI', 'Event Type', 'Speed (km/h)', 'Location', 'Time'];
+    const alertTypeOptions = ALERT_TYPE_NAMES.map(n => ({ value: n, label: n }));
+    const deviceOptions = devices.map(d => ({ value: d.imei, label: d.deviceName ?? d.imei }));
+
+    return (
+        <>
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
+                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
+                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <h4 style={{ margin: 0, fontSize: 14, color: '#374151' }}>Live Feed</h4>
+                <MqttBadge connected={mqttConnected} />
+            </div>
+            <Notice color="#dbeafe" icon="ℹ" text="Pushed live from TurboHive's MQTT alert topic as devices report them while this page is open — not a full history." />
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <tbody>
+                    {filteredLive.length === 0 ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 32, color: '#94a3b8' }}>Waiting for live events…</td></tr>
+                    ) : filteredLive.map((r, i) => (
+                        <tr key={r._key}>
+                            <td style={TD}>{i + 1}</td>
+                            <td style={TD}>{resolveDeviceName(r)}</td>
+                            <td style={TD}>{r.imei ?? '—'}</td>
+                            <td style={TD}>{alertLabel(r)}</td>
+                            <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                            <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                            <td style={TD}>{fmtTime(r.timestamp)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </>
+    );
+}
+
+// Historical half of the Driver Behavior report — see DriverBehaviorLive() above for the MQTT-fed
+// live sibling. Built from GET /v3/alerts/page (see TurboHiveService::getAlerts), same endpoint
+// the Overspeed report uses, just without a server-side alertType filter — that param matches
+// TurboHive's internal alert.type code (e.g. "256-6"), not the human alert.name, so the Alert Type
+// filter here matches client-side against `name` instead, using the exact catalog of names
+// TurboHive documents (ALERT_TYPE_NAMES).
+function DriverBehavior() {
+    const [devices, setDevices]   = useState([]);
+    const [deviceId, setDeviceId] = useState('');
+    const [alertType, setAlertType] = useState('');
+
+    const [from, setFrom]       = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
+    const [to, setTo]           = useState(() => toLocalInput(new Date()));
+    const [rows, setRows]       = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError]     = useState('');
+
+    useEffect(() => {
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
+    }, []);
+
     const search = async (overrides = {}) => {
         const f = overrides.from ?? from, t = overrides.to ?? to;
         const dId = 'deviceId' in overrides ? overrides.deviceId : deviceId;
         setLoading(true);
         setError('');
         try {
-            const params = { startTime: new Date(f).getTime(), endTime: new Date(t).getTime(), page: 1, size: 200 };
+            const params = { startTime: new Date(f).getTime(), endTime: new Date(t).getTime(), page: 1, size: 100 };
             if (dId) params.imeis = [dId];
             const res = await api.getTurboHiveAlerts(params);
             if (res.data?.error) {
                 setError(res.data.error);
                 setRows([]);
             } else {
-                setRows((res.data?.list ?? []).filter(isDriverBehaviorRow));
+                setRows(res.data?.list ?? []);
             }
         } catch (e) {
             setError(e.response?.data?.message || 'Failed to load driver behavior events.');
@@ -1180,89 +1442,68 @@ function DriverBehavior() {
 
     useEffect(() => { search(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const reset = () => {
+    const clear = () => {
         const d = new Date(); d.setHours(0,0,0,0);
-        setDeviceId(''); setEventType(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
-        setRows([]); setError('');
+        const defaults = { from: toLocalInput(d), to: toLocalInput(new Date()) };
+        setDeviceId(''); setAlertType(''); setFrom(defaults.from); setTo(defaults.to);
+        search({ deviceId: '', from: defaults.from, to: defaults.to });
     };
 
-    const byEventType = r => !eventType || classifyDriverBehavior(r)?.[0] === eventType;
-    const filteredLive = liveEvents.filter(r => (!deviceId || r.imei === deviceId) && byEventType(r));
-    const filteredHistorical = rows.filter(byEventType);
+    const byAlertType = r => !alertType || r.name === alertType;
+    const filteredHistorical = rows.filter(byAlertType);
 
-    const deviceName = (imei) => devices.find(d => d.imei === imei)?.deviceName ?? imei;
+    // Historical rows carry deviceName straight from TurboHive's response (device.name); the live
+    // MQTT feed doesn't, so fall back to the locally loaded device list.
+    const resolveDeviceName = (r) => r.deviceName || devices.find(d => d.imei === r.imei)?.deviceName || r.imei;
     const COLS = ['No.', 'Device name', 'IMEI', 'Event Type', 'Speed (km/h)', 'Location', 'Time'];
+    const HIST_COLS = [...COLS, 'Evidence'];
 
-    const filters = (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-            <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
-                <option value="">All devices</option>
-                {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
-            </select>
-            <select value={eventType} onChange={e => setEventType(e.target.value)}
-                style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer' }}>
-                <option value="">All event types</option>
-                {DRIVER_BEHAVIOR_TYPES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-            </select>
-        </div>
-    );
+    const alertTypeOptions = ALERT_TYPE_NAMES.map(n => ({ value: n, label: n }));
+    const deviceOptions = devices.map(d => ({ value: d.imei, label: d.deviceName ?? d.imei }));
 
     return (
         <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <h4 style={{ margin: 0, fontSize: 14, color: '#374151' }}>Live Feed</h4>
-                <MqttBadge connected={mqttConnected} />
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
+                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
+                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
+                    <div>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 6 }}>Time Range</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff' }}>
+                            <span style={{ color: '#9ca3af' }}>🕐</span>
+                            <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
+                                style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                            <span style={{ color: '#9ca3af' }}>-</span>
+                            <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
+                                style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={clear} style={{ padding: '9px 18px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Clear</button>
+                        <button onClick={() => search()} style={{ padding: '9px 22px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+                    </div>
+                </div>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Pushed live from TurboHive's MQTT alert topic as devices report them while this page is open — not a full history." />
-            {filters}
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900, marginBottom: 28 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
-                <tbody>
-                    {filteredLive.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 32, color: '#94a3b8' }}>Waiting for live events…</td></tr>
-                    ) : filteredLive.map((r, i) => (
-                        <tr key={r._key}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{deviceName(r.imei)}</td>
-                            <td style={TD}>{r.imei ?? '—'}</td>
-                            <td style={TD}>{driverBehaviorLabel(r)}</td>
-                            <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
-                            <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
-                            <td style={TD}>{fmtTime(r.timestamp)}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
 
-            <h4 style={{ margin: '0 0 8px', fontSize: 14, color: '#374151' }}>Historical</h4>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <span style={{ color: '#9ca3af' }}>-</span>
-                <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
-            </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
+                <thead><tr>{HIST_COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : filteredHistorical.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : filteredHistorical.map((r, i) => (
                         <tr key={r.id ?? i}>
                             <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{deviceName(r.imei)}</td>
+                            <td style={TD}>{resolveDeviceName(r)}</td>
                             <td style={TD}>{r.imei ?? '—'}</td>
-                            <td style={TD}>{driverBehaviorLabel(r)}</td>
+                            <td style={TD}>{alertLabel(r)}</td>
                             <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
                             <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
                             <td style={TD}>{fmtTime(r.time)}</td>
+                            <td style={TD}><AttachmentLinks attachments={r.attachments} /></td>
                         </tr>
                     ))}
                 </tbody>
@@ -1282,7 +1523,7 @@ function PositioningBattery() {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);
@@ -1360,9 +1601,44 @@ function PositioningBattery() {
     );
 }
 
-// Built from Traccar's GET /api/reports/trips, grouped per device per calendar day — see
-// TraccarController::travelStatisticsReport. Works off motion-detected trips (any device), not
-// strictly OBD-only, but reported the same way an OBD travel summary would be.
+// Built from TurboHive's GET /v3/obd (historical OBD telemetry, max 30-day range, single device
+// per query — see TurboHiveService::getObdData), grouped client-side per calendar day since
+// TurboHive has no dedicated day-summary endpoint. Distance comes from the OBD odometer field
+// (a real vehicle-reported reading, unlike the haversine-summed distance the GNSS-based Trips
+// report has to fall back to), so this only works for OBD-capable devices — same caveat as Fuel
+// Consumption. "Trips" per day is a simple speed-threshold run count (same IDLE_SPEED_KMH used by
+// Parking/Idling/Ignition — referenced inside the function body since IDLE_SPEED_KMH is declared
+// further down this file and this runs at module-init time), not a dedicated TurboHive field.
+function groupObdByDay(points) {
+    const byDay = new Map();
+    for (const p of points) {
+        if (p.gateTime == null) continue;
+        const day = new Date(p.gateTime).toISOString().slice(0, 10);
+        if (!byDay.has(day)) byDay.set(day, []);
+        byDay.get(day).push(p);
+    }
+
+    return [...byDay.entries()].map(([date, dayPoints]) => {
+        const first = dayPoints[0], last = dayPoints[dayPoints.length - 1];
+        const distanceKm = (first.odometer != null && last.odometer != null)
+            ? +(last.odometer - first.odometer).toFixed(2) : null;
+        const durationMinutes = Math.round((last.gateTime - first.gateTime) / 60000);
+        const speeds = dayPoints.map(p => p.vehicleSpeed ?? p.speed).filter(v => v != null);
+        const maxSpeedKmh = speeds.length ? Math.max(...speeds) : null;
+        const avgSpeedKmh = (distanceKm != null && durationMinutes > 0)
+            ? +(distanceKm / (durationMinutes / 60)).toFixed(1) : null;
+
+        let trips = 0, moving = false;
+        for (const p of dayPoints) {
+            const isMoving = (p.vehicleSpeed ?? p.speed ?? 0) > IDLE_SPEED_KMH;
+            if (isMoving && !moving) trips++;
+            moving = isMoving;
+        }
+
+        return { date, distanceKm, durationMinutes, avgSpeedKmh, maxSpeedKmh, trips, points: dayPoints.length };
+    }).sort((a, b) => b.date.localeCompare(a.date));
+}
+
 function TravelStatisticsOBD() {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
@@ -1373,19 +1649,26 @@ function TravelStatisticsOBD() {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTraccarDevices().then(res => setDevices(res.data)).catch(() => {});
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
     }, []);
 
-    const search = async (overrides = {}) => {
-        const f = overrides.from ?? from, t = overrides.to ?? to;
-        const dId = 'deviceId' in overrides ? overrides.deviceId : deviceId;
-        setLoading(true);
+    const search = async () => {
+        if (!deviceId) { setError('Select a device.'); return; }
         setError('');
+        setLoading(true);
         try {
-            const params = { from: new Date(f).toISOString(), to: new Date(t).toISOString() };
-            if (dId) params.deviceId = dId;
-            const res = await api.getTravelStatisticsReport(params);
-            setRows(res.data);
+            const startTime = new Date(from).getTime();
+            const endTime   = new Date(to).getTime();
+            const res = await api.getTurboHiveObdData(deviceId, startTime, endTime, 100);
+            if (res.data?.error) {
+                setError(res.data.error);
+                setRows([]);
+            } else {
+                const points = [...(res.data?.obdData ?? [])].sort((a, b) => (a.gateTime ?? 0) - (b.gateTime ?? 0));
+                setRows(groupObdByDay(points));
+            }
         } catch (e) {
             setError(e.response?.data?.message || 'Failed to load travel statistics report.');
             setRows([]);
@@ -1394,31 +1677,30 @@ function TravelStatisticsOBD() {
         }
     };
 
-    useEffect(() => { search(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
     const reset = () => {
         const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0,0,0,0);
         setDeviceId(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
         setRows([]); setError('');
     };
 
+    const selectedDevice = devices.find(d => d.imei === deviceId);
     const COLS = ['No.','Device name','IMEI','Total Distance (km)','Total Duration','Avg Speed (km/h)','Max Speed (km/h)','Trips','Date'];
 
     return (
         <>
-            <Notice color="#dbeafe" icon="ℹ" text="Built from Traccar's motion-detected trips, grouped per device per day — works for any device, not strictly OBD-only." />
+            <Notice color="#dbeafe" icon="ℹ" text="Built from TurboHive's OBD odometer readings, grouped per day — only OBD-capable devices report this data (max 30-day range per query)." />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    <option value="">Select device</option>
+                    {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
+                </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
-                    <option value="">All devices</option>
-                    {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-                <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
@@ -1431,14 +1713,14 @@ function TravelStatisticsOBD() {
                     ) : rows.length === 0 ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
-                        <tr key={`${r.deviceId}-${r.date}`}>
+                        <tr key={r.date}>
                             <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{r.deviceName ?? '—'}</td>
-                            <td style={TD}>{r.imei ?? '—'}</td>
-                            <td style={TD}>{r.distanceKm}</td>
+                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
+                            <td style={TD}>{deviceId}</td>
+                            <td style={TD}>{r.distanceKm ?? '—'}</td>
                             <td style={TD}>{formatMinutesDuration(r.durationMinutes)}</td>
-                            <td style={TD}>{r.avgSpeedKmh}</td>
-                            <td style={TD}>{r.maxSpeedKmh}</td>
+                            <td style={TD}>{r.avgSpeedKmh ?? '—'}</td>
+                            <td style={TD}>{r.maxSpeedKmh ?? '—'}</td>
                             <td style={TD}>{r.trips}</td>
                             <td style={TD}>{r.date}</td>
                         </tr>
@@ -1512,7 +1794,7 @@ function TrackDetails() {
     const [error,     setError]   = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);
@@ -1752,7 +2034,7 @@ function Replay() {
     const [geofences, setGeofences]            = useState([]);
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 }).then(res => setDevices(res.data?.data ?? [])).catch(() => {});
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 }).then(res => setDevices(res.data?.data ?? [])).catch(() => {});
         api.getGeofences().then(res => setGeofences(res.data)).catch(() => {});
     }, []);
 
@@ -1766,7 +2048,7 @@ function Replay() {
             const endTime   = new Date(to).getTime();
             const [trackRes, eventsRes] = await Promise.all([
                 api.getTurboHiveTrackList(deviceId, startTime, endTime),
-                api.getTurboHiveAlerts({ startTime, endTime, imeis: [deviceId], page: 1, size: 200 }),
+                api.getTurboHiveAlerts({ startTime, endTime, imeis: [deviceId], page: 1, size: 100 }),
             ]);
             if (trackRes.data?.error) {
                 setError(trackRes.data.error);
@@ -1775,7 +2057,7 @@ function Replay() {
             } else {
                 const pts = [...(trackRes.data?.list ?? [])].sort((a, b) => (a.deviceTime ?? 0) - (b.deviceTime ?? 0));
                 setPoints(pts);
-                setBehaviorEvents((eventsRes.data?.list ?? []).filter(isDriverBehaviorRow));
+                setBehaviorEvents(eventsRes.data?.list ?? []);
             }
             setIndex(0);
         } catch (e) {
@@ -1821,7 +2103,7 @@ function Replay() {
     }
 
     const filteredBehavior = alertType
-        ? behaviorEvents.filter(r => classifyDriverBehavior(r)?.[0] === alertType)
+        ? behaviorEvents.filter(r => r.name === alertType)
         : behaviorEvents;
 
     const center = points.length ? [points[0].latitude, points[0].longitude] : REPLAY_DEFAULT_CENTER;
@@ -1866,7 +2148,7 @@ function Replay() {
                     {showBehavior && filteredBehavior.map(r => (
                         r.latitude != null && (
                             <Marker key={r.id} position={[r.latitude, r.longitude]} icon={behaviorIcon}>
-                                <Popup>{driverBehaviorLabel(r)}<br />{fmtTime(r.time)}</Popup>
+                                <Popup>{alertLabel(r)}<br />{fmtTime(r.time)}</Popup>
                             </Marker>
                         )
                     ))}
@@ -1925,10 +2207,13 @@ function Replay() {
 
                             <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <label style={{ color: '#6b7280', fontSize: 12, whiteSpace: 'nowrap' }}>Alert Type</label>
+                                {/* minWidth: 0 stops a flex item from refusing to shrink below its content's
+                                    intrinsic width — without it, a <select> sizes itself to its widest <option>
+                                    (some of the 200+ ALERT_TYPE_NAMES are long), overflowing this fixed-width panel. */}
                                 <select value={alertType} onChange={e => setAlertType(e.target.value)}
-                                    style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '4px 6px' }}>
+                                    style={{ flex: 1, minWidth: 0, maxWidth: '100%', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '4px 6px' }}>
                                     <option value="">Select Alert Type</option>
-                                    {DRIVER_BEHAVIOR_TYPES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                                    {ALERT_TYPE_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
                                 </select>
                             </div>
 
@@ -2181,7 +2466,7 @@ function Trips() {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);
@@ -2278,7 +2563,7 @@ function Overspeed() {
     const [error, setError]         = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);
@@ -2383,7 +2668,7 @@ function Parking() {
     const [error, setError]         = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);
@@ -2491,7 +2776,7 @@ function Idling() {
     const [error, setError]         = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);
@@ -2599,7 +2884,7 @@ function Ignition() {
     const [error, setError]       = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);
@@ -2705,7 +2990,7 @@ function GeoFence() {
     const [error, setError]         = useState('');
 
     useEffect(() => {
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
         api.getGeofences().then(res => setGeofences(res.data)).catch(() => setGeofences([]));
@@ -2831,10 +3116,13 @@ function StateStatistics() {
 /* ══════════════════════════════════════════════════════════════ */
 /*  STATE STATISTICS — Offline / Online                           */
 /* ══════════════════════════════════════════════════════════════ */
-// Built from Traccar's /devices (status, model, phone, lastUpdate) joined with each device's
-// latest /positions row (coordinates/address) — see TraccarController::deviceStatusRows(). Online
-// and Offline share this same shape, differing only in which status bucket the backend returns and
-// whether "Offline Time" is shown.
+// Built from three TurboHive calls merged by imei: GET /v3/devices/page (deviceName/model — see
+// TurboHiveService::getDevices), POST /v3/devices/status/bulk (onlineStatus/lastHeartTime/
+// lastGpsTime/speed — see TurboHiveService::getDeviceStatus), and POST /v3/track/location
+// (latitude/longitude — see TurboHiveService::getPositioningBattery). TurboHive has no SIM/phone/
+// reverse-geocoded-address fields the old Traccar-based version showed, so those columns are
+// dropped; onlineStatus (1 = online) is what buckets a device into Online vs Offline here since
+// TurboHive has no separate per-bucket endpoint the way Traccar's report did.
 function DeviceStatusPage({ online }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
@@ -2847,8 +3135,34 @@ function DeviceStatusPage({ online }) {
         setLoading(true);
         setError('');
         try {
-            const res = online ? await api.getOnlineDevicesReport() : await api.getOfflineDevicesReport();
-            setRows(res.data);
+            const devRes = await api.getTurboHiveTrackableDevices({ page: 1, size: 100 });
+            const deviceList = devRes.data?.data ?? [];
+            setDevices(deviceList);
+
+            const imeis = deviceList.map(d => d.imei);
+            const [statusRes, posRes] = await Promise.all([
+                imeis.length ? api.getTurboHiveDeviceStatus(imeis) : Promise.resolve({ data: [] }),
+                api.getTurboHivePositioningBattery([]).catch(() => ({ data: { list: [] } })),
+            ]);
+            const statusByImei = Object.fromEntries((statusRes.data ?? []).map(s => [s.imei, s]));
+            const posByImei = Object.fromEntries((posRes.data?.list ?? []).map(p => [p.imei, p]));
+
+            const merged = deviceList.map(d => {
+                const s = statusByImei[d.imei] ?? {};
+                const p = posByImei[d.imei] ?? {};
+                return {
+                    imei: d.imei,
+                    deviceName: d.deviceName,
+                    model: d.model,
+                    onlineStatus: s.onlineStatus ?? d.onlineStatus ?? 0,
+                    lastHeartTime: s.lastHeartTime ?? null,
+                    speed: s.speed ?? null,
+                    latitude: p.latitude ?? null,
+                    longitude: p.longitude ?? null,
+                };
+            });
+
+            setRows(merged.filter(r => (online ? r.onlineStatus === 1 : r.onlineStatus !== 1)));
         } catch (e) {
             setError(e.response?.data?.message || `Failed to load ${online ? 'online' : 'offline'} devices.`);
             setRows([]);
@@ -2857,22 +3171,19 @@ function DeviceStatusPage({ online }) {
         }
     };
 
-    useEffect(() => {
-        api.getTraccarDevices().then(res => setDevices(res.data)).catch(() => {});
-        search();
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => { search(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const reset = () => { setDeviceId(''); search(); };
 
-    const filtered = rows.filter(r => !deviceId || String(r.deviceId) === String(deviceId));
+    const filtered = rows.filter(r => !deviceId || r.imei === deviceId);
     const sorted = [...filtered].sort((a, b) => {
         const cmp = (a.deviceName ?? '').localeCompare(b.deviceName ?? '');
         return sortAsc ? cmp : -cmp;
     });
 
     const COLS = online
-        ? ['No.', 'Device Name', 'IMEI', 'Model', 'SIM', 'Phone', 'Coordinates', 'Alert address']
-        : ['No.', 'Device Name', 'IMEI', 'Model', 'SIM', 'Phone', 'Offline Time', 'Coordinates', 'Alert address'];
+        ? ['No.', 'Device Name', 'IMEI', 'Model', 'Speed (km/h)', 'Coordinates', 'Last Heartbeat']
+        : ['No.', 'Device Name', 'IMEI', 'Model', 'Offline Since', 'Coordinates', 'Last Heartbeat'];
 
     return (
         <>
@@ -2880,7 +3191,7 @@ function DeviceStatusPage({ online }) {
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
                     style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 200 }}>
                     <option value="">All devices</option>
-                    {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
@@ -2908,14 +3219,14 @@ function DeviceStatusPage({ online }) {
                         ) : sorted.length === 0 ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : sorted.map((r, i) => (
-                            <tr key={r.deviceId}>
+                            <tr key={r.imei}>
                                 <td style={TD}>{i + 1}</td>
                                 <td style={TD}>{r.deviceName ?? '—'}</td>
                                 <td style={TD}>{r.imei ?? '—'}</td>
                                 <td style={TD}>{r.model ?? '—'}</td>
-                                <td style={TD}>{r.sim ?? '—'}</td>
-                                <td style={TD}>{r.phone ?? '—'}</td>
-                                {!online && <td style={TD}>{fmtTime(r.lastUpdate)}</td>}
+                                {online
+                                    ? <td style={TD}>{r.speed ?? '—'}</td>
+                                    : <td style={TD}>{r.lastHeartTime ? formatDuration(Date.now() - r.lastHeartTime) : '—'}</td>}
                                 <td style={TD}>
                                     {r.latitude != null && r.longitude != null ? (
                                         <a href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} target="_blank" rel="noreferrer" style={{ color: '#3b82f6' }}>
@@ -2923,7 +3234,7 @@ function DeviceStatusPage({ online }) {
                                         </a>
                                     ) : '—'}
                                 </td>
-                                <td style={TD}>{r.address ?? '—'}</td>
+                                <td style={TD}>{fmtTime(r.lastHeartTime)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -2944,45 +3255,13 @@ function OnlinePage() {
 /* ══════════════════════════════════════════════════════════════ */
 /*  ALERT STATISTICS                                              */
 /* ══════════════════════════════════════════════════════════════ */
-// Traccar's real event types (GET /api/notifications/types) — events of type "alarm" carry a
-// sub-type in their Data column (Position.ALARM_* constants), shown alongside the base type.
-const ALERT_TYPE_OPTIONS = [
-    ['commandResult', 'Command result'], ['deviceOnline', 'Status online'],
-    ['deviceUnknown', 'Status unknown'], ['deviceOffline', 'Status offline'],
-    ['deviceInactive', 'Device inactive'], ['queuedCommandSent', 'Queued command sent'],
-    ['deviceMoving', 'Device moving'], ['deviceStopped', 'Device stopped'],
-    ['deviceOverspeed', 'Speed limit exceeded'], ['deviceFuelDrop', 'Fuel drop'],
-    ['deviceFuelIncrease', 'Fuel increase'], ['geofenceEnter', 'Geofence entered'],
-    ['geofenceExit', 'Geofence exited'], ['proximityEnter', 'Linked device nearby'],
-    ['proximityExit', 'Linked device away'], ['unaccompaniedMotion', 'Unaccompanied motion'],
-    ['alarm', 'Alarm'], ['ignitionOn', 'Ignition on'], ['ignitionOff', 'Ignition off'],
-    ['maintenance', 'Maintenance required'], ['driverChanged', 'Driver changed'], ['media', 'Media'],
-];
-const ALERT_TYPE_LABELS = Object.fromEntries(ALERT_TYPE_OPTIONS);
-const ALARM_DATA_LABELS = {
-    general: 'General', sos: 'SOS', vibration: 'Vibration', movement: 'Movement',
-    lowspeed: 'Low Speed', overspeed: 'Overspeed', fallDown: 'Fall Down', lowPower: 'Low Power',
-    lowBattery: 'Low Battery', fault: 'Fault', powerOff: 'Power Off', powerOn: 'Power On',
-    door: 'Door', lock: 'Lock', unlock: 'Unlock', geofence: 'Geofence', geofenceEnter: 'Geofence Enter',
-    geofenceExit: 'Geofence Exit', gpsAntennaCut: 'GPS Antenna Cut', accident: 'Accident', tow: 'Tow',
-    idle: 'Idle', hardAcceleration: 'Hard Acceleration', hardBraking: 'Hard Braking',
-    hardCornering: 'Hard Cornering', jamming: 'Jamming', temperature: 'Temperature', parking: 'Parking',
-    bonnet: 'Bonnet', footBrake: 'Foot Brake', fuelLeak: 'Fuel Leak', tampering: 'Tampering',
-    removing: 'Removing',
-};
-const alertTypeLabel = (type) => ALERT_TYPE_LABELS[type] || humanize(type);
-const alarmDataLabel  = (data) => data ? (ALARM_DATA_LABELS[data] || humanize(data)) : '—';
 const fmtCoords = (lat, lng) => (lat != null && lng != null) ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '—';
 
 function exportAlertsCsv(rows) {
-    const header = ['No.','Device Name','IMEI','Model','Account','Alert Type','Data','Alert Time','Position Time','Speed (km/h)','Coordinates','Alert address'];
+    const header = ['No.','Device Name','IMEI','Alert Type','Speed (km/h)','Alert Time','Coordinates'];
     const lines = [header.join(',')];
     rows.forEach((r, i) => {
-        const cells = [
-            i + 1, r.deviceName, r.imei, r.model, r.account,
-            alertTypeLabel(r.type), alarmDataLabel(r.data), fmtTime(r.eventTime), fmtTime(r.positionTime),
-            r.speed, fmtCoords(r.latitude, r.longitude), r.address,
-        ];
+        const cells = [i + 1, r.deviceName ?? r.imei, r.imei, alertLabel(r), r.speed, fmtTime(r.time), fmtCoords(r.latitude, r.longitude)];
         lines.push(cells.map(c => `"${String(c ?? '—').replace(/"/g, '""')}"`).join(','));
     });
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
@@ -2992,32 +3271,41 @@ function exportAlertsCsv(rows) {
     URL.revokeObjectURL(url);
 }
 
+// Built from TurboHive's GET /v3/alerts/page (see TurboHiveService::getAlerts) — the same endpoint
+// Overspeed and Driver Behavior's historical feed use, but unfiltered by category: every alert type
+// shows up here, using the full ALERT_TYPE_NAMES catalog for the filter (see Driver Behavior for
+// why that's matched client-side against `name` rather than sent as a server-side alertType param).
+// TurboHive has no Model/Account/reverse-geocoded-address fields the old Traccar-based report
+// showed, so those columns are dropped; Evidence reuses the same AttachmentLinks as Driver Behavior.
 function AlertDetails() {
-    const [devices, setDevices]   = useState([]);
-    const [deviceId, setDeviceId] = useState('');
-    const [type, setType]         = useState('');
-    const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
-    const [to, setTo]             = useState(() => toLocalInput(new Date()));
-    const [rows, setRows]         = useState([]);
-    const [loading, setLoading]   = useState(false);
-    const [error, setError]       = useState('');
+    const [devices, setDevices]     = useState([]);
+    const [deviceId, setDeviceId]   = useState('');
+    const [alertType, setAlertType] = useState('');
+    const [from, setFrom]           = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
+    const [to, setTo]               = useState(() => toLocalInput(new Date()));
+    const [rows, setRows]           = useState([]);
+    const [loading, setLoading]     = useState(false);
+    const [error, setError]         = useState('');
 
     useEffect(() => {
-        api.getTraccarDevices().then(res => setDevices(res.data)).catch(() => {});
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
     }, []);
 
-    const search = async (overrides = {}) => {
-        const f = overrides.from ?? from, t = overrides.to ?? to;
-        const dId = 'deviceId' in overrides ? overrides.deviceId : deviceId;
-        const ty  = 'type' in overrides ? overrides.type : type;
+    const search = async () => {
         setLoading(true);
         setError('');
         try {
-            const params = { from: new Date(f).toISOString(), to: new Date(t).toISOString() };
-            if (dId) params.deviceId = dId;
-            if (ty)  params.type = ty;
-            const res = await api.getAlertEvents(params);
-            setRows(res.data);
+            const params = { startTime: new Date(from).getTime(), endTime: new Date(to).getTime(), page: 1, size: 100 };
+            if (deviceId) params.imeis = [deviceId];
+            const res = await api.getTurboHiveAlerts(params);
+            if (res.data?.error) {
+                setError(res.data.error);
+                setRows([]);
+            } else {
+                setRows(res.data?.list ?? []);
+            }
         } catch (e) {
             setError(e.response?.data?.message || 'Failed to load alert events.');
             setRows([]);
@@ -3030,46 +3318,49 @@ function AlertDetails() {
 
     const reset = () => {
         const d = new Date(); d.setHours(0,0,0,0);
-        setDeviceId(''); setType(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
+        setDeviceId(''); setAlertType(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
         setRows([]); setError('');
     };
 
-    const COLS = ['No.','Device Name','IMEI','Model','Account','Alert Type','Data','Alert Time','Position Time','Speed (km/h)','Coordinates','Alert address'];
+    const resolveDeviceName = (r) => r.deviceName || devices.find(d => d.imei === r.imei)?.deviceName || r.imei;
+    const filtered = alertType ? rows.filter(r => r.name === alertType) : rows;
+    const alertTypeOptions = ALERT_TYPE_NAMES.map(n => ({ value: n, label: n }));
+    const deviceOptions = devices.map(d => ({ value: d.imei, label: d.deviceName ?? d.imei }));
+    const COLS = ['No.','Device Name','IMEI','Alert Type','Speed (km/h)','Alert Time','Coordinates','Evidence'];
 
     return (
         <div>
             {/* Filter row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, color: '#374151', whiteSpace: 'nowrap' }}>Alert Time :</span>
-                <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <span style={{ color: '#9ca3af' }}>-</span>
-                <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
-                    <option value="">All devices</option>
-                    {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-                <select value={type} onChange={e => setType(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer' }}>
-                    <option value="">All alert types</option>
-                    {ALERT_TYPE_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                </select>
-                <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="5.5" cy="5.5" r="4"/><line x1="9" y1="9" x2="12" y2="12"/></svg>Search
-                </button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
+                <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 6 }}>Alert Time</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff' }}>
+                        <span style={{ color: '#9ca3af' }}>🕐</span>
+                        <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
+                            style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                        <span style={{ color: '#9ca3af' }}>-</span>
+                        <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
+                            style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                    </div>
+                </div>
+                <SearchSelect label="Devices" placeholder="All devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
+                <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={search} style={{ padding: '9px 22px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="5.5" cy="5.5" r="4"/><line x1="9" y1="9" x2="12" y2="12"/></svg>Search
+                    </button>
+                    <button onClick={reset} style={{ padding: '9px 18px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                </div>
             </div>
             {/* Action row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                    <button onClick={() => exportAlertsCsv(rows)} disabled={!rows.length}
-                        style={{ padding: '6px 14px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: rows.length ? '#374151' : '#cbd5e1', fontSize: 13, cursor: rows.length ? 'pointer' : 'not-allowed' }}>Export</button>
+                    <button onClick={() => exportAlertsCsv(filtered)} disabled={!filtered.length}
+                        style={{ padding: '6px 14px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: filtered.length ? '#374151' : '#cbd5e1', fontSize: 13, cursor: filtered.length ? 'pointer' : 'not-allowed' }}>Export</button>
                 </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
                     <thead>
                         <tr>
                             {COLS.map(c => <th key={c} style={TH}>{c}</th>)}
@@ -3080,22 +3371,18 @@ function AlertDetails() {
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
-                        ) : rows.length === 0 ? (
+                        ) : filtered.length === 0 ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
-                        ) : rows.map((r, i) => (
-                            <tr key={r.id}>
+                        ) : filtered.map((r, i) => (
+                            <tr key={r.id ?? i}>
                                 <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{r.deviceName ?? '—'}</td>
+                                <td style={TD}>{resolveDeviceName(r)}</td>
                                 <td style={TD}>{r.imei ?? '—'}</td>
-                                <td style={TD}>{r.model ?? '—'}</td>
-                                <td style={TD}>{r.account ?? '—'}</td>
-                                <td style={TD}>{alertTypeLabel(r.type)}</td>
-                                <td style={TD}>{alarmDataLabel(r.data)}</td>
-                                <td style={TD}>{fmtTime(r.eventTime)}</td>
-                                <td style={TD}>{fmtTime(r.positionTime)}</td>
+                                <td style={TD}>{alertLabel(r)}</td>
                                 <td style={TD}>{r.speed ?? '—'}</td>
-                                <td style={TD}>{fmtCoords(r.latitude, r.longitude)}</td>
-                                <td style={TD}>{r.address ?? '—'}</td>
+                                <td style={TD}>{fmtTime(r.time)}</td>
+                                <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={TD}><AttachmentLinks attachments={r.attachments} /></td>
                             </tr>
                         ))}
                     </tbody>
@@ -3118,8 +3405,10 @@ const PAGES = {
     'Abnormal Fuel Loss':            AbnormalFuelLoss,
     'Idle Fuel':                     IdleFuel,
     'Fuel Ranking':                  FuelRanking,
+    'Tonne-Km Fuel Analytics':       TonneKmAnalytics,
     'Temperature & Humidity':        TemperatureHumidity,
     'Driver Behavior':               DriverBehavior,
+    'Driver Behavior (Live)':        DriverBehaviorLive,
     'Positioning & Battery':         PositioningBattery,
     'Travel statistics (OBD)':       TravelStatisticsOBD,
     'Track Details':                 TrackDetails,
@@ -3145,6 +3434,21 @@ export default function ReportPage({ reportSection }) {
         <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', fontSize: 14 }}>Select a report from the sidebar.</div>
     ));
 
+    // Reports like Replay render a tall absolutely-positioned overlay on top of the map that grows
+    // once track data loads; some browsers' scroll-anchoring then keeps the viewport pinned near
+    // the bottom of that growth instead of where the user actually was. Force this container back
+    // to the top whenever the selected report changes, so it always opens showing the top of the
+    // page (the map) rather than wherever the previous report happened to leave the scroll.
+    const scrollRef = useRef(null);
+    useEffect(() => {
+        const resetScroll = () => { if (scrollRef.current) scrollRef.current.scrollTop = 0; };
+        resetScroll();
+        // Leaflet adjusts its own layout shortly after mount (tile loading, invalidateSize), which
+        // can re-trigger the scroll jump after the reset above already ran — catch that too.
+        const t = setTimeout(resetScroll, 150);
+        return () => clearTimeout(t);
+    }, [reportSection]);
+
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff' }}>
             {/* Header */}
@@ -3153,7 +3457,7 @@ export default function ReportPage({ reportSection }) {
             </div>
 
             {/* Content */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+            <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
                 <Content />
             </div>
         </div>

@@ -4,9 +4,11 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\DriverCheckinController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\GeofenceController;
 use App\Http\Controllers\TurboHiveController;
+use App\Http\Controllers\VehicleDriverController;
 
 // Public
 Route::post('/login',  [AuthController::class, 'login']);
@@ -25,6 +27,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/clients',     [ClientController::class, 'store']);
     Route::put('/clients/{id}', [ClientController::class, 'update']);
 
+    // Vehicle <-> Driver assignment (by TurboHive IMEI) — a vehicle can have multiple drivers
+    Route::get('/vehicle-drivers/{imei}', [VehicleDriverController::class, 'index']);
+    Route::put('/vehicle-drivers/{imei}', [VehicleDriverController::class, 'sync']);
+
+    // Driver check-ins (RFID/iButton card taps) — captured live via MqttWorker from
+    // {userId}/peri/#, since TurboHive has no REST history endpoint for this data.
+    Route::get('/driver-checkins', [DriverCheckinController::class, 'index']);
+
     // Traccar routes disabled — TurboHive is the primary GPS provider
 
     Route::prefix('turbohive')->group(function () {
@@ -34,6 +44,13 @@ Route::middleware('auth:sanctum')->group(function () {
         // Devices  →  GET /v3/devices/page
         Route::get('/devices',               [TurboHiveController::class, 'devices']);
         Route::post('/devices/status',       [TurboHiveController::class, 'deviceStatus']);
+        Route::post('/devices/import',       [TurboHiveController::class, 'importDevice']);
+        Route::get('/devices/{id}',          [TurboHiveController::class, 'deviceDetail'])->where('id', '[0-9]+');
+        Route::delete('/devices/{id}',       [TurboHiveController::class, 'destroyDevice'])->where('id', '[0-9]+');
+
+        // Device catalog  →  GET /v3/vendors, GET /v3/models
+        Route::get('/vendors',                [TurboHiveController::class, 'vendors']);
+        Route::get('/models',                 [TurboHiveController::class, 'models']);
 
         // Location  →  POST /v3/track/location
         Route::get('/locations',              [TurboHiveController::class, 'allLocations']);

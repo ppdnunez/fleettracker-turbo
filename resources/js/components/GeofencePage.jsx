@@ -229,7 +229,7 @@ export default function GeofencePage({ onBack }) {
 
     useEffect(() => {
         fetchGeofences();
-        api.getTurboHiveDevices({ page: 1, size: 100 })
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
             .then(res => setDevices(res.data?.data ?? []))
             .catch(() => setDevices([]));
     }, []);

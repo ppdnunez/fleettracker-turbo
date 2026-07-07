@@ -39,6 +39,44 @@ class TurboHiveService
         return $body['data'] ?? [];
     }
 
+    public function getDevice(int $id): array
+    {
+        $body = $this->client()->get("/v3/devices/{$id}")->json();
+        return $body['data'] ?? [];
+    }
+
+    /**
+     * Registers a device (already provisioned by the vendor) into this account by IMEI.
+     * Required: imei, manufacturer (vendorCode, e.g. "JIMI"), model (modelCode). Optional:
+     * deviceName, deviceType, protocol. Returns the raw TurboHive envelope — code is anything
+     * but 1000 on failure (2002 already exists, 2006 model not found, 2009 vendor not found,
+     * 4001 quota exceeded, 1202/1203 bad input) — so the caller can surface `message` as-is.
+     */
+    public function importDevice(array $data): array
+    {
+        $payload = array_filter($data, fn ($v) => $v !== null && $v !== '');
+        return $this->client()->post('/v3/devices/import/single', $payload)->json() ?? [];
+    }
+
+    public function deleteDevice(int $id): array
+    {
+        return $this->client()->delete("/v3/devices/{$id}")->json() ?? [];
+    }
+
+    /** Device vendor catalog (id, vendorCode, vendorName, ...) — for the import form's dropdown. */
+    public function getVendors(): array
+    {
+        $body = $this->client()->get('/v3/vendors')->json();
+        return $body['data'] ?? [];
+    }
+
+    /** Device model catalog (id, vendorId, modelCode, modelName, deviceType, protocol, ...). */
+    public function getModels(): array
+    {
+        $body = $this->client()->get('/v3/models')->json();
+        return $body['data'] ?? [];
+    }
+
     // ── Location / Track ────────────────────────────────────────────────────
 
     /**
@@ -210,9 +248,14 @@ class TurboHiveService
     // ── Alerts ──────────────────────────────────────────────────────────────
 
     /**
-     * Flattens dotted-key alert fields (e.g. "alert.time", "device.imei") into plain fields, and
-     * pulls `speed` out of alert.extraInfo's JSON-encoded gpsSpeed when the device reports it
-     * (only observed on some alert types).
+     * Flattens dotted-key alert fields (e.g. "alert.time", "device.imei") into plain fields, pulls
+     * `speed` out of alert.extraInfo's JSON-encoded gpsSpeed when the device reports it (only
+     * observed on some alert types), and normalizes the `attachment` array (dashcam/ADAS evidence
+     * photos/videos, e.g. for Camera Fault or harsh-driving alerts) into plain fields too.
+     *
+     * Accepts TurboHive's documented query params directly via $params: page, size, alertType
+     * (matches alert.type), alertCode (matches alert.code), startTime/endTime (ms timestamps),
+     * imeis (array).
      */
     public function getAlerts(array $params = []): array
     {
@@ -226,19 +269,31 @@ class TurboHiveService
         $list = array_map(function (array $a) {
             $extra = json_decode($a['alert.extraInfo'] ?? '', true) ?: [];
 
+            $attachments = array_map(fn (array $m) => [
+                'id'          => $m['media.id'] ?? null,
+                'channel'     => $m['media.channel'] ?? null,
+                'fileName'    => $m['media.fileName'] ?? null,
+                'fileSize'    => $m['media.fileSize'] ?? null,
+                'url'         => $m['media.storagePath'] ?? null,
+                'captureTime' => $m['media.captureTime'] ?? null,
+            ], $a['attachment'] ?? []);
+
             return [
                 'id'           => $a['alert.id'] ?? null,
                 'imei'         => $a['device.imei'] ?? null,
+                'deviceName'   => $a['device.name'] ?? null,
                 'name'         => $a['alert.name'] ?? null,
                 'description'  => $a['alert.description'] ?? null,
                 'code'         => $a['alert.code'] ?? null,
                 'type'         => $a['alert.type'] ?? null,
+                'status'       => $a['alert.status'] ?? null,
                 'triggerType'  => $a['alert.triggerType'] ?? null,
                 'firingStatus' => $a['alert.firingStatus'] ?? null,
                 'time'         => $a['alert.time'] ?? null,
                 'latitude'     => $a['gnss.lat'] ?? null,
                 'longitude'    => $a['gnss.lng'] ?? null,
                 'speed'        => $extra['gpsSpeed'] ?? null,
+                'attachments'  => $attachments,
             ];
         }, $body['data']['list'] ?? []);
 

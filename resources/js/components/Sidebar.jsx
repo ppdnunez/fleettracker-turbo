@@ -64,14 +64,15 @@ const LogoutSVG = () => (
 
 /* ── nav tree structure ─────────────────────────────────────── */
 const REPORT_DEVICE = [
-    'Internal Battery','External Battery','Fuel Consumption','Current fuel Value',
-    'Temperature & Humidity','Driver Behavior','Positioning & Battery',
+    'Internal Battery','External Battery','Fuel Consumption',
+    'Driver Behavior','Positioning & Battery',
     'Travel statistics (OBD)',
 ];
 const REPORT_MOTION = [
     'Track Details','Replay','Mileage','Trips','Overspeed','Parking','Idling','Ignition','Geo Fence',
 ];
 const REPORT_ALERT = ['Alert Details'];
+const REPORT_LIVE = ['Current fuel Value', 'Temperature & Humidity', 'Driver Behavior (Live)'];
 
 /* ── helpers ─────────────────────────────────────────────────── */
 const EXPANDED_W = 220;
@@ -117,6 +118,8 @@ function SubGroup({ label, items, openKey, activePage, onItemClick, onToggle, si
 }
 
 /* ── main component ─────────────────────────────────────────── */
+// "Route Planning" and "Fleet Report" hidden from the nav temporarily per request — pages/routing
+// are untouched, so re-add the two entries below to bring them back.
 const FLEET_ITEMS = [
     { label: 'Dashboard',       key: 'Dashboard' },
     { label: 'Driver',          key: 'Driver' },
@@ -124,8 +127,8 @@ const FLEET_ITEMS = [
     { label: 'Vehicle Track',   key: 'VehicleTrack' },
     { label: 'Fuel Management', key: 'FuelManagement' },
     { label: 'Check in Record', key: 'CheckIn' },
-    { label: 'Route Planning',  key: 'RoutePlanning' },
-    { label: 'Fleet Report',    key: 'FleetReport' },
+    // { label: 'Route Planning',  key: 'RoutePlanning' },
+    // { label: 'Fleet Report',    key: 'FleetReport' },
 ];
 
 export default function Sidebar({ user, page, setPage, onLogoutClick, open, onToggle, reportSection, setReportSection, fleetPage, setFleetPage }) {
@@ -136,6 +139,7 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
     const [motStatOpen,  setMotStatOpen]  = useState(false);
     const [stateStatOpen,setStateStatOpen]= useState(false);
     const [alertOpen,    setAlertOpen]    = useState(false);
+    const [liveStatOpen, setLiveStatOpen] = useState(false);
 
     const W = open ? EXPANDED_W : COLLAPSED_W;
 
@@ -177,6 +181,11 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
 
                 {open && reportOpen && (
                     <div style={{ marginLeft: 4 }}>
+                        {/* Live Statistic */}
+                        <SubGroup label="Live Statistic" openKey={liveStatOpen} onToggle={() => setLiveStatOpen(o => !o)}
+                            items={REPORT_LIVE} activePage={isReportActive ? reportSection : null}
+                            onItemClick={reportTo} sidebarOpen={open} />
+
                         {/* Device Statistics */}
                         <SubGroup label="Device Statistics" openKey={devStatOpen} onToggle={() => setDevStatOpen(o => !o)}
                             items={REPORT_DEVICE} activePage={isReportActive ? reportSection : null}
@@ -236,9 +245,8 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
                             active={page === 'Groups'}
                             onClick={() => navTo('Groups')} />
                         </>}
-                        <NavItem label="Drivers" depth={1} sidebarOpen={open}
-                            active={page === 'Drivers'}
-                            onClick={() => navTo('Drivers')} />
+                        {/* "Drivers" hidden from the nav per request — DriverPage.jsx/route are untouched.
+                            The functional driver module lives under Fleet -> Driver. */}
                     </div>
                 )}
 

@@ -138,86 +138,141 @@ function PageShell({ title, children }) {
 /*  Fleet Dashboard helpers                                        */
 /* ══════════════════════════════════════════════════════════════ */
 
-function StatCard({ label, value }) {
+function StatCard({ label, value, sub }) {
     return (
         <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 12.5, color: '#6b7280' }}>{label}</span>
-                <button style={{ padding: '2px 8px', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 11, background: '#fff', color: '#6b7280', cursor: 'pointer' }}>This week ▾</button>
-            </div>
+            <div style={{ fontSize: 12.5, color: '#6b7280', marginBottom: 8 }}>{label}</div>
             <div style={{ fontSize: 28, fontWeight: 800, color: '#111827' }}>{value ?? 0}</div>
+            {sub && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{sub}</div>}
         </div>
     );
 }
-function ChartCard({ tabs }) {
-    const [active, setActive] = useState(tabs[0]);
+
+/* Simple solid pie chart (CSS conic-gradient), built from real counts */
+function Donut({ segments }) {
+    const total = segments.reduce((s, seg) => s + seg.count, 0);
+    let acc = 0;
+    const stops = total > 0
+        ? segments.filter(s => s.count > 0).map(seg => {
+            const start = acc;
+            acc += (seg.count / total) * 100;
+            return `${seg.color} ${start}% ${acc}%`;
+        }).join(', ')
+        : '#f1f5f9 0% 100%';
+
     return (
-        <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', gap: 12 }}>
-                    {tabs.map(t => (
-                        <button key={t} onClick={() => setActive(t)} style={{ background: 'none', border: 'none', padding: '0 0 3px', fontSize: 12.5, cursor: 'pointer', color: active === t ? '#3b82f6' : '#9ca3af', borderBottom: active === t ? '2px solid #3b82f6' : '2px solid transparent', fontWeight: active === t ? 600 : 400 }}>{t}</button>
-                    ))}
-                </div>
-                <button style={{ padding: '2px 8px', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 11, background: '#fff', color: '#6b7280', cursor: 'pointer' }}>Last 7 days ▾</button>
-            </div>
-            <div style={{ height: 120, background: '#f8fafc', borderRadius: 8, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', padding: '12px 12px 0', gap: 4 }}>
-                {[0.3,0.5,0.1,0.7,0.4,0.6,0.2].map((h, i) => (
-                    <div key={i} style={{ flex: 1, background: '#dbeafe', borderRadius: '3px 3px 0 0', height: `${h * 60}%`, minHeight: 2 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 110, height: 110, borderRadius: '50%', flexShrink: 0, background: `conic-gradient(${stops})` }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: '#374151' }}>
+                {segments.map(seg => (
+                    <span key={seg.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: '50%', background: seg.color, display: 'inline-block' }} />
+                        {seg.label}<span style={{ color: '#9ca3af' }}>{total > 0 ? `${Math.round(seg.count / total * 100)}%` : '0%'}</span>
+                    </span>
                 ))}
+                {total === 0 && <span style={{ color: '#9ca3af' }}>No data</span>}
             </div>
         </div>
     );
 }
-function ReminderCard() {
-    const [tab, setTab] = useState('Driving license reminder');
+
+const REMINDER_DONUT_COLORS = { Normal: '#3b82f6', Expired: '#ef4444', 'Expiring soon': '#f59e0b' };
+
+/* Real license / safety-sticker expiry status, computed from the actual Driver list — same
+   daysUntil/expiryReminder helpers Driver page uses. */
+function ReminderCard({ drivers }) {
+    const [tab, setTab] = useState('License');
+    const dateField = tab === 'License' ? 'license_expiry' : 'safety_sticker_expiry';
+    const counts = { Normal: 0, Expired: 0, 'Expiring soon': 0 };
+    drivers.forEach(d => {
+        const status = expiryReminder(d[dateField], d.notify_days_before);
+        if (counts[status] !== undefined) counts[status]++;
+    });
+    const segments = Object.entries(counts).map(([label, count]) => ({ label, count, color: REMINDER_DONUT_COLORS[label] }));
+
     return (
         <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 8 }}>Reminder</div>
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                {['Driving license reminder','Insurance reminder'].map(t => (
-                    <button key={t} onClick={() => setTab(t)} style={{ background: 'none', border: 'none', padding: '0 0 3px', fontSize: 12.5, cursor: 'pointer', color: tab === t ? '#3b82f6' : '#9ca3af', borderBottom: tab === t ? '2px solid #3b82f6' : '2px solid transparent' }}>{t}</button>
+                {['License', 'Safety Sticker'].map(t => (
+                    <button key={t} onClick={() => setTab(t)} style={{ background: 'none', border: 'none', padding: '0 0 3px', fontSize: 12.5, cursor: 'pointer', color: tab === t ? '#3b82f6' : '#9ca3af', borderBottom: tab === t ? '2px solid #3b82f6' : '2px solid transparent' }}>{t} reminder</button>
                 ))}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px 0' }}>
-                <svg width="110" height="110" viewBox="0 0 110 110">
-                    <circle cx="55" cy="55" r="44" fill="#3b82f6" opacity="0.1"/>
-                    <circle cx="55" cy="55" r="44" fill="none" stroke="#3b82f6" strokeWidth="24" strokeDasharray="200 76" strokeDashoffset="25" transform="rotate(-90 55 55)"/>
-                    <circle cx="55" cy="55" r="22" fill="#fff"/>
-                </svg>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0' }}>
+                <Donut segments={segments} />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', fontSize: 11.5, color: '#6b7280', marginTop: 6 }}>
-                {[['#3b82f6','Normal'],['#ef4444','Expired'],['#f59e0b','Expiring soon']].map(([c,l]) => (
-                    <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: c }}/>
-                        {l}
-                    </span>
+        </div>
+    );
+}
+
+/* Latest raw TurboHive alerts — real, not a mock list. */
+function RecentAlertsCard({ alerts, devicesByImei }) {
+    return (
+        <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 8 }}>Recent Alerts</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, maxHeight: 190, overflowY: 'auto' }}>
+                {alerts.length === 0 ? (
+                    <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 13, padding: '24px 0' }}>No alerts</p>
+                ) : alerts.slice(0, 6).map(a => (
+                    <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '7px 0', borderBottom: '1px solid #f8fafc', fontSize: 12.5 }}>
+                        <div>
+                            <div style={{ fontWeight: 600, color: '#374151' }}>{a.name || `Code ${a.code}`}</div>
+                            <div style={{ color: '#9ca3af', fontSize: 11.5 }}>{devicesByImei[a.imei]?.deviceName || a.imei}</div>
+                        </div>
+                        <span style={{ color: '#9ca3af', fontSize: 11, whiteSpace: 'nowrap' }}>{a.time ? new Date(a.time).toLocaleString() : '—'}</span>
+                    </div>
                 ))}
             </div>
         </div>
     );
 }
-function AlarmRankingCard() {
-    const [tab, setTab] = useState('Vehicle');
+
+/* Real per-vehicle alert counts (last 100 alerts fetched), not fixed fake plate numbers. */
+function AlarmRankingCard({ alerts, devicesByImei }) {
+    const counts = {};
+    alerts.forEach(a => { counts[a.imei] = (counts[a.imei] || 0) + 1; });
+    const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
     return (
         <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>Alarm statistics ranking</span>
-                <button style={{ padding: '2px 8px', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 11, background: '#fff', color: '#6b7280', cursor: 'pointer' }}>Last 7 days ▾</button>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', marginBottom: 10 }}>Alarm statistics ranking (by vehicle)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr 80px', fontSize: 12, fontWeight: 600, color: '#6b7280', paddingBottom: 6, borderBottom: '1px solid #f1f5f9' }}>
+                <span>Rank</span><span>Vehicle</span><span style={{ textAlign: 'right' }}>Alert Count</span>
             </div>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
-                {['Vehicle','Alarm'].map(t => (
-                    <button key={t} onClick={() => setTab(t)} style={{ background: 'none', border: 'none', padding: '0 0 3px', fontSize: 12.5, cursor: 'pointer', color: tab === t ? '#3b82f6' : '#9ca3af', borderBottom: tab === t ? '2px solid #3b82f6' : '2px solid transparent', fontWeight: tab === t ? 600 : 400 }}>{t}</button>
-                ))}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr 80px', fontSize: 12, fontWeight: 600, color: '#6b7280', paddingBottom: 6, borderBottom: '1px solid #f1f5f9' }}>
-                <span>Ranking</span><span>Number plate</span><span style={{ textAlign: 'right' }}>Alert Times</span>
-            </div>
-            {[['1','TRK-9982',14],['2','TRK-2201',9],['3','TRK-8834',6],['4','TRK-4821',3]].map(([rank, plate, count]) => (
-                <div key={rank} style={{ display: 'grid', gridTemplateColumns: '70px 1fr 80px', fontSize: 13, color: '#374151', padding: '7px 0', borderBottom: '1px solid #f8fafc' }}>
-                    <span>{rank}</span><span>{plate}</span><span style={{ textAlign: 'right', fontWeight: 600 }}>{count}</span>
+            {ranked.length === 0 ? (
+                <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 13, padding: '24px 0' }}>No alerts</p>
+            ) : ranked.map(([imei, count], i) => (
+                <div key={imei} style={{ display: 'grid', gridTemplateColumns: '50px 1fr 80px', fontSize: 13, color: '#374151', padding: '7px 0', borderBottom: '1px solid #f8fafc' }}>
+                    <span>{i + 1}</span><span>{devicesByImei[imei]?.deviceName || imei}</span><span style={{ textAlign: 'right', fontWeight: 600 }}>{count}</span>
                 </div>
             ))}
+        </div>
+    );
+}
+
+/* Today's mileage per vehicle — real, from TurboHive's GET /v3/mileage/realtime (categorical bar,
+   not a fabricated time series — TurboHive's realtime endpoint isn't a date-range report). */
+function MileageBarCard({ mileageRows, devicesByImei }) {
+    const rows = mileageRows.filter(r => (r.todayMileage || 0) > 0);
+    const max = Math.max(1, ...rows.map(r => r.todayMileage || 0));
+    return (
+        <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', marginBottom: 10 }}>Today's Mileage by Vehicle (km)</div>
+            {rows.length === 0 ? (
+                <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 13, padding: '24px 0' }}>No mileage recorded yet today</p>
+            ) : (
+                <div style={{ height: 120, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-start', gap: 10, padding: '12px 4px 0' }}>
+                    {rows.map(r => (
+                        <div key={r.imei} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 46 }}>
+                            <span style={{ fontSize: 11, color: '#374151', marginBottom: 3 }}>{r.todayMileage.toFixed(1)}</span>
+                            <div style={{ width: '100%', background: '#dbeafe', borderRadius: '3px 3px 0 0', height: `${(r.todayMileage / max) * 80}%`, minHeight: 2 }} />
+                            <span style={{ fontSize: 10.5, color: '#9ca3af', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 46 }}>
+                                {devicesByImei[r.imei]?.deviceName || r.imei}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
@@ -226,69 +281,102 @@ function AlarmRankingCard() {
 /*  Fleet sub-pages                                               */
 /* ══════════════════════════════════════════════════════════════ */
 
+const ALARM_TYPE_PALETTE = ['#3b82f6', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6', '#ec4899'];
+
+// Real fleet dashboard — Total Drivers/Vehicles from the local Driver registry and TurboHive's
+// trackable device list; mileage from GET /v3/mileage/realtime; alerts (type ratio, per-vehicle
+// ranking, recent list) from GET /v3/alerts/page. Anything TurboHive has no simple aggregate for
+// (fuel consumption, exercise/idle/parked duration — all would need per-device date-range queries)
+// was removed rather than left as fabricated placeholder data.
 function FleetDashboard() {
+    const [drivers,  setDrivers]  = useState([]);
+    const [vehicles, setVehicles] = useState([]);
+    const [mileage,  setMileage]  = useState([]);
+    const [alerts,   setAlerts]   = useState([]);
+    const [loading,  setLoading]  = useState(true);
+    const [error,    setError]    = useState('');
+
+    useEffect(() => {
+        (async () => {
+            setLoading(true);
+            setError('');
+            try {
+                const [drvRes, vehRes, mileRes, alertRes] = await Promise.all([
+                    api.getFleetDrivers(),
+                    api.getTurboHiveTrackableDevices({ page: 1, size: 100 }),
+                    api.getTurboHiveRealtimeMileage({ page: 1, size: 100 }),
+                    api.getTurboHiveAlerts({ page: 1, size: 100 }),
+                ]);
+                setDrivers(Array.isArray(drvRes.data) ? drvRes.data : []);
+                setVehicles(Array.isArray(vehRes.data?.data) ? vehRes.data.data : []);
+                setMileage(Array.isArray(mileRes.data?.data) ? mileRes.data.data : []);
+                setAlerts(Array.isArray(alertRes.data?.list) ? alertRes.data.list : []);
+            } catch (e) {
+                setError('Failed to load dashboard data.');
+            } finally {
+                setLoading(false);
+            }
+        })();
+    }, []);
+
+    const devicesByImei = {};
+    vehicles.forEach(v => { devicesByImei[v.imei] = v; });
+
+    const onlineCount   = vehicles.filter(v => v.onlineStatus === 1).length;
+    const todayMileage  = mileage.reduce((sum, r) => sum + (r.todayMileage || 0), 0);
+    const sevenDaysAgo  = Date.now() - 7 * 24 * 3600 * 1000;
+    const recentAlerts  = alerts.filter(a => (a.time || 0) >= sevenDaysAgo);
+
+    const alertTypeCounts = {};
+    alerts.forEach(a => { const label = a.name || `Code ${a.code}`; alertTypeCounts[label] = (alertTypeCounts[label] || 0) + 1; });
+    const alertTypeSegments = Object.entries(alertTypeCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([label, count], i) => ({ label, count, color: ALARM_TYPE_PALETTE[i % ALARM_TYPE_PALETTE.length] }));
+
+    if (loading) {
+        return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>Loading dashboard…</div>;
+    }
+
     return (
         <div style={{ flex: 1, overflowY: 'auto', padding: 16, background: '#f8fafc' }}>
-            {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                 <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#111827' }}>Dashboard</h2>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer' }}>
-                    <input type="checkbox" style={{ accentColor: '#3b82f6' }} /> Include sub-account
-                </label>
             </div>
+
+            {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
 
             {/* Hero + stat cards */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <div style={{ flex: 2, background: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)', borderRadius: 10, padding: '20px 24px', color: '#fff', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 40, marginBottom: 10 }}>
-                        <div><div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Total Drivers</div><div style={{ fontSize: 36, fontWeight: 800 }}>6</div></div>
-                        <div><div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Total Vehicles</div><div style={{ fontSize: 36, fontWeight: 800 }}>8</div></div>
+                        <div><div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Total Drivers</div><div style={{ fontSize: 36, fontWeight: 800 }}>{drivers.length}</div></div>
+                        <div><div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Total Vehicles</div><div style={{ fontSize: 36, fontWeight: 800 }}>{vehicles.length}</div></div>
                     </div>
-                    <div style={{ fontSize: 11, opacity: 0.6 }}>Updated to {new Date().toISOString().slice(0,10)}</div>
+                    <div style={{ fontSize: 11, opacity: 0.6 }}>Updated {new Date().toLocaleString()}</div>
                 </div>
-                <StatCard label="driven distance(km)" value="1,248" />
-                <StatCard label="Total driving time(H)" value="86" />
-                <StatCard label="Total Fuel Consumption (L)" value="312.4" />
+                <StatCard label="Online Vehicles" value={`${onlineCount} / ${vehicles.length}`} />
+                <StatCard label="Driven Distance Today (km)" value={todayMileage.toFixed(1)} sub={mileage.length === 0 ? 'No devices with mileage enabled' : undefined} />
+                <StatCard label="Alerts (Last 7 Days)" value={recentAlerts.length} />
             </div>
 
-            {/* Reminder + Motion */}
+            {/* Reminder + Recent Alerts */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                <ReminderCard />
-                <ChartCard tabs={['exercise duration','Idling duration','Parked duration']} />
+                <ReminderCard drivers={drivers} />
+                <RecentAlertsCard alerts={alerts} devicesByImei={devicesByImei} />
             </div>
 
             {/* Alarm type + Alarm ranking */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>Alarm type ratio</span>
-                        <button style={{ padding: '2px 8px', border: '1px solid #e5e7eb', borderRadius: 12, fontSize: 11, background: '#fff', color: '#6b7280', cursor: 'pointer' }}>Last 7 days ▾</button>
-                    </div>
-                    <div style={{ height: 140, display: 'flex', alignItems: 'center', gap: 16, padding: '0 8px' }}>
-                        <svg width="110" height="110" viewBox="0 0 32 32" style={{ flexShrink: 0 }}>
-                            <circle r="16" cx="16" cy="16" fill="#f1f5f9" />
-                            <circle r="8" cx="16" cy="16" fill="transparent" stroke="#3b82f6" strokeWidth="16" strokeDasharray="35.17 64.83" transform="rotate(-90 16 16)" />
-                            <circle r="8" cx="16" cy="16" fill="transparent" stroke="#f59e0b" strokeWidth="16" strokeDasharray="25.12 74.88" strokeDashoffset="-35.17" transform="rotate(-90 16 16)" />
-                            <circle r="8" cx="16" cy="16" fill="transparent" stroke="#ef4444" strokeWidth="16" strokeDasharray="20.10 79.90" strokeDashoffset="-60.29" transform="rotate(-90 16 16)" />
-                            <circle r="8" cx="16" cy="16" fill="transparent" stroke="#10b981" strokeWidth="16" strokeDasharray="20.10 79.90" strokeDashoffset="-80.39" transform="rotate(-90 16 16)" />
-                        </svg>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: '#374151' }}>
-                            {[['#3b82f6','Overspeed','35%'],['#f59e0b','Geo-fence','25%'],['#ef4444','SOS','20%'],['#10b981','Low Battery','20%']].map(([c,l,p]) => (
-                                <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: c, display: 'inline-block' }} />{l}<span style={{ color: '#9ca3af' }}>{p}</span>
-                                </span>
-                            ))}
-                        </div>
-                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', marginBottom: 8 }}>Alarm type ratio</div>
+                    <Donut segments={alertTypeSegments} />
                 </div>
-                <AlarmRankingCard />
+                <AlarmRankingCard alerts={alerts} devicesByImei={devicesByImei} />
             </div>
 
-            {/* Fuel + Mileage */}
-            <div style={{ display: 'flex', gap: 12 }}>
-                <ChartCard tabs={['Total Fuel','Fuel /100km']} />
-                <ChartCard tabs={['Total mileage','Average daily mileage']} />
-            </div>
+            {/* Mileage */}
+            <MileageBarCard mileageRows={mileage} devicesByImei={devicesByImei} />
         </div>
     );
 }
@@ -331,6 +419,7 @@ function DriverFormModal({ driver, onClose, onSaved }) {
         phone: driver?.phone || '',
         license_no: driver?.license_no || '',
         rfid_card_no: driver?.rfid_card_no || '',
+        ibutton_no: driver?.ibutton_no || '',
         register_place: driver?.register_place || '',
         register_date: driver?.register_date ? driver.register_date.slice(0, 10) : '',
         license_expiry: driver?.license_expiry ? driver.license_expiry.slice(0, 10) : '',
@@ -392,6 +481,10 @@ function DriverFormModal({ driver, onClose, onSaved }) {
                     <div style={driverFieldStyle}>
                         <label style={driverLabelStyle}>RFID Card No.</label>
                         <input value={form.rfid_card_no} onChange={set('rfid_card_no')} style={driverInputStyle} />
+                    </div>
+                    <div style={driverFieldStyle}>
+                        <label style={driverLabelStyle}>iButton No.</label>
+                        <input value={form.ibutton_no} onChange={set('ibutton_no')} placeholder="Card number on the iButton fob" style={driverInputStyle} />
                     </div>
                     <div style={driverFieldStyle}>
                         <label style={driverLabelStyle}>Register Place</label>
@@ -482,7 +575,7 @@ function DriverPage() {
         }
     };
 
-    const COLS = ['No.','Driver No.','Driver Name','Phone','License No.','RFID Card No.','Register Place','Register Date','License Expiry','License Status','Driving license reminder','Safety Sticker Expiry','Safety Sticker Status','Status','Action'];
+    const COLS = ['No.','Driver No.','Driver Name','Phone','License No.','RFID Card No.','iButton No.','Register Place','Register Date','License Expiry','License Status','Driving license reminder','Safety Sticker Expiry','Safety Sticker Status','Status','Action'];
 
     return (
         <PageShell title="Driver">
@@ -495,7 +588,7 @@ function DriverPage() {
                 </label>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </FilterBar>
-            <ActionRow left={[<Btn primary onClick={() => setEditing('new')}>Add</Btn>]} />
+            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add</Btn>]} />
 
             {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
 
@@ -519,6 +612,7 @@ function DriverPage() {
                                     <td style={TD}>{d.phone || '—'}</td>
                                     <td style={TD}>{d.license_no || '—'}</td>
                                     <td style={TD}>{d.rfid_card_no || '—'}</td>
+                                    <td style={TD}>{d.ibutton_no || '—'}</td>
                                     <td style={TD}>{d.register_place || '—'}</td>
                                     <td style={TD}>{d.register_date ? d.register_date.slice(0, 10) : '—'}</td>
                                     <td style={TD}>{d.license_expiry ? d.license_expiry.slice(0, 10) : '—'}</td>
@@ -563,25 +657,160 @@ function DriverPage() {
 }
 
 /* Vehicle */
+// Vehicle = a real TurboHive device (same trackable-device list Device Management shows). The
+// only thing this module adds on top is a local (Laravel DB) many-drivers-per-vehicle assignment,
+// via VehicleDriverController / driver_device — a vehicle can have multiple drivers (e.g.
+// shift-based driving), keyed by IMEI since TurboHive devices don't have a local `devices` row.
+function AssignDriversModal({ vehicle, allDrivers, assignedIds, onClose, onSaved }) {
+    const [selected, setSelected] = useState(new Set(assignedIds));
+    const [saving, setSaving]     = useState(false);
+    const [error, setError]       = useState('');
+
+    const toggle = (id) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+    const handleSave = async () => {
+        setSaving(true);
+        setError('');
+        try {
+            const { data } = await api.setVehicleDrivers(vehicle.imei, Array.from(selected));
+            onSaved(data);
+            onClose();
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to save driver assignment.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#fff', borderRadius: 12, width: 380, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Assign Drivers — {vehicle.deviceName || vehicle.imei}</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+                </div>
+
+                <div style={{ flex: 1, overflowY: 'auto', padding: '8px 20px' }}>
+                    {error && <div style={{ margin: '8px 0', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+                    {allDrivers.length === 0 ? (
+                        <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, padding: '24px 0' }}>No drivers yet — add one under Driver first.</p>
+                    ) : allDrivers.map(d => (
+                        <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px', borderBottom: '1px solid #f8fafc', cursor: 'pointer', fontSize: 13.5, color: '#374151' }}>
+                            <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggle(d.id)} style={{ accentColor: '#3b82f6', width: 15, height: 15 }} />
+                            <span style={{ fontWeight: 500 }}>{d.name}</span>
+                            <span style={{ color: '#9ca3af', fontSize: 12 }}>{d.badge_no}</span>
+                        </label>
+                    ))}
+                </div>
+
+                <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 8, flexShrink: 0 }}>
+                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={handleSave} disabled={saving} style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                        {saving ? 'Saving…' : 'Save'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function VehiclePage() {
+    const [vehicles, setVehicles] = useState([]);
+    const [drivers,  setDrivers]  = useState([]);
+    const [loading,  setLoading]  = useState(true);
+    const [error,    setError]    = useState('');
+    const [search,   setSearch]   = useState('');
+    const [assigning, setAssigning] = useState(null); // vehicle object, or null
+
+    const load = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const [vehRes, drvRes] = await Promise.all([api.getTurboHiveTrackableDevices({ page: 1, size: 100 }), api.getFleetDrivers()]);
+            setVehicles(Array.isArray(vehRes.data?.data) ? vehRes.data.data : []);
+            setDrivers(Array.isArray(drvRes.data) ? drvRes.data : []);
+        } catch (e) {
+            setError('Failed to load vehicles.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    // driver names per vehicle, derived from each driver's own `imeis` list — avoids an
+    // assignment lookup per vehicle row.
+    const driversByImei = {};
+    drivers.forEach(d => (d.imeis || []).forEach(imei => {
+        (driversByImei[imei] ||= []).push(d);
+    }));
+
+    const filtered = vehicles.filter(v =>
+        !search ||
+        (v.deviceName || '').toLowerCase().includes(search.toLowerCase()) ||
+        (v.imei || '').includes(search)
+    );
+
     return (
         <PageShell title="Vehicle">
             <FilterBar>
-                <FInput placeholder="IMEI" style={{ width: 150 }} />
-                <FInput placeholder="Vehicle No." style={{ width: 150 }} />
-                <FSel label="Status" placeholder="All Status" options={['Online','Offline','Moving','Parked']} />
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer', paddingBottom: 1 }}>
-                    <input type="checkbox" style={{ accentColor: '#3b82f6' }} />Include sub-account
-                </label>
-                <SearchBtn /><ResetBtn />
+                <FInput placeholder="IMEI or Vehicle Name" style={{ width: 220 }} value={search} onChange={e => setSearch(e.target.value)} />
+                <button onClick={() => setSearch('')} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={load} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh</button>
             </FilterBar>
-            <ActionRow left={[<Btn primary>Add</Btn>, <DropBtn>Batch operations</DropBtn>]} />
-            <EmptyTable cols={['No.','Vehicle No.','Vehicle Type','Max Speed','Device Name','Device IMEI','Status','Insurance status','Insurance reminder','Action']} rows={[
-                [1,'NCR-1234','Sedan','120 km/h','Device 001','123456789012001','Online','Active','Normal','Edit'],
-                [2,'NCR-5678','Van','100 km/h','Device 002','123456789012002','Online','Active','Normal','Edit'],
-                [3,'NCR-9012','Truck','90 km/h','Device 004','123456789012004','Offline','Expired','Expired','Edit'],
-                [4,'NCR-3456','Motorcycle','110 km/h','Device 007','123456789012007','Online','Active','Expiring soon','Edit'],
-            ]} />
+
+            {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
+                    <thead>
+                        <tr>{['No.','Vehicle Name','IMEI','Type','Manufacturer / Model','Status','Online','Drivers','Action'].map(c => <th key={c} style={TH}>{c}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td colSpan={9} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : filtered.length === 0 ? (
+                            <tr><td colSpan={9} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No vehicles found</td></tr>
+                        ) : filtered.map((v, i) => {
+                            const assigned = driversByImei[v.imei] || [];
+                            return (
+                                <tr key={v.id}>
+                                    <td style={TD}>{i + 1}</td>
+                                    <td style={{ ...TD, fontWeight: 500 }}>{v.deviceName || '—'}</td>
+                                    <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{v.imei}</td>
+                                    <td style={TD}>{v.deviceType || '—'}</td>
+                                    <td style={TD}>{[v.manufacturer, v.model].filter(Boolean).join(' / ') || '—'}</td>
+                                    <td style={TD}><Badge text={v.status === 1 ? 'Active' : 'Inactive'} color={v.status === 1 ? '#16a34a' : '#ef4444'} /></td>
+                                    <td style={TD}><Badge text={v.onlineStatus === 1 ? 'Online' : 'Offline'} color={v.onlineStatus === 1 ? '#16a34a' : '#9ca3af'} /></td>
+                                    <td style={TD}>
+                                        {assigned.length === 0 ? <span style={{ color: '#9ca3af' }}>—</span> : assigned.map(d => d.name).join(', ')}
+                                    </td>
+                                    <td style={{ ...TD, whiteSpace: 'nowrap' }}>
+                                        <button onClick={() => setAssigning(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600 }}>Assign Drivers</button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+
+            {assigning && (
+                <AssignDriversModal
+                    vehicle={assigning}
+                    allDrivers={drivers}
+                    assignedIds={(driversByImei[assigning.imei] || []).map(d => d.id)}
+                    onClose={() => setAssigning(null)}
+                    onSaved={(updatedDrivers) => {
+                        const ids = new Set(updatedDrivers.map(d => d.id));
+                        setDrivers(ds => ds.map(d => {
+                            const imeis = new Set(d.imeis || []);
+                            ids.has(d.id) ? imeis.add(assigning.imei) : imeis.delete(assigning.imei);
+                            return { ...d, imeis: Array.from(imeis) };
+                        }));
+                    }}
+                />
+            )}
         </PageShell>
     );
 }
@@ -716,10 +945,13 @@ function VehicleTrackPage() {
 // Functional scope: fuel curve, refuelling, idle fuel, abnormal loss, vehicle/driver/route ranking
 // and tonne-kilometre fuel analytics — core and auxiliary vehicles by priority. "Consumption" and
 // "Current Fuel" reuse the existing Fuel Consumption / Current Fuel Value report modules; the rest
-// (Fuel Curve, Refuelling, Idle Fuel, Abnormal Loss, Ranking) are new Traccar-backed reports added
-// for this module (see TraccarController's Fleet -> Fuel Management section) and surfaced the same
-// way as Vehicle Track: via <ReportPage reportSection="..."/>.
-const FUEL_MANAGEMENT_TABS = ['Fuel Curve', 'Consumption', 'Current Fuel', 'Refuelling', 'Idle Fuel', 'Abnormal Loss', 'Ranking'];
+// (Fuel Curve, Refuelling, Idle Fuel, Abnormal Loss, Ranking, Tonne-Km) are real TurboHive OBD-backed
+// reports (see ReportPage.jsx's "FUEL MANAGEMENT (Fleet)" section) surfaced the same way as Vehicle
+// Track: via <ReportPage reportSection="..."/>. Tonne-Km is its own tab (not just extra columns on
+// Ranking) since the spec calls it out as a distinct analytics capability.
+// "Ranking" and "Tonne-Km" hidden from the tab bar temporarily per request — their report
+// components/routes are untouched, so re-add the two entries below to bring them back.
+const FUEL_MANAGEMENT_TABS = ['Fuel Curve', 'Consumption', 'Current Fuel', 'Refuelling', 'Idle Fuel', 'Abnormal Loss' /*, 'Ranking', 'Tonne-Km' */];
 
 function FuelManagementPage() {
     const [tab, setTab] = useState(FUEL_MANAGEMENT_TABS[0]);
@@ -727,7 +959,7 @@ function FuelManagementPage() {
     return (
         <PageShell title="Fuel Management">
             <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
-                Fuel curve, refuelling, idle fuel, abnormal loss, vehicle/driver/route ranking and tonne-kilometre fuel analytics — core and auxiliary vehicles by priority, powered by Traccar.
+                Fuel curve, refuelling, idle fuel, abnormal loss, vehicle/driver/route ranking and tonne-kilometre fuel analytics — core and auxiliary vehicles by priority, powered by TurboHive OBD data.
             </p>
             <TabBar tabs={FUEL_MANAGEMENT_TABS} active={tab} onChange={setTab} />
 
@@ -738,35 +970,111 @@ function FuelManagementPage() {
             {tab === 'Idle Fuel'     && <EmbeddedReport section="Idle Fuel" />}
             {tab === 'Abnormal Loss' && <EmbeddedReport section="Abnormal Fuel Loss" />}
             {tab === 'Ranking'       && <EmbeddedReport section="Fuel Ranking" height={720} />}
+            {tab === 'Tonne-Km'      && <EmbeddedReport section="Tonne-Km Fuel Analytics" height={720} />}
         </PageShell>
     );
 }
 
 /* Check in Record */
+// Real check-ins (RFID/iButton card taps), not a mock. TurboHive has no REST history endpoint for
+// this — only a live MQTT push ({userId}/peri/{imei}, messageType "dlt") — so MqttWorker persists
+// every one into driver_checkins the moment it arrives (see that migration's docblock) and
+// broadcasts it live over Reverb; this page reads the persisted history and also listens live so
+// new taps appear without a refresh.
 function CheckInPage() {
-    const [tab, setTab] = useState('RFID');
-    const today = new Date().toISOString().slice(0,10);
-    const month = new Date(Date.now() - 30*24*3600*1000).toISOString().slice(0,10);
+    const [checkins, setCheckins] = useState([]);
+    const [devices,  setDevices]  = useState([]);
+    const [loading,  setLoading]  = useState(true);
+    const [error,    setError]    = useState('');
+    const [cardId,   setCardId]   = useState('');
+    const [deviceSearch, setDeviceSearch] = useState('');
+    const [startDate, setStartDate] = useState(new Date(Date.now() - 30*24*3600*1000).toISOString().slice(0,10));
+    const [endDate,   setEndDate]   = useState(new Date().toISOString().slice(0,10));
+
+    const load = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const [ciRes, devRes] = await Promise.all([
+                api.getDriverCheckins({ startDate, endDate: `${endDate} 23:59:59`, size: 100 }),
+                api.getTurboHiveTrackableDevices({ page: 1, size: 100 }),
+            ]);
+            setCheckins(Array.isArray(ciRes.data?.data) ? ciRes.data.data : []);
+            setDevices(Array.isArray(devRes.data?.data) ? devRes.data.data : []);
+        } catch (e) {
+            setError('Failed to load check-ins.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    // Live: new taps land in the list immediately without waiting for a refresh.
+    useEffect(() => {
+        if (!window.Echo) return;
+        const channel = window.Echo.channel('fleet');
+        channel.listen('.driver.checked-in', (data) => {
+            setCheckins(cs => [{
+                id: data.id,
+                imei: data.imei,
+                driver_card_id: data.driverCardId,
+                driver: data.driverId ? { id: data.driverId, name: data.driverName, badge_no: data.driverBadge } : null,
+                checkin_time: new Date(data.checkinTime).toISOString(),
+            }, ...cs]);
+        });
+        return () => window.Echo.leaveChannel('fleet');
+    }, []);
+
+    const devicesByImei = {};
+    devices.forEach(d => { devicesByImei[d.imei] = d; });
+
+    const filtered = checkins.filter(c => {
+        if (cardId && !c.driver_card_id.toLowerCase().includes(cardId.toLowerCase())) return false;
+        if (deviceSearch) {
+            const name = devicesByImei[c.imei]?.deviceName || '';
+            if (!name.toLowerCase().includes(deviceSearch.toLowerCase()) && !c.imei.includes(deviceSearch)) return false;
+        }
+        return true;
+    });
+
     return (
         <PageShell title="Check in Record">
-            <TabBar tabs={['RFID','IBUTTON','KC208','DLT','Dashcam']} active={tab} onChange={setTab} />
+            <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
+                RFID/iButton card taps, captured live from TurboHive's MQTT peripheral stream — TurboHive doesn't retain this data itself, so this is the system of record.
+            </p>
             <FilterBar>
-                <FInput placeholder="Card ID" style={{ width: 120 }} />
-                <FInput placeholder="Device name or IMEI" style={{ width: 220 }} />
-                <FInput placeholder="Driver No." style={{ width: 110 }} />
-                <FInput placeholder="Driver name" style={{ width: 120 }} />
-                <FInput placeholder="Number plate" style={{ width: 120 }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #d1d5db', borderRadius: 6, padding: '7px 10px', fontSize: 13, color: '#374151', background: '#fff' }}>
-                    <span>{month}</span><span style={{ color: '#9ca3af' }}>-</span><span>{today}</span>
-                </div>
-                <SearchBtn />
+                <FInput placeholder="Card ID" style={{ width: 140 }} value={cardId} onChange={e => setCardId(e.target.value)} />
+                <FInput placeholder="Device name or IMEI" style={{ width: 220 }} value={deviceSearch} onChange={e => setDeviceSearch(e.target.value)} />
+                <FInput label="From" type="date" style={{ width: 160 }} value={startDate} onChange={e => setStartDate(e.target.value)} />
+                <FInput label="To" type="date" style={{ width: 160 }} value={endDate} onChange={e => setEndDate(e.target.value)} />
+                <button onClick={load} style={{ padding: '7px 20px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
             </FilterBar>
-            <ActionRow left={[]} />
-            <EmptyTable cols={['No.','Card ID','IMEI','Device name','Driver Name','Number plate','Driver No.','Photo','Operation Time']} rows={[
-                [1,'RFID-88231','123456789012001','Device 001','Juan Dela Cruz','NCR-1234','D-1001','—','2026-06-18 06:00:02'],
-                [2,'RFID-88232','123456789012002','Device 002','Maria Santos','NCR-5678','D-1002','—','2026-06-18 05:45:18'],
-                [3,'RFID-88234','123456789012007','Device 007','Ana Garcia','NCR-3456','D-1004','—','2026-06-18 05:40:55'],
-            ]} />
+
+            {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+                    <thead><tr>{['No.','Card ID','IMEI','Device Name','Driver Name','Driver No.','Check-in Time'].map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td colSpan={7} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : filtered.length === 0 ? (
+                            <tr><td colSpan={7} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No check-ins in range</td></tr>
+                        ) : filtered.map((c, i) => (
+                            <tr key={c.id}>
+                                <td style={TD}>{i + 1}</td>
+                                <td style={{ ...TD, fontFamily: 'monospace' }}>{c.driver_card_id}</td>
+                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{c.imei}</td>
+                                <td style={TD}>{devicesByImei[c.imei]?.deviceName || '—'}</td>
+                                <td style={{ ...TD, fontWeight: 500 }}>{c.driver?.name || <span style={{ color: '#9ca3af', fontWeight: 400 }}>Unrecognized card</span>}</td>
+                                <td style={TD}>{c.driver?.badge_no || '—'}</td>
+                                <td style={{ ...TD, whiteSpace: 'nowrap' }}>{new Date(c.checkin_time).toLocaleString()}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </PageShell>
     );
 }
@@ -845,7 +1153,7 @@ const PAGE_MAP = {
 export default function FleetPage({ fleetPage = 'Dashboard', setFleetPage }) {
     const [accountOpen, setAccountOpen] = useState(true);
     const Content = PAGE_MAP[fleetPage] || FleetDashboard;
-    const showAccountList = !['Driver', 'VehicleTrack', 'FuelManagement'].includes(fleetPage);
+    const showAccountList = !['Dashboard', 'Driver', 'Vehicle', 'VehicleTrack', 'FuelManagement', 'CheckIn'].includes(fleetPage);
 
     return (
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', height: '100%' }}>

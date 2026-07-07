@@ -23,4 +23,9 @@ return [
         'client_id' => env('TURBOHIVE_MQTT_CLIENT_ID', 'fleettrack-worker'),
         'user_id'   => env('TURBOHIVE_MQTT_USER_ID'),
     ],
+
+    // Recipient for geofence enter/exit email alerts — see GeofenceMonitorService::checkPosition
+    'geofence' => [
+        'alert_email' => env('GEOFENCE_ALERT_EMAIL'),
+    ],
 ];

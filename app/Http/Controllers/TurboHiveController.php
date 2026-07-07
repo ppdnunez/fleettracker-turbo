@@ -46,6 +46,42 @@ class TurboHiveController extends Controller
         return response()->json($this->turboHive->getDeviceStatus(array_values($imeis)));
     }
 
+    public function deviceDetail(int $id): JsonResponse
+    {
+        return response()->json($this->turboHive->getDevice($id));
+    }
+
+    public function importDevice(Request $request): JsonResponse
+    {
+        $request->validate([
+            'imei'         => 'required|string',
+            'manufacturer' => 'required|string',
+            'model'        => 'required|string',
+            'deviceName'   => 'nullable|string',
+            'deviceType'   => 'nullable|string',
+            'protocol'     => 'nullable|string',
+        ]);
+
+        return response()->json($this->turboHive->importDevice($request->only([
+            'imei', 'manufacturer', 'model', 'deviceName', 'deviceType', 'protocol',
+        ])));
+    }
+
+    public function destroyDevice(int $id): JsonResponse
+    {
+        return response()->json($this->turboHive->deleteDevice($id));
+    }
+
+    public function vendors(): JsonResponse
+    {
+        return response()->json($this->turboHive->getVendors());
+    }
+
+    public function models(): JsonResponse
+    {
+        return response()->json($this->turboHive->getModels());
+    }
+
     // ── Location ────────────────────────────────────────────────────────────
 
     public function location(string $imei): JsonResponse

@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api.js';
+import ImportDeviceModal from './ImportDeviceModal.jsx';
+import DeviceDetailModal from './DeviceDetailModal.jsx';
+import IButtonConfigModal from './IButtonConfigModal.jsx';
 
 /* ── icons ──────────────────────────────────────────────────── */
 const SearchSVG = () => (
@@ -24,6 +27,24 @@ const ListSVG = () => (
         <circle cx="2.5" cy="4" r="1" fill="currentColor" stroke="none"/>
         <circle cx="2.5" cy="7" r="1" fill="currentColor" stroke="none"/>
         <circle cx="2.5" cy="10" r="1" fill="currentColor" stroke="none"/>
+    </svg>
+);
+const TrashSVG = () => (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2.5 3.5h8M5 3.5V2.3c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.2M3.3 3.5l.5 7.2c0 .5.4.9.9.9h4.6c.5 0 .9-.4.9-.9l.5-7.2"/>
+    </svg>
+);
+const PlusSVG = () => (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <line x1="6.5" y1="1.5" x2="6.5" y2="11.5"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/>
+    </svg>
+);
+const IdCardSVG = () => (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1" y="2.5" width="12" height="9" rx="1.3"/>
+        <circle cx="4.3" cy="6" r="1.15"/>
+        <path d="M2.6 9.3c0-1 .8-1.6 1.7-1.6s1.7.6 1.7 1.6"/>
+        <line x1="7.8" y1="5.2" x2="11.2" y2="5.2"/><line x1="7.8" y1="7" x2="11.2" y2="7"/>
     </svg>
 );
 
@@ -78,20 +99,31 @@ export default function DeviceManagement() {
     const [selected, setSelected] = useState(new Set());
     const [draft,    setDraft]    = useState(EMPTY_DRAFT);
     const [query,    setQuery]    = useState({ page: 1, size: 10 });
+    const [showImport,     setShowImport]     = useState(false);
+    const [detailDeviceId, setDetailDeviceId] = useState(null);
+    const [ibuttonDevice,  setIbuttonDevice]  = useState(null);
+    const [pendingDelete,  setPendingDelete]  = useState(null);
+    const [deleting,       setDeleting]       = useState(false);
+    const [deleteError,    setDeleteError]    = useState('');
 
     const set = (key) => (e) => setDraft(f => ({ ...f, [key]: e.target.value }));
 
     const load = useCallback(async (params) => {
         setLoading(true);
         try {
-            const { data } = await api.getTurboHiveDevices(params);
-            setDevices(Array.isArray(data?.data) ? data.data : []);
-            setMeta({
-                page:       data?.page       ?? 1,
-                size:       data?.size       ?? 10,
-                total:      data?.total      ?? 0,
-                totalPages: data?.totalPages ?? 1,
-            });
+            // TurboHive's own pagination happens before Dashcam-type devices get filtered out (see
+            // api.getTurboHiveTrackableDevices), so naively passing the UI's page/size straight
+            // through would leave `total`/`totalPages` — and this table's page boundaries —
+            // reflecting the unfiltered count. Instead fetch every device matching the current
+            // filters in one request (TurboHive caps page size at 100, well above what this
+            // account has shown so far) and paginate the filtered result ourselves.
+            const { page: uiPage = 1, size: uiSize = 10, ...filters } = params;
+            const { data } = await api.getTurboHiveTrackableDevices({ ...filters, page: 1, size: 100 });
+            const all = Array.isArray(data?.data) ? data.data : [];
+            const totalPages = Math.max(1, Math.ceil(all.length / uiSize));
+            const page = Math.min(uiPage, totalPages);
+            setDevices(all.slice((page - 1) * uiSize, page * uiSize));
+            setMeta({ page, size: uiSize, total: all.length, totalPages });
         } catch (e) {
             console.error('Failed to load TurboHive devices:', e);
         } finally {
@@ -121,6 +153,40 @@ export default function DeviceManagement() {
 
     const goPage = (p) => setQuery(q => ({ ...q, page: p }));
 
+    const viewLocation = async (d) => {
+        try {
+            const { data } = await api.getTurboHiveDeviceLocation(d.imei);
+            const lat = data?.['gnss.lat'] ?? data?.latitude;
+            const lng = data?.['gnss.lng'] ?? data?.longitude;
+            if (lat == null || lng == null) {
+                alert(`No current location available for ${d.deviceName || d.imei}.`);
+                return;
+            }
+            window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank', 'noopener');
+        } catch {
+            alert('Failed to fetch device location.');
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!pendingDelete) return;
+        setDeleting(true);
+        setDeleteError('');
+        try {
+            const { data } = await api.deleteTurboHiveDevice(pendingDelete.id);
+            if (data?.code !== 1000) {
+                setDeleteError(data?.message || 'Failed to delete device.');
+                return;
+            }
+            setPendingDelete(null);
+            load(query);
+        } catch (e) {
+            setDeleteError(e.response?.data?.message || 'Failed to delete device.');
+        } finally {
+            setDeleting(false);
+        }
+    };
+
     const allChecked = devices.length > 0 && devices.every(d => selected.has(d.id));
     const toggleAll  = () => setSelected(allChecked ? new Set() : new Set(devices.map(d => d.id)));
     const toggleOne  = (id) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -139,6 +205,10 @@ export default function DeviceManagement() {
                 <button onClick={() => load(query)} title="Refresh"
                     style={{ ...iconBtn, color: '#6b7280', padding: '6px 9px', border: '1px solid #e5e7eb', borderRadius: 6 }}>
                     <RefreshSVG />
+                </button>
+                <button onClick={() => setShowImport(true)}
+                    style={{ padding: '6px 14px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <PlusSVG /> Import Device
                 </button>
             </div>
 
@@ -237,8 +307,10 @@ export default function DeviceManagement() {
                                     {d.remark || '—'}
                                 </td>
                                 <td style={{ ...TD, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                                    <button style={iconBtn} title="View location"><PinSVG /></button>
-                                    <button style={iconBtn} title="Device detail"><ListSVG /></button>
+                                    <button style={iconBtn} title="View location" onClick={() => viewLocation(d)}><PinSVG /></button>
+                                    <button style={iconBtn} title="Device detail" onClick={() => setDetailDeviceId(d.id)}><ListSVG /></button>
+                                    <button style={iconBtn} title="iButton configuration" onClick={() => setIbuttonDevice(d)}><IdCardSVG /></button>
+                                    <button style={{ ...iconBtn, color: '#ef4444' }} title="Delete device" onClick={() => setPendingDelete(d)}><TrashSVG /></button>
                                 </td>
                             </tr>
                         ))}
@@ -270,6 +342,50 @@ export default function DeviceManagement() {
                     {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} / page</option>)}
                 </select>
             </div>
+
+            {showImport && (
+                <ImportDeviceModal
+                    onClose={() => setShowImport(false)}
+                    onCreated={() => load(query)}
+                />
+            )}
+
+            {detailDeviceId != null && (
+                <DeviceDetailModal
+                    deviceId={detailDeviceId}
+                    onClose={() => setDetailDeviceId(null)}
+                />
+            )}
+
+            {ibuttonDevice && (
+                <IButtonConfigModal
+                    imei={ibuttonDevice.imei}
+                    deviceName={ibuttonDevice.deviceName}
+                    onClose={() => setIbuttonDevice(null)}
+                />
+            )}
+
+            {pendingDelete && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+                    <div style={{ background: '#fff', borderRadius: 12, padding: '24px 28px', width: 320, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', textAlign: 'center' }}>
+                        <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Delete device?</h3>
+                        <p style={{ margin: '0 0 12px', fontSize: 12.5, color: '#64748b' }}>
+                            {pendingDelete.deviceName || pendingDelete.imei} will be removed from your TurboHive account. This cannot be undone.
+                        </p>
+                        {deleteError && <p style={{ margin: '0 0 12px', fontSize: 12, color: '#dc2626' }}>{deleteError}</p>}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => { setPendingDelete(null); setDeleteError(''); }} disabled={deleting}
+                                style={{ flex: 1, padding: 9, borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                                Cancel
+                            </button>
+                            <button onClick={handleDelete} disabled={deleting}
+                                style={{ flex: 1, padding: 9, borderRadius: 7, border: 'none', background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 700, cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.7 : 1 }}>
+                                {deleting ? 'Deleting…' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>

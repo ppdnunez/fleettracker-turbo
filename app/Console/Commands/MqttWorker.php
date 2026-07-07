@@ -3,23 +3,67 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use PhpMqtt\Client\MqttClient;
 use PhpMqtt\Client\ConnectionSettings;
 use App\Events\DevicePositionUpdated;
 use App\Events\DeviceAlertReceived;
 use App\Events\DeviceSensorUpdated;
+use App\Events\DriverCheckedIn;
+use App\Models\Driver;
+use App\Models\DriverCheckin;
 use App\Services\GeofenceMonitorService;
+use Carbon\Carbon;
 
 class MqttWorker extends Command
 {
     protected $signature   = 'mqtt:worker';
     protected $description = 'Listen to TurboHive MQTT and broadcast device positions to frontend';
 
+    /** Reset to the minimum after any connection that survives long enough to be considered
+     *  "healthy", so a brief blip doesn't leave future reconnects waiting on a stale long delay. */
+    private const MIN_BACKOFF_SECONDS = 3;
+    private const MAX_BACKOFF_SECONDS = 60;
+    private const HEALTHY_AFTER_SECONDS = 30;
+
+    /**
+     * php-mqtt/client's own setReconnectAutomatically() only covers transport-level resends, not
+     * every failure mode — a broken socket during publish/loop (DataTransferException) is thrown
+     * all the way up and previously killed this whole command, silently ending live position/
+     * alert/sensor broadcasting until someone noticed and reran `artisan mqtt:worker` by hand.
+     * This wraps the entire connect+subscribe+loop cycle in a retry loop with backoff, so the
+     * command itself never exits on a connection failure — only Ctrl+C / process kill stops it.
+     */
     public function handle(GeofenceMonitorService $geofenceMonitor): void
     {
         $cfg    = config('services.turbohive_mqtt');
         $userId = $cfg['user_id'];
+        $backoff = self::MIN_BACKOFF_SECONDS;
 
+        while (true) {
+            $connectedAt = microtime(true);
+
+            try {
+                $this->connectAndListen($cfg, $userId, $geofenceMonitor);
+            } catch (\Throwable $e) {
+                $this->error("MQTT worker connection lost: {$e->getMessage()}");
+                Log::warning('mqtt:worker connection lost, will reconnect', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            $backoff = (microtime(true) - $connectedAt) >= self::HEALTHY_AFTER_SECONDS
+                ? self::MIN_BACKOFF_SECONDS
+                : min($backoff * 2, self::MAX_BACKOFF_SECONDS);
+
+            $this->warn("Reconnecting in {$backoff}s…");
+            sleep($backoff);
+        }
+    }
+
+    /** @throws \Throwable on any connection/subscribe/loop failure — caller retries. */
+    private function connectAndListen(array $cfg, string $userId, GeofenceMonitorService $geofenceMonitor): void
+    {
         $this->info("Connecting to {$cfg['host']}:{$cfg['port']} as {$cfg['username']}…");
 
         $mqtt = new MqttClient($cfg['host'], (int) $cfg['port'], $cfg['client_id']);
@@ -41,14 +85,17 @@ class MqttWorker extends Command
             if (!$data) return;
 
             $imei = $this->extractImei($topic);
-            broadcast(new DevicePositionUpdated($imei, $data));
+            $event = new DevicePositionUpdated($imei, $data);
+            broadcast($event);
 
-            [$lat, $lng] = $this->extractLatLng($data);
+            $payload = $event->broadcastWith();
+            $lat = $payload['lat'];
+            $lng = $payload['lng'];
             $this->line("[position] {$imei} → " . ($lat ?? '?') . ', ' . ($lng ?? '?'));
 
             if ($lat !== null && $lng !== null) {
-                foreach ($geofenceMonitor->checkPosition($imei, (float) $lat, (float) $lng) as $event) {
-                    $this->line("[geofence] {$imei} → {$event->type} \"{$event->geofence->name}\"");
+                foreach ($geofenceMonitor->checkPosition($imei, (float) $lat, (float) $lng) as $geofenceEvent) {
+                    $this->line("[geofence] {$imei} → {$geofenceEvent->type} \"{$geofenceEvent->geofence->name}\"");
                 }
             }
         });
@@ -84,6 +131,42 @@ class MqttWorker extends Command
         $mqtt->subscribe("{$userId}/sensor/#", $sensorHandler);
         $mqtt->subscribe("{$userId}/obd/#", $sensorHandler);
 
+        // Card reader (RFID/iButton) check-ins. TurboHive has no REST history endpoint for this —
+        // only this live "Unified Peripherals" push (messageType "dlt") — so this is the only
+        // place check-ins are ever captured; see the driver_checkins migration's docblock.
+        $mqtt->subscribe("{$userId}/peri/#", function (string $topic, string $message) {
+            $data = json_decode($message, true);
+            if (!$data) return;
+
+            $msgType = $data['messageType'] ?? $data['msgType'] ?? $data['type'] ?? null;
+            if ($msgType !== 'dlt') return;
+
+            $imei = $this->extractImei($topic);
+            $cardId = $data['driver.license'] ?? $data['driverLicense'] ?? $data['license']
+                ?? $data['driver.cardId'] ?? $data['cardId'] ?? null;
+            if (!$cardId) return;
+
+            $deviceTimeMs = $data['device.time'] ?? $data['deviceTime'] ?? $data['time'] ?? null;
+
+            $driver = Driver::where('rfid_card_no', $cardId)
+                ->orWhere('ibutton_no', $cardId)
+                ->first();
+
+            $checkin = DriverCheckin::create([
+                'imei'           => $imei,
+                'driver_card_id' => $cardId,
+                'driver_id'      => $driver?->id,
+                'checkin_time'   => $deviceTimeMs ? Carbon::createFromTimestampMs($deviceTimeMs) : now(),
+                'server_time'    => now(),
+                'latitude'       => $data['gnss.lat'] ?? $data['latitude'] ?? $data['lat'] ?? null,
+                'longitude'      => $data['gnss.lng'] ?? $data['longitude'] ?? $data['lng'] ?? null,
+            ]);
+
+            broadcast(new DriverCheckedIn($checkin));
+
+            $this->line("[checkin]  {$imei} → card {$cardId}" . ($driver ? " ({$driver->name})" : ' (unrecognized card)'));
+        });
+
         $mqtt->loop(true);
     }
 
@@ -91,44 +174,5 @@ class MqttWorker extends Command
     {
         $parts = explode('/', $topic);
         return end($parts);
-    }
-
-    /**
-     * TurboHive's raw MQTT payload shape isn't documented — mirrors the same fallback chain
-     * resources/js/turbohive-mqtt.js already uses client-side (nested gnss.lat/lng), plus the
-     * flat dotted-key convention ("gnss.lat") TurboHive's REST API uses for normalized location
-     * data (see TurboHiveService::getPositioningBattery/getTrack), in case MQTT reuses it too.
-     */
-    private function extractLatLng(array $data): array
-    {
-        $gnss = is_array($data['gnss'] ?? null) ? $data['gnss'] : [];
-        $coords = is_array($data['coords'] ?? null) ? $data['coords'] : [];
-
-        $lat = $data['latitude']
-            ?? $data['lat']
-            ?? $data['lat_gps']
-            ?? $data['gnss.lat']
-            ?? $data['gnss.latitude']
-            ?? $gnss['latitude']
-            ?? $gnss['lat']
-            ?? $coords['latitude']
-            ?? $coords['lat']
-            ?? null;
-
-        $lng = $data['longitude']
-            ?? $data['lng']
-            ?? $data['lon']
-            ?? $data['long']
-            ?? $data['gnss.lng']
-            ?? $data['gnss.lon']
-            ?? $data['gnss.longitude']
-            ?? $gnss['longitude']
-            ?? $gnss['lng']
-            ?? $gnss['lon']
-            ?? $coords['longitude']
-            ?? $coords['lng']
-            ?? null;
-
-        return [$lat, $lng];
     }
 }

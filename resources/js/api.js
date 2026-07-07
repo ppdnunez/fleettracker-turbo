@@ -30,6 +30,13 @@ export const api = {
     updateFleetDriver:  (id, data) => axios.put(`/api/drivers/${id}`, data),
     deleteFleetDriver:  (id)       => axios.delete(`/api/drivers/${id}`),
 
+    // ── Vehicle <-> Driver assignment (Laravel DB, keyed by TurboHive IMEI) ──
+    getVehicleDrivers: (imei)            => axios.get(`/api/vehicle-drivers/${imei}`),
+    setVehicleDrivers: (imei, driverIds) => axios.put(`/api/vehicle-drivers/${imei}`, { driverIds }),
+
+    // ── Driver check-ins (RFID/iButton taps, captured live via MqttWorker) ──
+    getDriverCheckins: (params) => axios.get('/api/driver-checkins', { params }),
+
     // ── Local client registry (Laravel DB) ──────────────────────────────────
     getClients:   ()         => axios.get('/api/clients'),
     createClient: (data)     => axios.post('/api/clients', data),
@@ -38,8 +45,25 @@ export const api = {
     // ── TurboHive — devices & status ────────────────────────────────────────
     getTurboHiveMqttConfig:   ()         => axios.get('/api/turbohive/mqtt-config'),
     getTurboHiveDevices:      (params)   => axios.get('/api/turbohive/devices', { params }),
+    // Same endpoint, minus Dashcam-type devices — a dashcam is auxiliary hardware attached to an
+    // already-tracked vehicle, not a separate trackable unit, so it shouldn't appear in
+    // vehicle-centric device pickers (reports, dashboard, geofence linking). Device Management
+    // still uses the raw getTurboHiveDevices() above since managing dashcam hardware itself is
+    // legitimate there.
+    getTurboHiveTrackableDevices: async (params) => {
+        const res = await api.getTurboHiveDevices(params);
+        if (Array.isArray(res.data?.data)) {
+            res.data.data = res.data.data.filter(d => d.deviceType !== 'Dashcam');
+        }
+        return res;
+    },
     getTurboHiveDeviceStatus: (imeis)    => axios.post('/api/turbohive/devices/status', { imeis }),
     getTraccarDevices:        ()         => axios.get('/api/turbohive/devices'),
+    getTurboHiveDeviceDetail: (id)       => axios.get(`/api/turbohive/devices/${id}`),
+    importTurboHiveDevice:    (data)     => axios.post('/api/turbohive/devices/import', data),
+    deleteTurboHiveDevice:    (id)       => axios.delete(`/api/turbohive/devices/${id}`),
+    getTurboHiveVendors:      ()         => axios.get('/api/turbohive/vendors'),
+    getTurboHiveModels:       ()         => axios.get('/api/turbohive/models'),
 
     // ── TurboHive — location & track ────────────────────────────────────────
     getTurboHiveAllLocations:   ()                         => axios.get('/api/turbohive/locations'),

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Driver extends Model
 {
@@ -12,6 +13,7 @@ class Driver extends Model
         'phone',
         'license_no',
         'rfid_card_no',
+        'ibutton_no',
         'register_place',
         'register_date',
         'license_expiry',
@@ -23,6 +25,12 @@ class Driver extends Model
         'license_notified_at',
         'sticker_notified_at',
     ];
+
+    /** Vehicles (by TurboHive IMEI) this driver is assigned to. See [[driver_device]]. */
+    public function links(): HasMany
+    {
+        return $this->hasMany(DriverDevice::class);
+    }
 
     protected function casts(): array
     {

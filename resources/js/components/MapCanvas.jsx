@@ -62,7 +62,7 @@ function fmtTime(ts) {
     }
 }
 
-export default function MapCanvas({ devices, selected, onSelect, selectedDevice, mqttConnected }) {
+export default function MapCanvas({ devices, selected, onSelect, selectedDevice, mqttConnected, nextRefreshIn }) {
     return (
         <div style={{ flex: 1, position: 'relative' }}>
             <MapContainer
@@ -140,6 +140,22 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                 }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', display: 'inline-block' }} />
                     MQTT {mqttConnected ? 'Live' : 'Connecting…'}
+                </div>
+            )}
+
+            {/* Device/location list re-poll countdown — catches devices going offline, which MQTT
+                alone can't express (see Dashboard.jsx's fetchLiveDevices polling effect). */}
+            {nextRefreshIn !== undefined && (
+                <div style={{
+                    position: 'absolute', bottom: 46, right: 48, zIndex: 1000,
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '4px 10px', borderRadius: 20,
+                    background: 'rgba(51,65,85,0.85)',
+                    color: '#fff', fontSize: 11, fontWeight: 600,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+                    pointerEvents: 'none',
+                }}>
+                    ⟳ Refresh in {nextRefreshIn}s
                 </div>
             )}
         </div>

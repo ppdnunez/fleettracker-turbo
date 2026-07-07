@@ -3,8 +3,11 @@
 namespace App\Services;
 
 use App\Events\GeofenceEventTriggered;
+use App\Mail\GeofenceAlertMail;
 use App\Models\GeofenceDevice;
 use App\Models\GeofenceEvent;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * Detects geofence enter/exit transitions from live positions. TurboHive has no geofence concept
@@ -16,6 +19,15 @@ use App\Models\GeofenceEvent;
 class GeofenceMonitorService
 {
     private const EARTH_RADIUS_M = 6371000;
+
+    /** Resolved device names by IMEI, kept for the lifetime of this instance (mqtt:worker runs as
+     *  one long-lived process, so this avoids re-querying TurboHive on every geofence transition
+     *  for a device it's already looked up). */
+    private array $deviceNameCache = [];
+
+    public function __construct(private TurboHiveService $turboHive)
+    {
+    }
 
     /**
      * @return GeofenceEvent[] events triggered by this position (usually empty)
@@ -48,10 +60,58 @@ class GeofenceMonitorService
             ]);
 
             broadcast(new GeofenceEventTriggered($event, $geofence->name));
+            $this->sendAlertEmail($event, $geofence->name);
             $triggered[] = $event;
         }
 
         return $triggered;
+    }
+
+    /**
+     * Sent synchronously (GeofenceAlertMail has no ShouldQueue — see its docblock). A delivery
+     * failure (bad SMTP creds, network blip) is logged rather than thrown, since it shouldn't stop
+     * geofence detection/broadcasting for the position that's currently being processed.
+     */
+    private function sendAlertEmail(GeofenceEvent $event, string $geofenceName): void
+    {
+        $to = config('services.geofence.alert_email');
+        if (!$to) {
+            return;
+        }
+
+        try {
+            Mail::to($to)->send(new GeofenceAlertMail($event, $geofenceName, $this->resolveDeviceName($event->imei)));
+        } catch (\Throwable $e) {
+            Log::warning('Geofence alert email failed to send', [
+                'to' => $to,
+                'geofence_event_id' => $event->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /** Looks up the device's friendly name via TurboHive's device list (filtered by IMEI keyword)
+     *  so the email reads e.g. "nextgengps (863800080020265)" instead of just the bare IMEI. Falls
+     *  back to null (email shows IMEI only) if the lookup fails or the device isn't found. */
+    private function resolveDeviceName(string $imei): ?string
+    {
+        if (array_key_exists($imei, $this->deviceNameCache)) {
+            return $this->deviceNameCache[$imei];
+        }
+
+        $name = null;
+        try {
+            $list = $this->turboHive->getDevices(['keyword' => $imei, 'size' => 5])['data'] ?? [];
+            $match = collect($list)->firstWhere('imei', $imei);
+            $name = $match['deviceName'] ?? null;
+        } catch (\Throwable $e) {
+            Log::warning('Failed to resolve device name for geofence alert email', [
+                'imei' => $imei,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $this->deviceNameCache[$imei] = $name;
     }
 
     /** Same WKT subset GeofencePage.jsx draws: CIRCLE (lat lng, radiusMeters) / POLYGON ((lat lng, ...)). */
