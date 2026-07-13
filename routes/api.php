@@ -6,12 +6,19 @@ use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DriverCheckinController;
 use App\Http\Controllers\DriverController;
+use App\Http\Controllers\DriverFaceController;
 use App\Http\Controllers\GeofenceController;
 use App\Http\Controllers\TurboHiveController;
 use App\Http\Controllers\VehicleDriverController;
+use App\Http\Controllers\VehicleMaintenanceController;
+use App\Http\Controllers\VehicleSettingController;
 
 // Public
 Route::post('/login',  [AuthController::class, 'login']);
+
+// Public — JC171 device webhook for captured face photos (UPLOADFACE target). Guarded by a
+// shared-secret path token instead of auth:sanctum since the device can't authenticate as a user.
+Route::post('/turbohive/face-upload/{token}', [DriverFaceController::class, 'upload']);
 
 // Protected
 Route::middleware('auth:sanctum')->group(function () {
@@ -30,6 +37,16 @@ Route::middleware('auth:sanctum')->group(function () {
     // Vehicle <-> Driver assignment (by TurboHive IMEI) — a vehicle can have multiple drivers
     Route::get('/vehicle-drivers/{imei}', [VehicleDriverController::class, 'index']);
     Route::put('/vehicle-drivers/{imei}', [VehicleDriverController::class, 'sync']);
+
+    // Per-vehicle relay-disconnect opt-in (by TurboHive IMEI) — see UnregisteredDriverAlertService
+    Route::get('/vehicle-settings/{imei}', [VehicleSettingController::class, 'show']);
+    Route::put('/vehicle-settings/{imei}', [VehicleSettingController::class, 'update']);
+
+    // Vehicle maintenance schedule/history (Laravel DB, keyed by TurboHive IMEI)
+    Route::get('/vehicle-maintenances', [VehicleMaintenanceController::class, 'index']);
+    Route::post('/vehicle-maintenances', [VehicleMaintenanceController::class, 'store']);
+    Route::put('/vehicle-maintenances/{vehicleMaintenance}', [VehicleMaintenanceController::class, 'update']);
+    Route::delete('/vehicle-maintenances/{vehicleMaintenance}', [VehicleMaintenanceController::class, 'destroy']);
 
     // Driver check-ins (RFID/iButton card taps) — captured live via MqttWorker from
     // {userId}/peri/#, since TurboHive has no REST history endpoint for this data.
@@ -94,5 +111,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Capture  →  POST /v3/video/capture/start
         Route::post('/video/capture',        [TurboHiveController::class, 'captureStart']);
+
+        // Face recognition  →  raw EVENTSET,FACE/AFIF/UPLOADFACE commands via POST /v3/command/send
+        Route::get('/face',             [DriverFaceController::class, 'index']);
+        Route::post('/face/configure',  [DriverFaceController::class, 'configure']);
+        Route::post('/face/enroll',     [DriverFaceController::class, 'enroll']);
+        Route::post('/face/test',       [DriverFaceController::class, 'test']);
+        Route::post('/face/delete',     [DriverFaceController::class, 'destroy']);
+        Route::post('/face/roster',     [DriverFaceController::class, 'roster']);
+        Route::post('/face/upload-url', [DriverFaceController::class, 'setUploadUrl']);
     });
 });

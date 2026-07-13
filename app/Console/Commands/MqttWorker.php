@@ -13,6 +13,7 @@ use App\Events\DriverCheckedIn;
 use App\Models\Driver;
 use App\Models\DriverCheckin;
 use App\Services\GeofenceMonitorService;
+use App\Services\UnregisteredDriverAlertService;
 use Carbon\Carbon;
 
 class MqttWorker extends Command
@@ -26,6 +27,12 @@ class MqttWorker extends Command
     private const MAX_BACKOFF_SECONDS = 60;
     private const HEALTHY_AFTER_SECONDS = 30;
 
+    /** Last known speed per IMEI, updated on every position message and consulted by the peri/dlt
+     *  handler so an unregistered-driver relay disconnect can be gated on the vehicle being
+     *  stationary. Kept in-memory (this command runs as one long-lived process) rather than
+     *  queried from TurboHive on demand, since the live position stream already has it. */
+    private array $lastSpeedByImei = [];
+
     /**
      * php-mqtt/client's own setReconnectAutomatically() only covers transport-level resends, not
      * every failure mode — a broken socket during publish/loop (DataTransferException) is thrown
@@ -34,7 +41,7 @@ class MqttWorker extends Command
      * This wraps the entire connect+subscribe+loop cycle in a retry loop with backoff, so the
      * command itself never exits on a connection failure — only Ctrl+C / process kill stops it.
      */
-    public function handle(GeofenceMonitorService $geofenceMonitor): void
+    public function handle(GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert): void
     {
         $cfg    = config('services.turbohive_mqtt');
         $userId = $cfg['user_id'];
@@ -44,7 +51,7 @@ class MqttWorker extends Command
             $connectedAt = microtime(true);
 
             try {
-                $this->connectAndListen($cfg, $userId, $geofenceMonitor);
+                $this->connectAndListen($cfg, $userId, $geofenceMonitor, $unregisteredDriverAlert);
             } catch (\Throwable $e) {
                 $this->error("MQTT worker connection lost: {$e->getMessage()}");
                 Log::warning('mqtt:worker connection lost, will reconnect', [
@@ -62,7 +69,7 @@ class MqttWorker extends Command
     }
 
     /** @throws \Throwable on any connection/subscribe/loop failure — caller retries. */
-    private function connectAndListen(array $cfg, string $userId, GeofenceMonitorService $geofenceMonitor): void
+    private function connectAndListen(array $cfg, string $userId, GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert): void
     {
         $this->info("Connecting to {$cfg['host']}:{$cfg['port']} as {$cfg['username']}…");
 
@@ -91,6 +98,9 @@ class MqttWorker extends Command
             $payload = $event->broadcastWith();
             $lat = $payload['lat'];
             $lng = $payload['lng'];
+            if (isset($payload['speed'])) {
+                $this->lastSpeedByImei[$imei] = (float) $payload['speed'];
+            }
             $this->line("[position] {$imei} → " . ($lat ?? '?') . ', ' . ($lng ?? '?'));
 
             if ($lat !== null && $lng !== null) {
@@ -100,8 +110,12 @@ class MqttWorker extends Command
             }
         });
 
-        // All device alerts: {userId}/alert/{imei}
-        $mqtt->subscribe("{$userId}/alert/#", function (string $topic, string $message) {
+        // All device alerts: {userId}/alert/{imei}. Also where a JC171 AFIF face check with no
+        // match is expected to surface (unconfirmed alert.code — see
+        // services.turbohive.face_unrecognized_alert_code's docblock); left unarmed until that
+        // code is captured from a real device so nothing fires on a guess.
+        $faceAlertCode = config('services.turbohive.face_unrecognized_alert_code');
+        $mqtt->subscribe("{$userId}/alert/#", function (string $topic, string $message) use ($unregisteredDriverAlert, $faceAlertCode) {
             $data = json_decode($message, true);
             if (!$data) return;
 
@@ -109,8 +123,12 @@ class MqttWorker extends Command
             $event = new DeviceAlertReceived($imei, $data);
             broadcast($event);
 
-            $type = $event->broadcastWith()['type'] ?? 'unknown';
-            $this->line("[alert]    {$imei} → {$type}");
+            $alert = $event->broadcastWith();
+            $this->line("[alert]    {$imei} → " . ($alert['type'] ?? 'unknown'));
+
+            if ($faceAlertCode !== null && $faceAlertCode !== '' && (string) $alert['code'] === (string) $faceAlertCode) {
+                $unregisteredDriverAlert->handle($imei, 'Face recognition — no match', $this->lastSpeedByImei[$imei] ?? null, 'face');
+            }
         });
 
         // OBD/sensor readings (fuel level, etc). TurboHive's MQTT panel offers a "sensor" message
@@ -134,7 +152,7 @@ class MqttWorker extends Command
         // Card reader (RFID/iButton) check-ins. TurboHive has no REST history endpoint for this —
         // only this live "Unified Peripherals" push (messageType "dlt") — so this is the only
         // place check-ins are ever captured; see the driver_checkins migration's docblock.
-        $mqtt->subscribe("{$userId}/peri/#", function (string $topic, string $message) {
+        $mqtt->subscribe("{$userId}/peri/#", function (string $topic, string $message) use ($unregisteredDriverAlert) {
             $data = json_decode($message, true);
             if (!$data) return;
 
@@ -161,6 +179,10 @@ class MqttWorker extends Command
                 'latitude'       => $data['gnss.lat'] ?? $data['latitude'] ?? $data['lat'] ?? null,
                 'longitude'      => $data['gnss.lng'] ?? $data['longitude'] ?? $data['lng'] ?? null,
             ]);
+
+            if (!$driver) {
+                $unregisteredDriverAlert->handle($imei, $cardId, $this->lastSpeedByImei[$imei] ?? null, 'rfid');
+            }
 
             broadcast(new DriverCheckedIn($checkin));
 

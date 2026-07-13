@@ -349,6 +349,80 @@ class TurboHiveService
         return $body ?? [];
     }
 
+    // ── Relay (Immobilizer) ─────────────────────────────────────────────────
+    // RELAY,<state>,<channel># — 1 disconnects (cuts) the relay, 0 reconnects it. Channel is the
+    // relay output number configured on the device (fleet default here is 10). Sent through
+    // sendCommand() like every other raw EVENTSET-style command — see UnregisteredDriverAlertService
+    // for the caller that gates this behind a per-vehicle opt-in and a stationary-vehicle check.
+
+    public function disconnectRelay(string $imei, int $channel = 10): array
+    {
+        return $this->sendCommand($imei, "RELAY,1,{$channel}#");
+    }
+
+    public function connectRelay(string $imei, int $channel = 10): array
+    {
+        return $this->sendCommand($imei, "RELAY,0,{$channel}#");
+    }
+
+    // ── Face Recognition ────────────────────────────────────────────────────
+    // All FACE,*/AFIF commands are raw EVENTSET strings sent through sendCommand() (POST
+    // /v3/command/send) — TurboHive has no dedicated REST endpoint for on-device face
+    // enrollment; JC171 owns the face database locally. Driver identity is passed as
+    // "<driverId>,<name>" (SHOT) or "<driverId>-<name>" (DEL/GET), per the JC171 EVENTSET,FACE spec.
+
+    /**
+     * Configures AFIF facial-recognition sensitivity/timing, or disables it entirely.
+     *
+     * @param int|string $similarity 0-100 match threshold, or 'OFF' to disable recognition.
+     */
+    public function configureFaceRecognition(string $imei, int|string $similarity, int $deadlineSeconds = 180, int $recheckMinutes = 10): array
+    {
+        return $this->sendCommand($imei, "EVENTSET,AFIF,{$similarity},{$deadlineSeconds},{$recheckMinutes}#");
+    }
+
+    /** Captures a live photo on-device and enrolls it under the given driver id/name. */
+    public function enrollDriverFace(string $imei, string $driverId, string $name): array
+    {
+        return $this->sendCommand($imei, "EVENTSET,FACE,SHOT,{$driverId},{$name}#");
+    }
+
+    /** Forces an immediate on-device recognition check — useful for troubleshooting a specific unit. */
+    public function testFaceRecognition(string $imei): array
+    {
+        return $this->sendCommand($imei, 'EVENTSET,FACE,TEST#');
+    }
+
+    /** Deletes one or more enrolled faces. Each entry is formatted "driverId-name". */
+    public function deleteDriverFace(string $imei, array $entries): array
+    {
+        return $this->sendCommand($imei, 'EVENTSET,FACE,DEL,' . implode(',', $entries) . '#');
+    }
+
+    /** Bulk-imports faces from a zipped photo batch at a cloud URL (device pulls it over the TTL link). */
+    public function importFaceBatch(string $imei, string $url): array
+    {
+        return $this->sendCommand($imei, "EVENTSET,FACE,DOWN,{$url}#");
+    }
+
+    /** Requests the device re-upload one driver's stored face photo. Entry formatted "driverId-name". */
+    public function fetchDriverFace(string $imei, string $entry): array
+    {
+        return $this->sendCommand($imei, "EVENTSET,FACE,GET,{$entry}#");
+    }
+
+    /** Requests a full roster dump (TXT, uploaded asynchronously) of every enrolled driver id/name on-device. */
+    public function checkFaceRoster(string $imei): array
+    {
+        return $this->sendCommand($imei, 'EVENTSET,FACE,CHECK#');
+    }
+
+    /** Points the device's captured face photos at our own upload endpoint instead of TurboHive's default. */
+    public function setFaceUploadUrl(string $imei, string $url): array
+    {
+        return $this->sendCommand($imei, "UPLOADFACE,{$url}#");
+    }
+
     // ── Battery ─────────────────────────────────────────────────────────────
 
     /**

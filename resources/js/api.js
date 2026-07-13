@@ -34,6 +34,16 @@ export const api = {
     getVehicleDrivers: (imei)            => axios.get(`/api/vehicle-drivers/${imei}`),
     setVehicleDrivers: (imei, driverIds) => axios.put(`/api/vehicle-drivers/${imei}`, { driverIds }),
 
+    // ── Per-vehicle relay-disconnect opt-in (Laravel DB, keyed by TurboHive IMEI) ──
+    getVehicleSetting: (imei)       => axios.get(`/api/vehicle-settings/${imei}`),
+    setVehicleSetting: (imei, data) => axios.put(`/api/vehicle-settings/${imei}`, data),
+
+    // ── Vehicle maintenance schedule/history (Laravel DB, keyed by TurboHive IMEI) ──
+    getVehicleMaintenances:   ()         => axios.get('/api/vehicle-maintenances'),
+    createVehicleMaintenance: (data)     => axios.post('/api/vehicle-maintenances', data),
+    updateVehicleMaintenance: (id, data) => axios.put(`/api/vehicle-maintenances/${id}`, data),
+    deleteVehicleMaintenance: (id)       => axios.delete(`/api/vehicle-maintenances/${id}`),
+
     // ── Driver check-ins (RFID/iButton taps, captured live via MqttWorker) ──
     getDriverCheckins: (params) => axios.get('/api/driver-checkins', { params }),
 
@@ -95,6 +105,16 @@ export const api = {
         axios.post('/api/turbohive/video/playback/stop', { imei, channel }),
     startTurboHiveCapture:  (imei, channel = 1, type = 1, duration = 5) =>
         axios.post('/api/turbohive/video/capture', { imei, channel, type, duration }),
+
+    // ── TurboHive — driver face enrollment (JC171 EVENTSET,FACE/AFIF) ───────
+    getDriverFaces:          (params = {})                       => axios.get('/api/turbohive/face', { params }),
+    configureFaceRecognition: (imei, similarity, deadlineSeconds = 180, recheckMinutes = 10) =>
+        axios.post('/api/turbohive/face/configure', { imei, similarity, deadlineSeconds, recheckMinutes }),
+    enrollDriverFace:        (driverId, imei)                    => axios.post('/api/turbohive/face/enroll', { driver_id: driverId, imei }),
+    testDriverFace:          (imei)                               => axios.post('/api/turbohive/face/test', { imei }),
+    deleteDriverFace:        (driverId, imei)                     => axios.post('/api/turbohive/face/delete', { driver_id: driverId, imei }),
+    checkFaceRoster:         (imei)                               => axios.post('/api/turbohive/face/roster', { imei }),
+    setFaceUploadUrl:        (imei, url)                          => axios.post('/api/turbohive/face/upload-url', { imei, url }),
 
     // ── Stubs — Traccar-only features removed; return empty so UI won't crash ──
     getTraccarGroups:             empty,

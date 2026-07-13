@@ -526,6 +526,98 @@ function DriverFormModal({ driver, onClose, onSaved }) {
     );
 }
 
+// Face enrollment happens on the JC171 dashcam itself (EVENTSET,FACE,SHOT captures and stores the
+// photo locally on-device) — there's no local photo preview here, just the command trigger and
+// FleetTrack's own tracking of what we last asked the device to do (see DriverFaceController).
+function DriverFaceModal({ driver, onClose }) {
+    const imeis = driver.imeis || [];
+    const [imei, setImei]       = useState(imeis[0] || '');
+    const [faces, setFaces]     = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [busy, setBusy]       = useState(false);
+    const [error, setError]     = useState('');
+    const [message, setMessage] = useState('');
+
+    const fetchFaces = async () => {
+        setLoading(true);
+        try {
+            const res = await api.getDriverFaces({ driver_id: driver.id });
+            setFaces(res.data);
+        } catch (e) {
+            setError('Failed to load face-enrollment status.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { fetchFaces(); }, []);
+
+    const run = async (fn, successMsg) => {
+        if (!imei) { setError('Select a vehicle (IMEI) first.'); return; }
+        setBusy(true); setError(''); setMessage('');
+        try {
+            await fn();
+            setMessage(successMsg);
+            await fetchFaces();
+        } catch (e) {
+            setError(e.response?.data?.message || 'Command failed.');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const current = faces.find(f => f.imei === imei);
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#fff', borderRadius: 12, width: 420, maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Face Enrollment — {driver.name}</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+                </div>
+
+                <div style={{ padding: 20 }}>
+                    {error && <div style={{ marginBottom: 14, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+                    {message && <div style={{ marginBottom: 14, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534' }}>{message}</div>}
+
+                    {imeis.length === 0 ? (
+                        <p style={{ fontSize: 13, color: '#94a3b8' }}>This driver isn't assigned to a vehicle yet — assign one first under Vehicle &gt; Assign Drivers.</p>
+                    ) : (
+                        <>
+                            <div style={{ marginBottom: 14 }}>
+                                <label style={driverLabelStyle}>Vehicle (IMEI)</label>
+                                <select value={imei} onChange={e => setImei(e.target.value)} style={{ ...driverInputStyle, background: '#fff', cursor: 'pointer' }}>
+                                    {imeis.map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                            </div>
+
+                            <div style={{ marginBottom: 14, padding: '10px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12.5 }}>
+                                <strong>Status:</strong> {loading ? 'Loading…' : (current?.status || 'Not enrolled')}
+                                {current?.error && <div style={{ color: '#991b1b', marginTop: 4 }}>{current.error}</div>}
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <button disabled={busy} onClick={() => run(() => api.enrollDriverFace(driver.id, imei), 'Enroll command sent — device will capture a live photo.')}
+                                    style={{ padding: '9px 14px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                                    Enroll Face
+                                </button>
+                                <button disabled={busy} onClick={() => run(() => api.testDriverFace(imei), 'Recognition test triggered.')}
+                                    style={{ padding: '9px 14px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontSize: 13, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                                    Test Recognition Now
+                                </button>
+                                <button disabled={busy} onClick={() => run(() => api.deleteDriverFace(driver.id, imei), 'Delete command sent.')}
+                                    style={{ padding: '9px 14px', borderRadius: 7, border: '1.5px solid #fecaca', background: '#fff', color: '#ef4444', fontSize: 13, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                                    Delete Enrolled Face
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // FleetTrack-local driver registry (Approach 2): GET/POST/PUT/DELETE /api/drivers, which keeps a
 // matching Traccar driver in sync server-side (DriverController) so the device<->driver link still
 // works through Traccar elsewhere in the app. License/Safety Sticker status badges are computed
@@ -540,6 +632,7 @@ function DriverPage() {
     const [expiredOnly, setExpiredOnly] = useState(false);
     const [editing, setEditing] = useState(null); // driver object, 'new', or null
     const [pendingDeleteId, setPendingDeleteId] = useState(null);
+    const [faceDriver, setFaceDriver] = useState(null); // driver object, or null
 
     const fetchDrivers = async () => {
         setLoading(true);
@@ -623,6 +716,7 @@ function DriverPage() {
                                     <td style={TD}>{d.status}</td>
                                     <td style={{ ...TD, whiteSpace: 'nowrap' }}>
                                         <button onClick={() => setEditing(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Edit</button>
+                                        <button onClick={() => setFaceDriver(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Face</button>
                                         <button onClick={() => setPendingDeleteId(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Delete</button>
                                     </td>
                                 </tr>
@@ -638,6 +732,10 @@ function DriverPage() {
                     onClose={() => setEditing(null)}
                     onSaved={() => { setEditing(null); fetchDrivers(); }}
                 />
+            )}
+
+            {faceDriver && (
+                <DriverFaceModal driver={faceDriver} onClose={() => setFaceDriver(null)} />
             )}
 
             {pendingDeleteId && (
@@ -714,6 +812,113 @@ function AssignDriversModal({ vehicle, allDrivers, assignedIds, onClose, onSaved
     );
 }
 
+// Per-vehicle settings, keyed by TurboHive IMEI (see VehicleSettingController):
+// - Relay opt-in: when armed, an unregistered RFID/iButton card tap also sends a relay disconnect
+//   (immobilizer) command — but only while the vehicle is confirmed stationary (see
+//   UnregisteredDriverAlertService on the backend). Off by default since immobilizing a vehicle is
+//   high-impact; an email alert always fires regardless of this setting.
+// - Fuel Rate / Tank Capacity: inputs for the Fuel Management > Consumption tab's rate-based and
+//   sensor-based methods (see ReportPage.jsx's FuelConsumption component) — a vehicle without
+//   these set just can't use that particular method yet.
+function VehicleSettingsModal({ vehicle, onClose }) {
+    const [enabled, setEnabled]   = useState(false);
+    const [channel, setChannel]   = useState(10);
+    const [fuelRate, setFuelRate] = useState('');
+    const [tankCapacity, setTankCapacity] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving]   = useState(false);
+    const [error, setError]     = useState('');
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await api.getVehicleSetting(vehicle.imei);
+                setEnabled(!!res.data.relay_disconnect_enabled);
+                setChannel(res.data.relay_channel ?? 10);
+                setFuelRate(res.data.fuel_rate_l_per_100km ?? '');
+                setTankCapacity(res.data.fuel_tank_capacity_liters ?? '');
+            } catch (e) {
+                setError('Failed to load vehicle settings.');
+            } finally {
+                setLoading(false);
+            }
+        })();
+    }, [vehicle.imei]);
+
+    const handleSave = async () => {
+        setSaving(true);
+        setError('');
+        try {
+            await api.setVehicleSetting(vehicle.imei, {
+                relay_disconnect_enabled: enabled,
+                relay_channel: Number(channel) || 10,
+                fuel_rate_l_per_100km: fuelRate === '' ? null : Number(fuelRate),
+                fuel_tank_capacity_liters: tankCapacity === '' ? null : Number(tankCapacity),
+            });
+            onClose();
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to save vehicle settings.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#fff', borderRadius: 12, width: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Vehicle Settings — {vehicle.deviceName || vehicle.imei}</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+                </div>
+
+                <div style={{ padding: 20 }}>
+                    {error && <div style={{ marginBottom: 14, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+                    {loading ? (
+                        <p style={{ fontSize: 13, color: '#94a3b8' }}>Loading…</p>
+                    ) : (
+                        <>
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} style={{ accentColor: '#3b82f6', width: 16, height: 16, marginTop: 2 }} />
+                                <span style={{ fontSize: 13, color: '#374151' }}>
+                                    <strong>Disconnect relay on unregistered driver tap.</strong><br />
+                                    <span style={{ fontSize: 12, color: '#6b7280' }}>Only fires while the vehicle is stationary. An email alert is always sent, whether or not this is enabled.</span>
+                                </span>
+                            </label>
+
+                            <div style={{ ...driverFieldStyle, marginBottom: 16 }}>
+                                <label style={driverLabelStyle}>Relay Channel</label>
+                                <input type="number" min="1" max="255" value={channel} onChange={e => setChannel(e.target.value)} style={{ ...driverInputStyle, maxWidth: 120 }} />
+                            </div>
+
+                            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                                <div style={driverFieldStyle}>
+                                    <label style={driverLabelStyle}>Fuel Rate (L/100km)</label>
+                                    <input type="number" min="0" step="0.1" placeholder="e.g. 12.5" value={fuelRate} onChange={e => setFuelRate(e.target.value)} style={driverInputStyle} />
+                                </div>
+                                <div style={driverFieldStyle}>
+                                    <label style={driverLabelStyle}>Tank Capacity (L)</label>
+                                    <input type="number" min="0" step="0.1" placeholder="e.g. 80" value={tankCapacity} onChange={e => setTankCapacity(e.target.value)} style={driverInputStyle} />
+                                </div>
+                                <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: 11.5, color: '#9ca3af' }}>
+                                    Used by Fuel Management &gt; Consumption's "Fuel Rate" and "Fuel Sensor" methods.
+                                </p>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={handleSave} disabled={saving || loading} style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: (saving || loading) ? 'not-allowed' : 'pointer' }}>
+                        {saving ? 'Saving…' : 'Save'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function VehiclePage() {
     const [vehicles, setVehicles] = useState([]);
     const [drivers,  setDrivers]  = useState([]);
@@ -721,6 +926,7 @@ function VehiclePage() {
     const [error,    setError]    = useState('');
     const [search,   setSearch]   = useState('');
     const [assigning, setAssigning] = useState(null); // vehicle object, or null
+    const [vehicleSettingsFor, setVehicleSettingsFor] = useState(null); // vehicle object, or null
 
     const load = async () => {
         setLoading(true);
@@ -786,7 +992,8 @@ function VehiclePage() {
                                         {assigned.length === 0 ? <span style={{ color: '#9ca3af' }}>—</span> : assigned.map(d => d.name).join(', ')}
                                     </td>
                                     <td style={{ ...TD, whiteSpace: 'nowrap' }}>
-                                        <button onClick={() => setAssigning(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600 }}>Assign Drivers</button>
+                                        <button onClick={() => setAssigning(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Assign Drivers</button>
+                                        <button onClick={() => setVehicleSettingsFor(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: 12.5, fontWeight: 600 }}>Vehicle Settings</button>
                                     </td>
                                 </tr>
                             );
@@ -810,6 +1017,10 @@ function VehiclePage() {
                         }));
                     }}
                 />
+            )}
+
+            {vehicleSettingsFor && (
+                <VehicleSettingsModal vehicle={vehicleSettingsFor} onClose={() => setVehicleSettingsFor(null)} />
             )}
         </PageShell>
     );
@@ -1135,12 +1346,318 @@ function FleetReportPage() {
     );
 }
 
+/* Vehicle Maintenance */
+// Local (Laravel DB) maintenance schedule/history per vehicle, keyed by TurboHive IMEI — same
+// "Approach 2" convention as Driver/Vehicle Settings above (vehicles have no local `devices` row).
+// Status badge is computed client-side from due_date/due_odometer_km vs. today/current mileage —
+// mirrors the license/sticker expiry badges in DriverPage. The backend's
+// vehicle-maintenance:notify-due scheduled command (routes/console.php) independently emails
+// registered users once a record enters its notify window; this page is just the CRUD surface.
+const MAINTENANCE_STATUS_COLOR = { Overdue: '#ef4444', 'Due Soon': '#f59e0b', Scheduled: '#3b82f6', Completed: '#16a34a', Cancelled: '#9ca3af' };
+
+function maintenanceDaysUntil(dateStr) {
+    if (!dateStr) return null;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return Math.round((new Date(dateStr) - today) / 86400000);
+}
+
+function maintenanceDisplayStatus(record, currentOdometer) {
+    if (record.status !== 'Scheduled') return record.status;
+
+    const days = maintenanceDaysUntil(record.due_date);
+    if (days != null && days < 0) return 'Overdue';
+    if (days != null && days <= (record.notify_days_before ?? 14)) return 'Due Soon';
+
+    if (record.due_odometer_km != null && currentOdometer != null) {
+        const remaining = Number(record.due_odometer_km) - currentOdometer;
+        if (remaining < 0) return 'Overdue';
+        if (remaining <= (record.notify_km_before ?? 500)) return 'Due Soon';
+    }
+
+    return 'Scheduled';
+}
+
+const maintFieldStyle = { display: 'flex', flexDirection: 'column', gap: 4 };
+const maintInputStyle = { padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box', width: '100%' };
+const maintLabelStyle = { fontSize: 11.5, color: '#6b7280', fontWeight: 600 };
+
+function VehicleMaintenanceFormModal({ record, vehicles, onClose, onSaved }) {
+    const isNew = !record;
+    const [form, setForm] = useState({
+        imei: record?.imei || '',
+        maintenance_type: record?.maintenance_type || '',
+        description: record?.description || '',
+        status: record?.status || 'Scheduled',
+        due_date: record?.due_date ? record.due_date.slice(0, 10) : '',
+        due_odometer_km: record?.due_odometer_km ?? '',
+        notify_days_before: record?.notify_days_before ?? '',
+        notify_km_before: record?.notify_km_before ?? '',
+        completed_date: record?.completed_date ? record.completed_date.slice(0, 10) : '',
+        completed_odometer_km: record?.completed_odometer_km ?? '',
+        cost: record?.cost ?? '',
+        vendor: record?.vendor || '',
+        notes: record?.notes || '',
+    });
+    const [saving, setSaving] = useState(false);
+    const [error, setError]   = useState('');
+
+    const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+
+    const handleSave = async () => {
+        if (!form.imei || !form.maintenance_type.trim()) { setError('Vehicle and Maintenance Type are required.'); return; }
+        setSaving(true);
+        setError('');
+        const numOrNull = (v) => (v === '' ? null : Number(v));
+        const payload = {
+            ...form,
+            due_odometer_km: numOrNull(form.due_odometer_km),
+            notify_days_before: numOrNull(form.notify_days_before),
+            notify_km_before: numOrNull(form.notify_km_before),
+            completed_odometer_km: numOrNull(form.completed_odometer_km),
+            cost: numOrNull(form.cost),
+            due_date: form.due_date || null,
+            completed_date: form.completed_date || null,
+        };
+        try {
+            if (isNew) {
+                await api.createVehicleMaintenance(payload);
+            } else {
+                await api.updateVehicleMaintenance(record.id, payload);
+            }
+            onSaved();
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to save maintenance record.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>{isNew ? 'New Maintenance Record' : 'Edit Maintenance Record'}</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+                </div>
+
+                <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    {error && <div style={{ gridColumn: '1 / -1', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Vehicle *</label>
+                        <select value={form.imei} onChange={set('imei')} disabled={!isNew} style={{ ...maintInputStyle, background: isNew ? '#fff' : '#f3f4f6', cursor: isNew ? 'pointer' : 'default' }}>
+                            <option value="">Select vehicle</option>
+                            {vehicles.map(v => <option key={v.imei} value={v.imei}>{v.deviceName ?? v.imei}</option>)}
+                        </select>
+                    </div>
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Maintenance Type *</label>
+                        <input value={form.maintenance_type} onChange={set('maintenance_type')} placeholder="e.g. Oil Change" style={maintInputStyle} />
+                    </div>
+
+                    <div style={{ ...maintFieldStyle, gridColumn: '1 / -1' }}>
+                        <label style={maintLabelStyle}>Description</label>
+                        <input value={form.description} onChange={set('description')} style={maintInputStyle} />
+                    </div>
+
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Status</label>
+                        <select value={form.status} onChange={set('status')} style={{ ...maintInputStyle, background: '#fff', cursor: 'pointer' }}>
+                            <option>Scheduled</option>
+                            <option>Completed</option>
+                            <option>Cancelled</option>
+                        </select>
+                    </div>
+                    <div />
+
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Due Date</label>
+                        <input type="date" value={form.due_date} onChange={set('due_date')} style={maintInputStyle} />
+                    </div>
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Due Odometer (km)</label>
+                        <input type="number" min="0" value={form.due_odometer_km} onChange={set('due_odometer_km')} style={maintInputStyle} />
+                    </div>
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Notify Days Before</label>
+                        <input type="number" min="1" placeholder="Default 14" value={form.notify_days_before} onChange={set('notify_days_before')} style={maintInputStyle} />
+                    </div>
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Notify Km Before</label>
+                        <input type="number" min="1" placeholder="Default 500" value={form.notify_km_before} onChange={set('notify_km_before')} style={maintInputStyle} />
+                    </div>
+
+                    <div style={{ gridColumn: '1 / -1', borderTop: '1px solid #f1f5f9', paddingTop: 14, marginTop: 2 }}>
+                        <p style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>Completion</p>
+                    </div>
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Completed Date</label>
+                        <input type="date" value={form.completed_date} onChange={set('completed_date')} style={maintInputStyle} />
+                    </div>
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Completed Odometer (km)</label>
+                        <input type="number" min="0" value={form.completed_odometer_km} onChange={set('completed_odometer_km')} style={maintInputStyle} />
+                    </div>
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Cost</label>
+                        <input type="number" min="0" step="0.01" value={form.cost} onChange={set('cost')} style={maintInputStyle} />
+                    </div>
+                    <div style={maintFieldStyle}>
+                        <label style={maintLabelStyle}>Vendor</label>
+                        <input value={form.vendor} onChange={set('vendor')} style={maintInputStyle} />
+                    </div>
+                    <div style={{ ...maintFieldStyle, gridColumn: '1 / -1' }}>
+                        <label style={maintLabelStyle}>Notes</label>
+                        <input value={form.notes} onChange={set('notes')} style={maintInputStyle} />
+                    </div>
+                </div>
+
+                <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={handleSave} disabled={saving} style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                        {saving ? 'Saving…' : 'Save'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function VehicleMaintenancePage() {
+    const [records, setRecords]   = useState([]);
+    const [vehicles, setVehicles] = useState([]);
+    const [odometerByImei, setOdometerByImei] = useState({});
+    const [loading, setLoading]   = useState(true);
+    const [error, setError]       = useState('');
+    const [search, setSearch]     = useState('');
+    const [statusFilter, setStatusFilter] = useState('');
+    const [editing, setEditing]   = useState(null); // record object, 'new', or null
+    const [pendingDeleteId, setPendingDeleteId] = useState(null);
+
+    const load = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const [recRes, vehRes, mileageRes] = await Promise.all([
+                api.getVehicleMaintenances(),
+                api.getTurboHiveTrackableDevices({ page: 1, size: 100 }),
+                api.getTurboHiveRealtimeMileage({ page: 1, size: 100 }),
+            ]);
+            setRecords(recRes.data ?? []);
+            setVehicles(Array.isArray(vehRes.data?.data) ? vehRes.data.data : []);
+            const byImei = {};
+            (mileageRes.data?.data ?? []).forEach(m => { if (m.imei) byImei[m.imei] = Number(m.totalMileage ?? 0); });
+            setOdometerByImei(byImei);
+        } catch (e) {
+            setError('Failed to load vehicle maintenance records.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const vehiclesByImei = {};
+    vehicles.forEach(v => { vehiclesByImei[v.imei] = v; });
+
+    const rows = records.map(r => ({ ...r, displayStatus: maintenanceDisplayStatus(r, odometerByImei[r.imei]) }));
+
+    const filtered = rows.filter(r => {
+        const deviceName = vehiclesByImei[r.imei]?.deviceName || r.imei;
+        if (search && !(deviceName.toLowerCase().includes(search.toLowerCase()) || r.maintenance_type.toLowerCase().includes(search.toLowerCase()))) return false;
+        if (statusFilter && r.displayStatus !== statusFilter) return false;
+        return true;
+    });
+
+    const handleDelete = async () => {
+        const id = pendingDeleteId;
+        setPendingDeleteId(null);
+        try {
+            await api.deleteVehicleMaintenance(id);
+            await load();
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to delete maintenance record.');
+        }
+    };
+
+    const COLS = ['No.', 'Vehicle', 'Type', 'Status', 'Due Date', 'Due Odometer (km)', 'Cost', 'Vendor', 'Action'];
+
+    return (
+        <PageShell title="Vehicle Maintenance">
+            <TabBar tabs={['Maintenance Records']} active="Maintenance Records" onChange={() => {}} />
+            <FilterBar>
+                <FInput placeholder="Vehicle/Maintenance Type" style={{ width: 220 }} value={search} onChange={e => setSearch(e.target.value)} />
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer' }}>
+                    <option value="">All statuses</option>
+                    {Object.keys(MAINTENANCE_STATUS_COLOR).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <button onClick={() => { setSearch(''); setStatusFilter(''); }} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+            </FilterBar>
+            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add</Btn>]} />
+
+            {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
+                    <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : filtered.length === 0 ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        ) : filtered.map((r, i) => (
+                            <tr key={r.id}>
+                                <td style={TD}>{i + 1}</td>
+                                <td style={{ ...TD, fontWeight: 500 }}>{vehiclesByImei[r.imei]?.deviceName ?? r.imei}</td>
+                                <td style={TD}>{r.maintenance_type}</td>
+                                <td style={TD}><Badge text={r.displayStatus} color={MAINTENANCE_STATUS_COLOR[r.displayStatus]} /></td>
+                                <td style={TD}>{r.due_date ? r.due_date.slice(0, 10) : '—'}</td>
+                                <td style={TD}>{r.due_odometer_km ?? '—'}</td>
+                                <td style={TD}>{r.cost ?? '—'}</td>
+                                <td style={TD}>{r.vendor || '—'}</td>
+                                <td style={{ ...TD, whiteSpace: 'nowrap' }}>
+                                    <button onClick={() => setEditing(r)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Edit</button>
+                                    <button onClick={() => setPendingDeleteId(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Delete</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {editing && (
+                <VehicleMaintenanceFormModal
+                    record={editing === 'new' ? null : editing}
+                    vehicles={vehicles}
+                    onClose={() => setEditing(null)}
+                    onSaved={() => { setEditing(null); load(); }}
+                />
+            )}
+
+            {pendingDeleteId && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+                    <div style={{ background: '#fff', borderRadius: 12, padding: '24px 28px', width: 300, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', textAlign: 'center' }}>
+                        <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Delete maintenance record?</h3>
+                        <p style={{ margin: '0 0 20px', fontSize: 12.5, color: '#64748b' }}>This cannot be undone.</p>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => setPendingDeleteId(null)} style={{ flex: 1, padding: 9, borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={handleDelete} style={{ flex: 1, padding: 9, borderRadius: 7, border: 'none', background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Delete</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </PageShell>
+    );
+}
+
 /* ── page map ────────────────────────────────────────────────── */
 const PAGE_MAP = {
     Dashboard:     FleetDashboard,
     Driver:        DriverPage,
     Vehicle:       VehiclePage,
     VehicleTrack:  VehicleTrackPage,
+    VehicleMaintenance: VehicleMaintenancePage,
     FuelManagement: FuelManagementPage,
     CheckIn:       CheckInPage,
     RoutePlanning: RoutePlanningPage,
@@ -1153,7 +1670,7 @@ const PAGE_MAP = {
 export default function FleetPage({ fleetPage = 'Dashboard', setFleetPage }) {
     const [accountOpen, setAccountOpen] = useState(true);
     const Content = PAGE_MAP[fleetPage] || FleetDashboard;
-    const showAccountList = !['Dashboard', 'Driver', 'Vehicle', 'VehicleTrack', 'FuelManagement', 'CheckIn'].includes(fleetPage);
+    const showAccountList = !['Dashboard', 'Driver', 'Vehicle', 'VehicleTrack', 'VehicleMaintenance', 'FuelManagement', 'CheckIn'].includes(fleetPage);
 
     return (
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', height: '100%' }}>

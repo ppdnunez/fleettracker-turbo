@@ -293,14 +293,32 @@ function ExternalBattery() {
     );
 }
 
-// Built from TurboHive's GET /v3/obd (OBD telemetry, max 30-day range per query) — Fuel Used and
-// Distance are the delta between the first and last point's cumulative totalFuelConsumption /
-// odometer readings; Avg Consumption is derived from those two deltas. Only OBD-capable devices
-// report these fields — a device without an OBD harness returns no data.
-// See TurboHiveService::getObdData (shared with the External Battery report).
+// Built from TurboHive's GET /v3/obd (OBD telemetry, max 30-day range per query), same first/last
+// point delta over the range for all three methods below — only what's derived from the delta
+// differs:
+//  - "OBD Totalizer" (original method): Fuel Used is the delta of the device's own cumulative
+//    totalFuelConsumption reading. Most accurate when the device reports it, but not every
+//    OBD harness does.
+//  - "Fuel Rate": Fuel Used = distance × a per-vehicle L/100km rate (VehicleSetting.fuel_rate_l_per_100km,
+//    set via Vehicle > Vehicle Settings) — an estimate for vehicles whose OBD doesn't report a
+//    totalizer, using only the (near-universal) odometer field.
+//  - "Fuel Sensor": Fuel Used = the drop in OBD/sensor fuel-level percentage (obdFuelLevel, same
+//    best-effort field names as Fuel Curve/Refuelling) converted to liters via a per-vehicle tank
+//    capacity (VehicleSetting.fuel_tank_capacity_liters). A rise (refuel) or missing tank capacity
+//    shows as "—" rather than a negative/nonsensical number.
+// See TurboHiveService::getObdData (shared with the External Battery report) and
+// VehicleSettingController for the per-vehicle inputs.
+const FUEL_CONSUMPTION_METHODS = [
+    { id: 'totalizer', label: 'OBD Totalizer' },
+    { id: 'rate',      label: 'Fuel Rate' },
+    { id: 'sensor',    label: 'Fuel Sensor' },
+];
+
 function FuelConsumption() {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
+    const [method, setMethod]     = useState('totalizer');
+    const [vehicleSetting, setVehicleSetting] = useState(null);
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
     const [to, setTo]             = useState(() => toLocalInput(new Date()));
     const [rows, setRows]         = useState([]);
@@ -313,35 +331,46 @@ function FuelConsumption() {
             .catch(() => setDevices([]));
     }, []);
 
+    useEffect(() => {
+        if (!deviceId) { setVehicleSetting(null); return; }
+        api.getVehicleSetting(deviceId).then(res => setVehicleSetting(res.data)).catch(() => setVehicleSetting(null));
+    }, [deviceId]);
+
     const search = async () => {
         if (!deviceId) { setError('Select a device.'); return; }
         setError('');
         setLoading(true);
         try {
-            const startTime = new Date(from).getTime();
-            const endTime   = new Date(to).getTime();
-            const res = await api.getTurboHiveObdData(deviceId, startTime, endTime, 100);
-            if (res.data?.error) {
-                setError(res.data.error);
+            const points = await loadObdPoints(deviceId, from, to, 100);
+            if (points.length === 0) {
                 setRows([]);
             } else {
-                const points = [...(res.data?.obdData ?? [])].sort((a, b) => (a.gateTime ?? 0) - (b.gateTime ?? 0));
-                if (points.length === 0) {
-                    setRows([]);
+                const first = points[0], last = points[points.length - 1];
+                const distanceKm = (first.odometer != null && last.odometer != null) ? +(last.odometer - first.odometer).toFixed(2) : null;
+                const row = { startTime: first.gateTime, endTime: last.gateTime, distanceKm, points: points.length };
+
+                if (method === 'totalizer') {
+                    row.fuelUsed = (first.totalFuelConsumption != null && last.totalFuelConsumption != null)
+                        ? +(last.totalFuelConsumption - first.totalFuelConsumption).toFixed(2) : null;
+                    row.avgConsumption = (row.fuelUsed != null && distanceKm > 0) ? +((row.fuelUsed / distanceKm) * 100).toFixed(2) : null;
+                } else if (method === 'rate') {
+                    row.fuelRate = vehicleSetting?.fuel_rate_l_per_100km ?? null;
+                    row.fuelUsed = (row.fuelRate != null && distanceKm != null) ? +((distanceKm * row.fuelRate) / 100).toFixed(2) : null;
                 } else {
-                    const first = points[0], last = points[points.length - 1];
-                    const distanceKm = (first.odometer != null && last.odometer != null) ? +(last.odometer - first.odometer).toFixed(2) : null;
-                    const fuelUsed = (first.totalFuelConsumption != null && last.totalFuelConsumption != null) ? +(last.totalFuelConsumption - first.totalFuelConsumption).toFixed(2) : null;
-                    const avgConsumption = (fuelUsed != null && distanceKm > 0) ? +((fuelUsed / distanceKm) * 100).toFixed(2) : null;
-                    setRows([{
-                        startTime: first.gateTime, endTime: last.gateTime,
-                        distanceKm, fuelUsed, avgConsumption,
-                        points: points.length,
-                    }]);
+                    const startPct = obdFuelLevel(first);
+                    const endPct = obdFuelLevel(last);
+                    row.startPct = startPct;
+                    row.endPct = endPct;
+                    const usedPct = (startPct != null && endPct != null) ? +(startPct - endPct).toFixed(2) : null;
+                    row.usedPct = usedPct != null && usedPct > 0 ? usedPct : null;
+                    row.tankCapacity = vehicleSetting?.fuel_tank_capacity_liters ?? null;
+                    row.fuelUsed = (row.usedPct != null && row.tankCapacity != null) ? +((row.usedPct / 100) * row.tankCapacity).toFixed(2) : null;
                 }
+
+                setRows([row]);
             }
         } catch (e) {
-            setError(e.response?.data?.message || 'Failed to load fuel consumption report.');
+            setError(e.message || e.response?.data?.message || 'Failed to load fuel consumption report.');
             setRows([]);
         } finally {
             setLoading(false);
@@ -355,10 +384,38 @@ function FuelConsumption() {
     };
 
     const selectedDevice = devices.find(d => d.imei === deviceId);
-    const COLS = ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Used (L)', 'Avg Consumption (L/100km)', 'Data Points'];
+
+    const COLS = method === 'totalizer'
+        ? ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Used (L)', 'Avg Consumption (L/100km)', 'Data Points']
+        : method === 'rate'
+        ? ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Rate (L/100km)', 'Est. Fuel Used (L)', 'Data Points']
+        : ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Start Level (%)', 'End Level (%)', 'Tank Capacity (L)', 'Est. Fuel Used (L)', 'Data Points'];
+
+    const notice = method === 'totalizer'
+        ? 'Only OBD-capable devices report a fuel totalizer. Fuel Used / Distance are the delta between the first and last reading (max 30-day range per query).'
+        : method === 'rate'
+        ? 'Estimated from distance travelled (OBD odometer) × this vehicle\'s configured Fuel Rate — set it under Vehicle > Vehicle Settings. Useful when a device reports odometer but not a fuel totalizer.'
+        : 'Estimated from the drop in OBD/sensor fuel-level percentage × this vehicle\'s Tank Capacity — set it under Vehicle > Vehicle Settings. A refuel (level rose) or missing tank capacity shows as "—".';
+
+    const missingSetting = method === 'rate' && deviceId && vehicleSetting && vehicleSetting.fuel_rate_l_per_100km == null;
+    const missingTank = method === 'sensor' && deviceId && vehicleSetting && vehicleSetting.fuel_tank_capacity_liters == null;
 
     return (
         <>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+                {FUEL_CONSUMPTION_METHODS.map(m => (
+                    <button key={m.id} onClick={() => { setMethod(m.id); setRows([]); }}
+                        style={{
+                            padding: '6px 14px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                            border: method === m.id ? '1.5px solid #3b82f6' : '1px solid #d1d5db',
+                            background: method === m.id ? '#eff6ff' : '#fff',
+                            color: method === m.id ? '#1d4ed8' : '#374151',
+                        }}>
+                        {m.label}
+                    </button>
+                ))}
+            </div>
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
                     style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
@@ -373,7 +430,9 @@ function FuelConsumption() {
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Only OBD-capable devices report fuel data. Fuel Used / Distance are the delta between the first and last reading (max 30-day range per query)." />
+            <Notice color="#dbeafe" icon="ℹ" text={notice} />
+            {missingSetting && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Fuel Rate configured yet — Est. Fuel Used will show as “—” until one is set." />}
+            {missingTank && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Tank Capacity configured yet — Est. Fuel Used will show as “—” until one is set." />}
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
@@ -390,9 +449,22 @@ function FuelConsumption() {
                             <td style={TD}>{deviceId}</td>
                             <td style={TD}>{fmtTime(r.startTime)}</td>
                             <td style={TD}>{fmtTime(r.endTime)}</td>
-                            <td style={TD}>{r.distanceKm ?? '—'}</td>
-                            <td style={TD}>{r.fuelUsed ?? '—'}</td>
-                            <td style={TD}>{r.avgConsumption ?? '—'}</td>
+                            {method === 'totalizer' && <>
+                                <td style={TD}>{r.distanceKm ?? '—'}</td>
+                                <td style={TD}>{r.fuelUsed ?? '—'}</td>
+                                <td style={TD}>{r.avgConsumption ?? '—'}</td>
+                            </>}
+                            {method === 'rate' && <>
+                                <td style={TD}>{r.distanceKm ?? '—'}</td>
+                                <td style={TD}>{r.fuelRate ?? '—'}</td>
+                                <td style={TD}>{r.fuelUsed ?? '—'}</td>
+                            </>}
+                            {method === 'sensor' && <>
+                                <td style={TD}>{r.startPct ?? '—'}</td>
+                                <td style={TD}>{r.endPct ?? '—'}</td>
+                                <td style={TD}>{r.tankCapacity ?? '—'}</td>
+                                <td style={TD}>{r.fuelUsed ?? '—'}</td>
+                            </>}
                             <td style={TD}>{r.points}</td>
                         </tr>
                     ))}

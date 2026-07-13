@@ -32,6 +32,12 @@ class Driver extends Model
         return $this->hasMany(DriverDevice::class);
     }
 
+    /** Per-device face-enrollment state. See [[driver_faces]]. */
+    public function faces(): HasMany
+    {
+        return $this->hasMany(DriverFace::class);
+    }
+
     protected function casts(): array
     {
         return [

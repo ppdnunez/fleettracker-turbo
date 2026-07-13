@@ -125,6 +125,7 @@ const FLEET_ITEMS = [
     { label: 'Driver',          key: 'Driver' },
     { label: 'Vehicle',         key: 'Vehicle' },
     { label: 'Vehicle Track',   key: 'VehicleTrack' },
+    { label: 'Vehicle Maintenance', key: 'VehicleMaintenance' },
     { label: 'Fuel Management', key: 'FuelManagement' },
     { label: 'Check in Record', key: 'CheckIn' },
     // { label: 'Route Planning',  key: 'RoutePlanning' },
