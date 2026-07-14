@@ -150,6 +150,27 @@ class TurboHiveController extends Controller
         ])));
     }
 
+    // ── Media Gallery ───────────────────────────────────────────────────────
+
+    public function resources(Request $request): JsonResponse
+    {
+        $params = array_filter($request->only([
+            'page', 'size', 'imei', 'channel', 'mediaType', 'eventType', 'keyword', 'startTime', 'endTime',
+        ]), fn ($v) => $v !== null && $v !== '');
+
+        return response()->json($this->turboHive->getResources($params));
+    }
+
+    public function deleteResources(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'mediaIds'   => 'required|array|min:1',
+            'mediaIds.*' => 'integer',
+        ]);
+
+        return response()->json($this->turboHive->deleteResources($data['mediaIds']));
+    }
+
     // ── OBD ─────────────────────────────────────────────────────────────────
 
     public function obdData(Request $request, string $imei): JsonResponse

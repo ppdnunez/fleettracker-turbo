@@ -2,12 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\VehicleMaintenanceCreatedMail;
+use App\Models\User;
 use App\Models\VehicleMaintenance;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 // Local (Laravel DB) maintenance schedule/history per vehicle, keyed by TurboHive IMEI — same
 // convention as vehicle_settings, since vehicles have no local `devices` row. See
-// NotifyVehicleMaintenanceDue for the scheduled reminder that reads due_date/due_odometer_km.
+// NotifyVehicleMaintenanceDue for the scheduled due/overdue reminder that reads
+// due_date/due_odometer_km; store() below sends a separate one-time "scheduled" confirmation.
 class VehicleMaintenanceController extends Controller
 {
     public function index()
@@ -41,7 +46,32 @@ class VehicleMaintenanceController extends Controller
         $data = $request->validate($this->validationRules());
         $record = VehicleMaintenance::create($data);
 
+        $this->sendCreatedEmail($record);
+
         return response()->json($record, 201);
+    }
+
+    /**
+     * Sent synchronously (VehicleMaintenanceCreatedMail has no ShouldQueue — see its docblock). A
+     * delivery failure is logged rather than thrown, so it never blocks the record from saving.
+     */
+    private function sendCreatedEmail(VehicleMaintenance $record): void
+    {
+        $recipients = User::pluck('email')->filter();
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        try {
+            foreach ($recipients as $email) {
+                Mail::to($email)->send(new VehicleMaintenanceCreatedMail($record));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Vehicle maintenance created email failed to send', [
+                'vehicle_maintenance_id' => $record->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function update(Request $request, VehicleMaintenance $vehicleMaintenance)

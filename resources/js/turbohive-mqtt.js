@@ -106,14 +106,23 @@ function extractDeviceKeyFromTopic(topic) {
 
 export function applyTurboHivePosition(devices, location) {
     if (!location) return devices;
+
+    // TurboHive's live feed can carry a null/non-finite lat or lng on some messages (e.g. no GPS
+    // fix yet) — blindly overwriting with those previously produced NaN downstream (MapCanvas
+    // guards ate the crash, but the device also lost its last known position for nothing). Keep
+    // the device's existing position when the new one isn't usable rather than clobbering it.
+    const lat = Number(location.latitude);
+    const lng = Number(location.longitude);
+    const hasValidPosition = location.latitude != null && location.longitude != null
+        && Number.isFinite(lat) && Number.isFinite(lng);
+
     return devices.map((device) => {
         const deviceKey = String(device.imei ?? device.uniqueId ?? device.identifier ?? device.tracker ?? device.id ?? '');
         if (!deviceKey || deviceKey !== location.deviceKey) return device;
 
         return {
             ...device,
-            lat:        location.latitude,
-            lng:        location.longitude,
+            ...(hasValidPosition ? { lat, lng } : null),
             speed:      location.speed   ?? device.speed,
             heading:    location.heading ?? device.heading,
             acc:        location.acc     ?? device.acc,

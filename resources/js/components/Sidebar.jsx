@@ -128,6 +128,8 @@ const FLEET_ITEMS = [
     { label: 'Vehicle Maintenance', key: 'VehicleMaintenance' },
     { label: 'Fuel Management', key: 'FuelManagement' },
     { label: 'Check in Record', key: 'CheckIn' },
+    { label: 'Capture History', key: 'CaptureHistory' },
+    { label: 'Media Gallery',   key: 'MediaGallery' },
     // { label: 'Route Planning',  key: 'RoutePlanning' },
     // { label: 'Fleet Report',    key: 'FleetReport' },
 ];

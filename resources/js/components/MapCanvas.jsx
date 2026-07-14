@@ -38,11 +38,20 @@ function makeIcon(selected, online, heading) {
     });
 }
 
+// `!= null` alone lets NaN through (NaN != null is true in JS) — TurboHive's live position feed
+// can carry a non-finite/garbage lat or lng (unconfirmed exact cause upstream), and Leaflet throws
+// "Invalid LatLng object" rather than ignoring it, which previously crashed the whole map tree.
+function isValidLatLng(lat, lng) {
+    if (lat == null || lng == null) return false;
+    const nlat = Number(lat), nlng = Number(lng);
+    return Number.isFinite(nlat) && Number.isFinite(nlng);
+}
+
 function FlyToSelected({ device }) {
     const map = useMap();
     useEffect(() => {
-        if (device?.lat != null && device?.lng != null) {
-            map.flyTo([device.lat, device.lng], map.getZoom(), { duration: 1 });
+        if (isValidLatLng(device?.lat, device?.lng)) {
+            map.flyTo([Number(device.lat), Number(device.lng)], map.getZoom(), { duration: 1 });
         }
     }, [device, map]);
     return null;
@@ -80,10 +89,10 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                 <FlyToSelected device={selectedDevice} />
 
                 {devices.map(d => (
-                    d.lat != null && d.lng != null && (
+                    isValidLatLng(d.lat, d.lng) && (
                         <Marker
                             key={d.id}
-                            position={[d.lat, d.lng]}
+                            position={[Number(d.lat), Number(d.lng)]}
                             icon={makeIcon(selected === d.id, d.status === 'ONLINE', d.heading ?? null)}
                             eventHandlers={{ click: () => onSelect(d.id) }}
                         >

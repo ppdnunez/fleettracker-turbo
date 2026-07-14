@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
 import MapCanvas from './MapCanvas.jsx';
 import ReportPage from './ReportPage.jsx';
@@ -529,6 +529,94 @@ function DriverFormModal({ driver, onClose, onSaved }) {
 // Face enrollment happens on the JC171 dashcam itself (EVENTSET,FACE,SHOT captures and stores the
 // photo locally on-device) — there's no local photo preview here, just the command trigger and
 // FleetTrack's own tracking of what we last asked the device to do (see DriverFaceController).
+// Captures a still photo via the office/laptop webcam (getUserMedia + a canvas snapshot) as an
+// alternative to EVENTSET,FACE,SHOT for drivers who aren't near their vehicle yet. The photo is
+// uploaded to our own server and pushed to the device via EVENTSET,FACE,DOWN (bulk-import from a
+// URL) — see DriverFaceController::uploadFromCamera for the unconfirmed zip-vs-single-file caveat.
+function FaceCameraCapture({ onCancel, onCaptured }) {
+    const videoRef  = useRef(null);
+    const canvasRef = useRef(null);
+    const streamRef = useRef(null);
+    const [ready, setReady]     = useState(false);
+    const [error, setError]     = useState('');
+    const [previewUrl, setPreviewUrl] = useState('');
+    const [previewBlob, setPreviewBlob] = useState(null);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setError('Camera access requires a secure connection (HTTPS or localhost) and a supported browser.');
+            return;
+        }
+
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+            .then(stream => {
+                if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
+                streamRef.current = stream;
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                }
+                setReady(true);
+            })
+            .catch(() => setError('Could not access the camera — check browser permissions.'));
+
+        return () => {
+            cancelled = true;
+            streamRef.current?.getTracks().forEach(t => t.stop());
+        };
+    }, []);
+
+    const takePhoto = () => {
+        const video = videoRef.current, canvas = canvasRef.current;
+        if (!video || !canvas) return;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        canvas.toBlob(blob => {
+            if (!blob) return;
+            setPreviewBlob(blob);
+            setPreviewUrl(URL.createObjectURL(blob));
+        }, 'image/jpeg', 0.92);
+    };
+
+    const retake = () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl('');
+        setPreviewBlob(null);
+    };
+
+    return (
+        <div>
+            {error && <div style={{ marginBottom: 10, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+            <div style={{ background: '#111827', borderRadius: 8, overflow: 'hidden', aspectRatio: '4/3', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+                {previewUrl ? (
+                    <img src={previewUrl} alt="Captured preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                    <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: ready ? 'block' : 'none' }} />
+                )}
+                {!ready && !previewUrl && !error && <p style={{ color: '#94a3b8', fontSize: 12.5 }}>Requesting camera…</p>}
+            </div>
+            <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+            <div style={{ display: 'flex', gap: 8 }}>
+                {previewUrl ? (
+                    <>
+                        <button onClick={retake} style={{ flex: 1, padding: '8px 14px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Retake</button>
+                        <button onClick={() => onCaptured(previewBlob)} style={{ flex: 1, padding: '8px 14px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Use This Photo</button>
+                    </>
+                ) : (
+                    <>
+                        <button onClick={onCancel} style={{ flex: 1, padding: '8px 14px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                        <button disabled={!ready} onClick={takePhoto} style={{ flex: 1, padding: '8px 14px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: ready ? 'pointer' : 'not-allowed' }}>Take Photo</button>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function DriverFaceModal({ driver, onClose }) {
     const imeis = driver.imeis || [];
     const [imei, setImei]       = useState(imeis[0] || '');
@@ -537,6 +625,7 @@ function DriverFaceModal({ driver, onClose }) {
     const [busy, setBusy]       = useState(false);
     const [error, setError]     = useState('');
     const [message, setMessage] = useState('');
+    const [cameraOpen, setCameraOpen] = useState(false);
 
     const fetchFaces = async () => {
         setLoading(true);
@@ -566,6 +655,11 @@ function DriverFaceModal({ driver, onClose }) {
         }
     };
 
+    const handleCaptured = async (blob) => {
+        setCameraOpen(false);
+        await run(() => api.uploadDriverFacePhoto(driver.id, imei, blob), 'Photo uploaded — push command sent to the device.');
+    };
+
     const current = faces.find(f => f.imei === imei);
 
     return (
@@ -582,6 +676,8 @@ function DriverFaceModal({ driver, onClose }) {
 
                     {imeis.length === 0 ? (
                         <p style={{ fontSize: 13, color: '#94a3b8' }}>This driver isn't assigned to a vehicle yet — assign one first under Vehicle &gt; Assign Drivers.</p>
+                    ) : cameraOpen ? (
+                        <FaceCameraCapture onCancel={() => setCameraOpen(false)} onCaptured={handleCaptured} />
                     ) : (
                         <>
                             <div style={{ marginBottom: 14 }}>
@@ -599,7 +695,11 @@ function DriverFaceModal({ driver, onClose }) {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <button disabled={busy} onClick={() => run(() => api.enrollDriverFace(driver.id, imei), 'Enroll command sent — device will capture a live photo.')}
                                     style={{ padding: '9px 14px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>
-                                    Enroll Face
+                                    Enroll Face (Device Camera)
+                                </button>
+                                <button disabled={busy} onClick={() => { setError(''); setMessage(''); setCameraOpen(true); }}
+                                    style={{ padding: '9px 14px', borderRadius: 7, border: '1.5px solid #3b82f6', background: '#fff', color: '#3b82f6', fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                                    Enroll Face (Laptop Camera)
                                 </button>
                                 <button disabled={busy} onClick={() => run(() => api.testDriverFace(imei), 'Recognition test triggered.')}
                                     style={{ padding: '9px 14px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontSize: 13, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}>
@@ -1651,6 +1751,358 @@ function VehicleMaintenancePage() {
     );
 }
 
+/* Capture History */
+// Read-only tracking history for the alert-evidence upload round-trip: an alert with attached
+// photos/video (alert.file) triggers an UPLOADFILE command (MqttWorker::requestAlertFileUpload),
+// and the device's later upload confirmation ({userId}/notify/{imei}) is matched back and saved
+// here (MqttWorker::recordUploadResult) — see the alert_file_uploads migration's docblock for the
+// full round-trip. Nothing on this page is user-editable; every row is system-generated from MQTT.
+const CAPTURE_STATUS_COLOR = { requested: '#3b82f6', uploaded: '#16a34a', failed: '#ef4444' };
+
+function CaptureHistoryPage() {
+    const [rows, setRows]       = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError]     = useState('');
+    const [imei, setImei]       = useState('');
+    const [status, setStatus]   = useState('');
+
+    const load = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const params = {};
+            if (imei) params.imei = imei;
+            if (status) params.status = status;
+            const res = await api.getAlertFileUploads(params);
+            setRows(res.data ?? []);
+        } catch (e) {
+            setError('Failed to load capture history.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const COLS = ['No.', 'Vehicle (IMEI)', 'Alert Code', 'Files Requested', 'Status', 'Result File', 'Requested At', 'Uploaded At'];
+
+    return (
+        <PageShell title="Capture History">
+            <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
+                Tracks alert-evidence (photo/video) upload requests sent to devices and the resulting file URLs once TurboHive confirms the upload.
+            </p>
+            <FilterBar>
+                <FInput placeholder="IMEI" style={{ width: 200 }} value={imei} onChange={e => setImei(e.target.value)} />
+                <select value={status} onChange={e => setStatus(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer' }}>
+                    <option value="">All statuses</option>
+                    <option value="requested">Requested</option>
+                    <option value="uploaded">Uploaded</option>
+                    <option value="failed">Failed</option>
+                </select>
+                <button onClick={load} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={() => { setImei(''); setStatus(''); }} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+            </FilterBar>
+
+            {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
+                    <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : rows.length === 0 ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        ) : rows.map((r, i) => (
+                            <tr key={r.id}>
+                                <td style={TD}>{i + 1}</td>
+                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{r.imei}</td>
+                                <td style={TD}>{r.alert_code ?? '—'}</td>
+                                <td style={TD}>{(r.file_names ?? []).length}</td>
+                                <td style={TD}><Badge text={r.status} color={CAPTURE_STATUS_COLOR[r.status] ?? '#9ca3af'} /></td>
+                                <td style={TD}>
+                                    {r.uploaded_file_path
+                                        ? <a href={r.uploaded_file_path} target="_blank" rel="noreferrer" style={{ color: '#3b82f6' }}>View</a>
+                                        : '—'}
+                                </td>
+                                <td style={TD}>{r.requested_at ? new Date(r.requested_at).toLocaleString() : '—'}</td>
+                                <td style={TD}>{r.uploaded_at ? new Date(r.uploaded_at).toLocaleString() : '—'}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </PageShell>
+    );
+}
+
+/* Media Gallery */
+// TurboHive's authoritative media library (GET /v3/resource/page — TurboHiveService::getResources)
+// — every photo/video the platform has stored, whether from a device's own periodic capture or an
+// alert's evidence once uploaded via the UPLOADFILE round-trip (see MqttWorker/AlertFileUpload).
+// storagePath is a directly-usable URL, unlike alert.file's bare on-device filenames. Two
+// independently-paginated tabs (mediaType 0=Image, 1=Video) matching TurboHive's own gallery UI.
+function formatMediaBytes(bytes) {
+    if (bytes == null) return '—';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+// TurboHive's documented codes for POST /v3/resource/delete/bulk — surfaced verbatim rather than
+// a generic "failed" message, since 3210 in particular needs the user to actually wait rather
+// than retry, and 3001/1216 mean the selection itself is stale rather than a request problem.
+const DELETE_ERROR_MESSAGES = {
+    1101: 'Not authenticated with TurboHive — check the configured API token.',
+    1205: 'Invalid time range.',
+    1216: 'Duplicate items in the request.',
+    3001: 'One or more selected items were not found (already deleted?). Try refreshing.',
+    3210: 'A delete task is already running on this account — wait for it to finish before deleting more.',
+};
+
+function MediaGalleryPage() {
+    const [devices, setDevices]     = useState([]);
+    const [imei, setImei]           = useState('');
+    const [channel, setChannel]     = useState('');
+    const [eventType, setEventType] = useState('');
+    const [keyword, setKeyword]     = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate]     = useState('');
+    const [tab, setTab]             = useState('video'); // 'image' | 'video'
+
+    const [images, setImages] = useState({ rows: [], page: 1, total: 0, totalPages: 0 });
+    const [videos, setVideos] = useState({ rows: [], page: 1, total: 0, totalPages: 0 });
+    const [loading, setLoading] = useState(false);
+    const [error, setError]     = useState('');
+
+    const [selectedIds, setSelectedIds] = useState(new Set());
+    const [confirmingDelete, setConfirmingDelete] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [deleteMessage, setDeleteMessage] = useState('');
+
+    useEffect(() => {
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(Array.isArray(res.data?.data) ? res.data.data : []))
+            .catch(() => setDevices([]));
+    }, []);
+
+    const buildParams = (mediaType, page) => {
+        const params = { page, size: 20, mediaType };
+        if (imei) params.imei = imei;
+        if (channel) params.channel = Number(channel);
+        if (eventType) params.eventType = eventType;
+        if (keyword) params.keyword = keyword;
+        if (startDate) params.startTime = new Date(startDate).getTime();
+        if (endDate) params.endTime = new Date(endDate).getTime();
+        return params;
+    };
+
+    const fetchTab = async (mediaType, page = 1) => {
+        const res = await api.getTurboHiveResources(buildParams(mediaType, page));
+        const d = res.data ?? {};
+        return { rows: d.data ?? [], page: d.page ?? page, total: d.total ?? 0, totalPages: d.totalPages ?? 0 };
+    };
+
+    const load = async () => {
+        setLoading(true);
+        setError('');
+        setSelectedIds(new Set());
+        try {
+            const [imgRes, vidRes] = await Promise.all([fetchTab(0, 1), fetchTab(1, 1)]);
+            setImages(imgRes);
+            setVideos(vidRes);
+        } catch (e) {
+            setError('Failed to load media.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const reset = () => {
+        setImei(''); setChannel(''); setEventType(''); setKeyword(''); setStartDate(''); setEndDate('');
+    };
+
+    const changePage = async (mediaType, newPage) => {
+        setLoading(true);
+        setError('');
+        try {
+            const res = await fetchTab(mediaType, newPage);
+            if (mediaType === 0) setImages(res); else setVideos(res);
+        } catch (e) {
+            setError('Failed to load media.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const current = tab === 'image' ? images : videos;
+    const isAlertEvent = (r) => /alert|alarm/i.test(r.eventType || '');
+
+    const toggleSelect = (id) => setSelectedIds(s => {
+        const n = new Set(s);
+        n.has(id) ? n.delete(id) : n.add(id);
+        return n;
+    });
+
+    const allOnPageSelected = current.rows.length > 0 && current.rows.every(r => selectedIds.has(r.id));
+    const toggleSelectAllOnPage = () => setSelectedIds(s => {
+        const n = new Set(s);
+        if (allOnPageSelected) {
+            current.rows.forEach(r => n.delete(r.id));
+        } else {
+            current.rows.forEach(r => n.add(r.id));
+        }
+        return n;
+    });
+
+    const handleDeleteSelected = async () => {
+        setConfirmingDelete(false);
+        setDeleting(true);
+        setError('');
+        setDeleteMessage('');
+        try {
+            const res = await api.deleteTurboHiveResources(Array.from(selectedIds));
+            const body = res.data ?? {};
+            if (body.code === 1000) {
+                setDeleteMessage(`Delete task submitted (task #${body.data?.taskId}, ${body.data?.totalCount ?? selectedIds.size} item(s)). Files will be removed shortly — refresh in a moment to confirm.`);
+                setSelectedIds(new Set());
+            } else {
+                setError(DELETE_ERROR_MESSAGES[body.code] || body.message || 'Failed to delete selected media.');
+            }
+        } catch (e) {
+            const code = e.response?.data?.code;
+            setError(DELETE_ERROR_MESSAGES[code] || e.response?.data?.message || 'Failed to delete selected media.');
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    return (
+        <PageShell title="Media Gallery">
+            <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
+                Photos and video captured by devices — periodic captures, alert evidence, and manual snapshots — from TurboHive's media library.
+            </p>
+
+            <FilterBar>
+                <select value={imei} onChange={e => setImei(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    <option value="">All vehicles</option>
+                    {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
+                </select>
+                <input type="number" min="1" placeholder="Channel" value={channel} onChange={e => setChannel(e.target.value)}
+                    style={{ width: 90, padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                <select value={eventType} onChange={e => setEventType(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer' }}>
+                    <option value="">All event types</option>
+                    <option value="capture">Capture</option>
+                    <option value="alarm">Alarm</option>
+                    <option value="alert">Alert</option>
+                    <option value="historical">Historical</option>
+                </select>
+                <FInput placeholder="Keyword" style={{ width: 160 }} value={keyword} onChange={e => setKeyword(e.target.value)} />
+                <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <span style={{ color: '#9ca3af' }}>-</span>
+                <input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <button onClick={load} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+            </FilterBar>
+
+            {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+            {deleteMessage && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534' }}>{deleteMessage}</div>}
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
+                <div style={{ display: 'flex', gap: 4 }}>
+                    <button onClick={() => setTab('video')}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', border: 'none', borderBottom: tab === 'video' ? '2.5px solid #6366f1' : '2.5px solid transparent', background: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 600, color: tab === 'video' ? '#4338ca' : '#6b7280' }}>
+                        🎥 Videos <span style={{ background: tab === 'video' ? '#e0e7ff' : '#f1f5f9', color: tab === 'video' ? '#4338ca' : '#64748b', borderRadius: 999, padding: '1px 8px', fontSize: 12 }}>{videos.total}</span>
+                    </button>
+                    <button onClick={() => setTab('image')}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', border: 'none', borderBottom: tab === 'image' ? '2.5px solid #6366f1' : '2.5px solid transparent', background: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 600, color: tab === 'image' ? '#4338ca' : '#6b7280' }}>
+                        🖼 Images <span style={{ background: tab === 'image' ? '#e0e7ff' : '#f1f5f9', color: tab === 'image' ? '#4338ca' : '#64748b', borderRadius: 999, padding: '1px 8px', fontSize: 12 }}>{images.total}</span>
+                    </button>
+                </div>
+
+                {selectedIds.size > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 8 }}>
+                        <span style={{ fontSize: 12.5, color: '#6b7280' }}>{selectedIds.size} selected</span>
+                        <button onClick={() => setSelectedIds(new Set())} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 12.5 }}>Clear</button>
+                        <button onClick={() => setConfirmingDelete(true)} disabled={deleting}
+                            style={{ padding: '6px 14px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: deleting ? 'not-allowed' : 'pointer' }}>
+                            {deleting ? 'Deleting…' : 'Delete Selected'}
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {loading ? (
+                <p style={{ textAlign: 'center', color: '#94a3b8', padding: 48 }}>Loading…</p>
+            ) : current.rows.length === 0 ? (
+                <p style={{ textAlign: 'center', color: '#94a3b8', padding: 48 }}>No {tab === 'image' ? 'images' : 'videos'} found</p>
+            ) : (
+                <>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 12.5, color: '#374151', cursor: 'pointer', width: 'fit-content' }}>
+                        <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAllOnPage} style={{ accentColor: '#3b82f6', width: 15, height: 15 }} />
+                        Select all on this page
+                    </label>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+                        {current.rows.map(r => (
+                            <div key={r.id} style={{ border: selectedIds.has(r.id) ? '1.5px solid #6366f1' : '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                                <div style={{ position: 'relative', background: '#111827', aspectRatio: '16/9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <label style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, background: 'rgba(255,255,255,0.9)', borderRadius: 4, padding: 2, display: 'flex' }}>
+                                        <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleSelect(r.id)} style={{ accentColor: '#3b82f6', width: 15, height: 15, margin: 0 }} />
+                                    </label>
+                                    {tab === 'image' ? (
+                                        <img src={r.storagePath} alt={r.fileName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    ) : (
+                                        <video src={r.storagePath} controls style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    )}
+                                    {isAlertEvent(r) && (
+                                        <span style={{ position: 'absolute', top: 6, right: 6, background: '#ef4444', color: '#fff', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 4 }}>Alert</span>
+                                    )}
+                                </div>
+                                <div style={{ padding: '10px 12px' }}>
+                                    <p title={r.fileName} style={{ margin: '0 0 6px', fontSize: 12.5, fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.fileName}</p>
+                                    <p style={{ margin: '0 0 2px', fontSize: 11.5, color: '#6b7280' }}>Device: {r.imei} · Channel: {r.channel}</p>
+                                    <p style={{ margin: '0 0 2px', fontSize: 11.5, color: '#6b7280' }}>{r.captureTime ? new Date(r.captureTime).toLocaleString() : '—'}</p>
+                                    <p style={{ margin: 0, fontSize: 11.5, color: '#6b7280' }}>{formatMediaBytes(r.fileSize)}</p>
+                                    <a href={r.storagePath} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 12, color: '#3b82f6', textDecoration: 'none' }}>Open ↗</a>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20 }}>
+                        <button disabled={current.page <= 1} onClick={() => changePage(tab === 'image' ? 0 : 1, current.page - 1)}
+                            style={{ padding: '6px 14px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 13, cursor: current.page <= 1 ? 'not-allowed' : 'pointer', color: current.page <= 1 ? '#cbd5e1' : '#374151' }}>Prev</button>
+                        <span style={{ fontSize: 13, color: '#6b7280' }}>Page {current.page} of {current.totalPages || 1}</span>
+                        <button disabled={current.page >= (current.totalPages || 1)} onClick={() => changePage(tab === 'image' ? 0 : 1, current.page + 1)}
+                            style={{ padding: '6px 14px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 13, cursor: current.page >= (current.totalPages || 1) ? 'not-allowed' : 'pointer', color: current.page >= (current.totalPages || 1) ? '#cbd5e1' : '#374151' }}>Next</button>
+                    </div>
+                </>
+            )}
+
+            {confirmingDelete && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+                    <div style={{ background: '#fff', borderRadius: 12, padding: '24px 28px', width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', textAlign: 'center' }}>
+                        <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Delete {selectedIds.size} item{selectedIds.size === 1 ? '' : 's'}?</h3>
+                        <p style={{ margin: '0 0 20px', fontSize: 12.5, color: '#64748b' }}>This submits a delete task to TurboHive and cannot be undone. Only one delete task can run at a time on this account.</p>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => setConfirmingDelete(false)} style={{ flex: 1, padding: 9, borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={handleDeleteSelected} style={{ flex: 1, padding: 9, borderRadius: 7, border: 'none', background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Delete</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </PageShell>
+    );
+}
+
 /* ── page map ────────────────────────────────────────────────── */
 const PAGE_MAP = {
     Dashboard:     FleetDashboard,
@@ -1660,6 +2112,8 @@ const PAGE_MAP = {
     VehicleMaintenance: VehicleMaintenancePage,
     FuelManagement: FuelManagementPage,
     CheckIn:       CheckInPage,
+    CaptureHistory: CaptureHistoryPage,
+    MediaGallery:  MediaGalleryPage,
     RoutePlanning: RoutePlanningPage,
     FleetReport:   FleetReportPage,
 };
@@ -1670,7 +2124,7 @@ const PAGE_MAP = {
 export default function FleetPage({ fleetPage = 'Dashboard', setFleetPage }) {
     const [accountOpen, setAccountOpen] = useState(true);
     const Content = PAGE_MAP[fleetPage] || FleetDashboard;
-    const showAccountList = !['Dashboard', 'Driver', 'Vehicle', 'VehicleTrack', 'VehicleMaintenance', 'FuelManagement', 'CheckIn'].includes(fleetPage);
+    const showAccountList = !['Dashboard', 'Driver', 'Vehicle', 'VehicleTrack', 'VehicleMaintenance', 'FuelManagement', 'CheckIn', 'CaptureHistory', 'MediaGallery'].includes(fleetPage);
 
     return (
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', height: '100%' }}>

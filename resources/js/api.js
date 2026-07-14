@@ -38,6 +38,9 @@ export const api = {
     getVehicleSetting: (imei)       => axios.get(`/api/vehicle-settings/${imei}`),
     setVehicleSetting: (imei, data) => axios.put(`/api/vehicle-settings/${imei}`, data),
 
+    // ── Alert-evidence upload tracking history (system-generated, read-only) ──
+    getAlertFileUploads: (params = {}) => axios.get('/api/alert-file-uploads', { params }),
+
     // ── Vehicle maintenance schedule/history (Laravel DB, keyed by TurboHive IMEI) ──
     getVehicleMaintenances:   ()         => axios.get('/api/vehicle-maintenances'),
     createVehicleMaintenance: (data)     => axios.post('/api/vehicle-maintenances', data),
@@ -87,6 +90,8 @@ export const api = {
     getTurboHiveTrackList:      (imei, startTime, endTime) => axios.get(`/api/turbohive/device/${imei}/track-list`, { params: { startTime, endTime } }),
     getTurboHiveTrips:          (imei, startTime, endTime) => axios.get(`/api/turbohive/device/${imei}/trips`, { params: { startTime, endTime } }),
     getTurboHiveAlerts:         (params)                   => axios.get('/api/turbohive/alerts', { params }),
+    getTurboHiveResources:      (params)                   => axios.get('/api/turbohive/resources', { params }),
+    deleteTurboHiveResources:   (mediaIds)                 => axios.post('/api/turbohive/resources/delete', { mediaIds }),
 
     // ── TurboHive — commands ────────────────────────────────────────────────
     sendTurboHiveCommand: (imei, content, options = {}) =>
@@ -111,6 +116,13 @@ export const api = {
     configureFaceRecognition: (imei, similarity, deadlineSeconds = 180, recheckMinutes = 10) =>
         axios.post('/api/turbohive/face/configure', { imei, similarity, deadlineSeconds, recheckMinutes }),
     enrollDriverFace:        (driverId, imei)                    => axios.post('/api/turbohive/face/enroll', { driver_id: driverId, imei }),
+    uploadDriverFacePhoto:   (driverId, imei, photoBlob)          => {
+        const form = new FormData();
+        form.append('driver_id', driverId);
+        form.append('imei', imei);
+        form.append('photo', photoBlob, 'capture.jpg');
+        return axios.post('/api/turbohive/face/upload-photo', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    },
     testDriverFace:          (imei)                               => axios.post('/api/turbohive/face/test', { imei }),
     deleteDriverFace:        (driverId, imei)                     => axios.post('/api/turbohive/face/delete', { driver_id: driverId, imei }),
     checkFaceRoster:         (imei)                               => axios.post('/api/turbohive/face/roster', { imei }),

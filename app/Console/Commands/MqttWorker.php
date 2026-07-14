@@ -10,9 +10,11 @@ use App\Events\DevicePositionUpdated;
 use App\Events\DeviceAlertReceived;
 use App\Events\DeviceSensorUpdated;
 use App\Events\DriverCheckedIn;
+use App\Models\AlertFileUpload;
 use App\Models\Driver;
 use App\Models\DriverCheckin;
 use App\Services\GeofenceMonitorService;
+use App\Services\TurboHiveService;
 use App\Services\UnregisteredDriverAlertService;
 use Carbon\Carbon;
 
@@ -41,7 +43,7 @@ class MqttWorker extends Command
      * This wraps the entire connect+subscribe+loop cycle in a retry loop with backoff, so the
      * command itself never exits on a connection failure — only Ctrl+C / process kill stops it.
      */
-    public function handle(GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert): void
+    public function handle(GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert, TurboHiveService $turboHive): void
     {
         $cfg    = config('services.turbohive_mqtt');
         $userId = $cfg['user_id'];
@@ -51,7 +53,7 @@ class MqttWorker extends Command
             $connectedAt = microtime(true);
 
             try {
-                $this->connectAndListen($cfg, $userId, $geofenceMonitor, $unregisteredDriverAlert);
+                $this->connectAndListen($cfg, $userId, $geofenceMonitor, $unregisteredDriverAlert, $turboHive);
             } catch (\Throwable $e) {
                 $this->error("MQTT worker connection lost: {$e->getMessage()}");
                 Log::warning('mqtt:worker connection lost, will reconnect', [
@@ -69,7 +71,7 @@ class MqttWorker extends Command
     }
 
     /** @throws \Throwable on any connection/subscribe/loop failure — caller retries. */
-    private function connectAndListen(array $cfg, string $userId, GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert): void
+    private function connectAndListen(array $cfg, string $userId, GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert, TurboHiveService $turboHive): void
     {
         $this->info("Connecting to {$cfg['host']}:{$cfg['port']} as {$cfg['username']}…");
 
@@ -115,7 +117,7 @@ class MqttWorker extends Command
         // services.turbohive.face_unrecognized_alert_code's docblock); left unarmed until that
         // code is captured from a real device so nothing fires on a guess.
         $faceAlertCode = config('services.turbohive.face_unrecognized_alert_code');
-        $mqtt->subscribe("{$userId}/alert/#", function (string $topic, string $message) use ($unregisteredDriverAlert, $faceAlertCode) {
+        $mqtt->subscribe("{$userId}/alert/#", function (string $topic, string $message) use ($unregisteredDriverAlert, $faceAlertCode, $turboHive) {
             $data = json_decode($message, true);
             if (!$data) return;
 
@@ -129,6 +131,8 @@ class MqttWorker extends Command
             if ($faceAlertCode !== null && $faceAlertCode !== '' && (string) $alert['code'] === (string) $faceAlertCode) {
                 $unregisteredDriverAlert->handle($imei, 'Face recognition — no match', $this->lastSpeedByImei[$imei] ?? null, 'face');
             }
+
+            $this->requestAlertFileUpload($turboHive, $imei, $data);
         });
 
         // OBD/sensor readings (fuel level, etc). TurboHive's MQTT panel offers a "sensor" message
@@ -189,7 +193,109 @@ class MqttWorker extends Command
             $this->line("[checkin]  {$imei} → card {$cardId}" . ($driver ? " ({$driver->name})" : ' (unrecognized card)'));
         });
 
+        // Upload-result confirmation for requestAlertFileUpload()'s UPLOADFILE command (see
+        // AlertFileUpload's migration docblock for the full round-trip). Only "captureUploadCompleted"
+        // is documented, but the event-name field isn't checked strictly — any payload carrying
+        // upload.fileList is treated as a result, since a differently-named event with the same
+        // shape would otherwise be silently dropped.
+        $mqtt->subscribe("{$userId}/notify/#", function (string $topic, string $message) {
+            $data = json_decode($message, true);
+            if (!$data) return;
+
+            $fileList = $data['upload.fileList'] ?? $data['uploadFileList'] ?? null;
+            if (!is_array($fileList)) return;
+
+            $imei = $this->extractImei($topic);
+            $this->recordUploadResult($imei, $data, $fileList);
+        });
+
         $mqtt->loop(true);
+    }
+
+    /**
+     * Builds and sends the UPLOADFILE command for an alert's evidence files (if any), and records
+     * the request so the later {userId}/notify/{imei} confirmation has something to match against.
+     * alert.file is only present on alerts that actually captured evidence — most alerts have none.
+     */
+    private function requestAlertFileUpload(TurboHiveService $turboHive, string $imei, array $data): void
+    {
+        $rawFiles = $data['alert.file'] ?? $data['alertFile'] ?? null;
+        if (!$rawFiles) return;
+
+        $fileNames = array_values(array_filter(array_map('trim', explode(',', $rawFiles))));
+        if (empty($fileNames)) return;
+
+        $alertTimeMs = $data['alert.time'] ?? $data['alertTime'] ?? $data['device.time'] ?? null;
+        $alertType   = (int) ($data['alert.type'] ?? $data['alertType'] ?? 0);
+        $lng         = (float) ($data['gnss.lng'] ?? $data['longitude'] ?? 0);
+        $lat         = (float) ($data['gnss.lat'] ?? $data['latitude'] ?? 0);
+
+        try {
+            $result = $turboHive->requestAlertFileUpload(
+                $imei,
+                $fileNames,
+                $alertTimeMs ? intdiv((int) $alertTimeMs, 1000) : now()->timestamp,
+                $alertType,
+                $lng,
+                $lat,
+            );
+
+            AlertFileUpload::create([
+                'imei'         => $imei,
+                'alert_type'   => $alertType,
+                'alert_code'   => $data['alert.code'] ?? $data['alertCode'] ?? null,
+                'alert_time'   => $alertTimeMs ? Carbon::createFromTimestampMs((int) $alertTimeMs) : now(),
+                'file_names'   => $fileNames,
+                'longitude'    => $lng,
+                'latitude'     => $lat,
+                'status'       => 'requested',
+                'cmd_no'       => $result['data']['cmdNo'] ?? $result['data']['cmd_no'] ?? null,
+                'requested_at' => now(),
+            ]);
+
+            $this->line("[upload]   {$imei} → requested " . count($fileNames) . ' file(s)');
+        } catch (\Throwable $e) {
+            Log::warning('Failed to request alert file upload', ['imei' => $imei, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Matches a notify/# upload result back to its requested row by IMEI + overlapping file names
+     * (TurboHive's cmd.no isn't confirmed to correspond to anything captured at request time, so
+     * it's stored for reference but not relied on for matching). Falls back to a standalone row if
+     * no pending request matches, so a result is never silently dropped.
+     */
+    private function recordUploadResult(string $imei, array $data, array $fileList): void
+    {
+        $result = $data['upload.result'] ?? $data['uploadResult'] ?? null;
+        $status = $result === 'success' ? 'uploaded' : 'failed';
+
+        $attributes = [
+            'status'              => $status,
+            'uploaded_file_list'  => $fileList,
+            'uploaded_file_path'  => $data['upload.filePath'] ?? $data['uploadFilePath'] ?? null,
+            'uploaded_file_size'  => $data['upload.fileSize'] ?? $data['uploadFileSize'] ?? null,
+            'upload_result'       => $result,
+            'cmd_no'              => $data['cmd.no'] ?? $data['cmdNo'] ?? null,
+            'uploaded_at'         => now(),
+        ];
+
+        $pending = AlertFileUpload::where('imei', $imei)
+            ->where('status', 'requested')
+            ->orderByDesc('requested_at')
+            ->get()
+            ->first(fn (AlertFileUpload $r) => count(array_intersect($r->file_names ?? [], $fileList)) > 0);
+
+        if ($pending) {
+            $pending->update($attributes);
+        } else {
+            AlertFileUpload::create(array_merge($attributes, [
+                'imei'       => $imei,
+                'file_names' => $fileList,
+            ]));
+        }
+
+        $this->line("[upload]   {$imei} → {$status} (" . count($fileList) . ' file(s))');
     }
 
     private function extractImei(string $topic): string

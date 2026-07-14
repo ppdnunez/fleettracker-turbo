@@ -305,6 +305,51 @@ class TurboHiveService
         ];
     }
 
+    // ── Media Gallery ───────────────────────────────────────────────────────
+
+    /**
+     * TurboHive's authoritative media library (GET /v3/resource/page) — every photo/video the
+     * platform has stored for an account, regardless of how it got there (a device's own periodic
+     * capture, an alert's attached evidence once uploaded via UPLOADFILE, etc). This is the same
+     * data requestAlertFileUpload()'s round-trip ultimately lands in — storagePath here is a real,
+     * directly-usable URL (confirmed via a live response, unlike alert.file's bare filenames).
+     *
+     * Accepts TurboHive's documented query params directly via $params: page, size (required),
+     * imei, channel, mediaType (0=Image, 1=Video, 2=Audio), eventType (docs say "capture, alarm,
+     * historical" but a live response showed "alert" too, so this isn't validated as a strict
+     * enum), keyword, startTime/endTime (ms timestamps).
+     */
+    public function getResources(array $params = []): array
+    {
+        $defaults = ['page' => 1, 'size' => 20];
+        $body = $this->client()->get('/v3/resource/page', array_merge($defaults, $params))->json();
+
+        if ((int) ($body['code'] ?? 0) !== 1000) {
+            return ['data' => [], 'page' => 1, 'size' => $defaults['size'], 'total' => 0, 'totalPages' => 0, 'error' => $body['message'] ?? 'Failed to query media.'];
+        }
+
+        return $body['data'] ?? ['data' => []];
+    }
+
+    /**
+     * Bulk-deletes media from TurboHive's library (POST /v3/resource/delete/bulk). Async on
+     * TurboHive's side — the response is just an acknowledgement ({taskId, totalCount}), not
+     * confirmation the files are actually gone yet. Only one delete task can be in flight per
+     * account at a time — a second call while one is running returns code 3210 rather than
+     * queuing, so the caller should surface that distinctly rather than treating it as a generic
+     * failure. Full response (including `code`/`message`) is returned as-is so the caller can
+     * branch on TurboHive's documented error codes (1101 unauthenticated, 1205 invalid time range,
+     * 1216 duplicate ids, 3001 not found, 3210 delete task already running).
+     */
+    public function deleteResources(array $mediaIds): array
+    {
+        $body = $this->client()->post('/v3/resource/delete/bulk', [
+            'mediaIds' => array_values(array_unique($mediaIds)),
+        ])->json();
+
+        return $body ?? [];
+    }
+
     // ── OBD ─────────────────────────────────────────────────────────────────
 
     /**
@@ -347,6 +392,25 @@ class TurboHiveService
         ])->json();
 
         return $body ?? [];
+    }
+
+    /**
+     * Requests the device push a set of already-captured evidence files (photos/video) off-device,
+     * per the TH Integration Guide's "Generate File Upload Command from JSON" step — the device's
+     * alert push only lists filenames it already has locally, it doesn't upload them itself. Result
+     * arrives asynchronously on {userId}/notify/{imei} (see MqttWorker's notify/# handler), not in
+     * this command's response.
+     *
+     * @param string[] $fileNames from the triggering alert's alert.file (comma-separated in the
+     *                            raw payload — split before calling this).
+     * @param int $alertTimeSeconds alert.time is a millisecond timestamp; the device only accepts
+     *                              10-digit seconds, so divide by 1000 before passing it in here.
+     */
+    public function requestAlertFileUpload(string $imei, array $fileNames, int $alertTimeSeconds, int $alertType, float $lng, float $lat): array
+    {
+        $content = 'UPLOADFILE,' . implode(',', $fileNames) . ",{$alertTimeSeconds},{$alertType},{$lng},{$lat}#";
+
+        return $this->sendCommand($imei, $content);
     }
 
     // ── Relay (Immobilizer) ─────────────────────────────────────────────────

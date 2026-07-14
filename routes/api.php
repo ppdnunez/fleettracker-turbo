@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AlertFileUploadController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DeviceController;
@@ -41,6 +42,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Per-vehicle relay-disconnect opt-in (by TurboHive IMEI) — see UnregisteredDriverAlertService
     Route::get('/vehicle-settings/{imei}', [VehicleSettingController::class, 'show']);
     Route::put('/vehicle-settings/{imei}', [VehicleSettingController::class, 'update']);
+
+    // Alert-evidence upload tracking history (system-generated, read-only — see MqttWorker)
+    Route::get('/alert-file-uploads', [AlertFileUploadController::class, 'index']);
 
     // Vehicle maintenance schedule/history (Laravel DB, keyed by TurboHive IMEI)
     Route::get('/vehicle-maintenances', [VehicleMaintenanceController::class, 'index']);
@@ -89,6 +93,12 @@ Route::middleware('auth:sanctum')->group(function () {
         // Alerts  →  GET /v3/alerts/page
         Route::get('/alerts',                [TurboHiveController::class, 'alerts']);
 
+        // Media gallery  →  GET /v3/resource/page   ?imei=&channel=&mediaType=&eventType=&keyword=&startTime=&endTime=
+        Route::get('/resources',             [TurboHiveController::class, 'resources']);
+
+        // Media gallery — bulk delete  →  POST /v3/resource/delete/bulk   { mediaIds: [...] }
+        Route::post('/resources/delete',     [TurboHiveController::class, 'deleteResources']);
+
         // Battery  →  POST /v3/command/send  (status# query, parsed)
         Route::get('/device/{imei}/battery', [TurboHiveController::class, 'batteryStatus']);
 
@@ -116,6 +126,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/face',             [DriverFaceController::class, 'index']);
         Route::post('/face/configure',  [DriverFaceController::class, 'configure']);
         Route::post('/face/enroll',     [DriverFaceController::class, 'enroll']);
+        Route::post('/face/upload-photo', [DriverFaceController::class, 'uploadFromCamera']);
         Route::post('/face/test',       [DriverFaceController::class, 'test']);
         Route::post('/face/delete',     [DriverFaceController::class, 'destroy']);
         Route::post('/face/roster',     [DriverFaceController::class, 'roster']);

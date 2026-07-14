@@ -7,6 +7,7 @@ use App\Models\DriverFace;
 use App\Services\TurboHiveService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 // Face enrollment happens on the JC171 device itself (EVENTSET,FACE,* commands, sent via
 // TurboHive's POST /v3/command/send — see TurboHiveService's Face Recognition section). This
@@ -72,6 +73,46 @@ class DriverFaceController extends Controller
                 'status'       => $ok ? 'pending' : 'failed',
                 'requested_at' => now(),
                 'error'        => $ok ? null : ($result['message'] ?? 'Command failed.'),
+            ]
+        );
+
+        return response()->json(['command' => $result, 'face' => $face->fresh('driver')]);
+    }
+
+    /**
+     * Alternative to enroll() for a driver photographed with a laptop/office webcam instead of the
+     * JC171's own camera (e.g. onboarding before the driver is ever near the vehicle). The photo is
+     * stored on our own server first, then pushed to the device via EVENTSET,FACE,DOWN (bulk-import
+     * from a cloud URL) rather than SHOT, since there's no device-side capture to trigger here.
+     *
+     * NOTE: the JC171 guide's only documented FACE,DOWN example points at a .zip of multiple named
+     * photos ("max 5 photos per send, each under 200 KB") — it's unconfirmed whether pointing it at
+     * a single plain image URL (as done here) is accepted the same way, or whether it strictly
+     * requires a zip. Verify against a real device; if it turns out to require a zip, this would
+     * need to wrap the stored photo in one before sending.
+     */
+    public function uploadFromCamera(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'driver_id' => 'required|exists:drivers,id',
+            'imei'      => 'required|string',
+            'photo'     => 'required|image|max:5120',
+        ]);
+
+        $driver = Driver::findOrFail($data['driver_id']);
+        $path   = $request->file('photo')->store('driver-faces', 'public');
+        $url    = $request->getSchemeAndHttpHost() . Storage::disk('public')->url($path);
+
+        $result = $this->turboHive->importFaceBatch($data['imei'], $url);
+        $ok     = (int) ($result['code'] ?? 0) === 1000;
+
+        $face = DriverFace::updateOrCreate(
+            ['driver_id' => $driver->id, 'imei' => $data['imei']],
+            [
+                'photo_path'   => $path,
+                'status'       => $ok ? 'pending' : 'failed',
+                'error'        => $ok ? null : ($result['message'] ?? 'Failed to push photo to device.'),
+                'requested_at' => now(),
             ]
         );
 
