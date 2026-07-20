@@ -15,6 +15,7 @@ class AlertFileUpload extends Model
         'longitude',
         'latitude',
         'status',
+        'error',
         'uploaded_file_list',
         'uploaded_file_path',
         'uploaded_file_size',

@@ -15,15 +15,54 @@ class DeviceAlertReceived implements ShouldBroadcastNow
      * Partial alert.code → human name map, built only from confirmed observations (TurboHive
      * doesn't publish this mapping): 1401 was captured live via TurboHive's own MQTT test console
      * as an Emergency SOS trigger; 1402/1501/1002 were seen in real GET /v3/alerts/page responses
-     * paired with their alert.name. The raw live MQTT payload never includes alert.name/description
-     * at all (unlike the REST response), so this is the only way to label live alerts by anything
-     * other than their raw numeric code. Unmapped codes fall back to showing the code itself.
+     * paired with their alert.name. The 13xx/18xx block (driving-behavior + DMS/ADAS events) was
+     * supplied directly from TurboHive's alert catalog — same codes MqttWorker's
+     * ALERT_FILE_UPLOAD_CODES uses to decide which alerts are worth requesting evidence for. The
+     * raw live MQTT payload never includes alert.name/description at all (unlike the REST
+     * response), so this is the only way to label live alerts by anything other than their raw
+     * numeric code. Unmapped codes fall back to showing the code itself.
      */
     private const KNOWN_CODE_NAMES = [
         '1401' => 'Emergency SOS',
         '1402' => 'Camera Fault',
         '1501' => 'Unexpected Vibration',
         '1002' => 'External Power Off',
+
+        '1301' => 'Speeding',
+        '1302' => 'Harsh Acceleration',
+        '1303' => 'Sharp Left Turn',
+        '1304' => 'Sharp Right Turn',
+        '1305' => 'Hard Braking',
+        '1306' => 'Sharp Turn',
+        '1307' => 'Fatigue Warning',
+        '1308' => 'Daily Driving Timeout',
+        '1309' => 'Over Driving',
+
+        '1801' => 'Fatigue Driving',
+        '1802' => 'Using Phone',
+        '1803' => 'Smoking',
+        '1804' => 'Driver Distraction',
+        '1805' => 'No Face Detected',
+        '1806' => 'Camera Blocked',
+        '1807' => 'Seatbelt Unfastened',
+        '1808' => 'Sunglasses Detected',
+        '1809' => 'Hands Off Wheel',
+        '1810' => 'Answering Phone',
+        '1811' => 'Auto Capture',
+        '1812' => 'Driver Change',
+        '1813' => 'DSM Calibration Anomaly',
+        '1814' => 'Frequent Blinking',
+        '1815' => 'Yawning',
+        '1816' => 'Seatbelt Fastened',
+        '1817' => 'Capture Completed',
+        '1818' => 'Driver Info Changed',
+        '1819' => 'Face Alignment Error',
+        '1820' => 'Head Lowered',
+        '1821' => 'Driver Drinking',
+        '1822' => 'Driver Eyes Closed',
+        '1823' => 'Face Recognition Succeeded',
+        '1824' => 'Face Recognition Failed',
+        '1825' => 'Face Data Uploaded',
     ];
 
     public function __construct(

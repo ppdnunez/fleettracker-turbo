@@ -12,6 +12,7 @@ class VehicleSetting extends Model
         'relay_channel',
         'fuel_rate_l_per_100km',
         'fuel_tank_capacity_liters',
+        'vehicle_type',
     ];
 
     protected function casts(): array

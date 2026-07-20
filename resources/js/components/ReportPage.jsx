@@ -1383,6 +1383,71 @@ function MqttBadge({ connected }) {
 // mqtt:worker broadcasts every alert as alert.received on the shared 'fleet' Reverb channel (see
 // MqttWorker.php). No REST call and no time range — just a rolling buffer of whatever arrives
 // while this page is open.
+// Splits alert.file's raw comma-separated filename list (same field MqttWorker's
+// requestAlertFileUpload reads) — used both to show an evidence file count per live row and to
+// build the manual "Request Upload" payload.
+function alertFileNames(r) {
+    const raw = r.raw?.['alert.file'] ?? r.raw?.alertFile ?? '';
+    return raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+}
+
+// Full raw MQTT alert payload for one live event — same dotted-key fields TurboHive documents
+// (gnss.satellites, alert.type, alert.code, alert.file, device.imei, gnss.lng, alert.time,
+// gnss.speed, alert.value, gnss.lat, device.time, alert.msgClass). Shown as-is rather than
+// re-labeled, so it reads the same as the vendor's own example payloads.
+function AlertRawDetailsModal({ event, onClose, onRequestUpload, requesting, message }) {
+    const raw = event.raw || {};
+    const files = alertFileNames(event);
+    const rows = Object.entries(raw).filter(([k]) => k !== 'alert.file');
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#fff', borderRadius: 12, width: 460, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Alert Details</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+                </div>
+
+                <div style={{ padding: 20 }}>
+                    {message && <div style={{ marginBottom: 14, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534' }}>{message}</div>}
+
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, marginBottom: 16 }}>
+                        <tbody>
+                            {rows.map(([k, v]) => (
+                                <tr key={k}>
+                                    <td style={{ padding: '5px 8px 5px 0', color: '#6b7280', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{k}</td>
+                                    <td style={{ padding: '5px 0', color: '#111827', fontWeight: 500, wordBreak: 'break-word' }}>{String(v)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                        Evidence Files ({files.length})
+                    </p>
+                    {files.length === 0 ? (
+                        <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8' }}>No evidence files on this alert.</p>
+                    ) : (
+                        <>
+                            <ul style={{ margin: '0 0 14px', paddingLeft: 18, fontSize: 12, color: '#374151' }}>
+                                {files.map(f => <li key={f} style={{ wordBreak: 'break-all' }}>{f}</li>)}
+                            </ul>
+                            <button onClick={onRequestUpload} disabled={requesting}
+                                style={{ width: '100%', padding: '9px 14px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: requesting ? 'not-allowed' : 'pointer' }}>
+                                {requesting ? 'Sending…' : 'Request Upload (UPLOADFILE)'}
+                            </button>
+                            <p style={{ margin: '8px 0 0', fontSize: 11, color: '#94a3b8' }}>
+                                Use this if the photo/video evidence didn't reach the system automatically — sends the same
+                                command the fleet worker would send, and tracks the result under Fleet &rarr; Capture History.
+                            </p>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function DriverBehaviorLive() {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
@@ -1391,6 +1456,10 @@ function DriverBehaviorLive() {
     const [liveEvents, setLiveEvents]       = useState([]); // newest-first, capped at 30
     const [mqttConnected, setMqttConnected] = useState(false);
     const liveKeyRef = useRef(0);
+
+    const [detailsFor, setDetailsFor] = useState(null); // live event object, or null
+    const [requesting, setRequesting] = useState(false);
+    const [uploadMessage, setUploadMessage] = useState('');
 
     useEffect(() => {
         api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
@@ -1426,9 +1495,35 @@ function DriverBehaviorLive() {
 
     const filteredLive = liveEvents.filter(r => (!deviceId || r.imei === deviceId) && (!alertType || r.name === alertType));
     const resolveDeviceName = (r) => r.deviceName || devices.find(d => d.imei === r.imei)?.deviceName || r.imei;
-    const COLS = ['No.', 'Device name', 'IMEI', 'Event Type', 'Speed (km/h)', 'Location', 'Time'];
+    const COLS = ['No.', 'Device name', 'IMEI', 'Event Type', 'Speed (km/h)', 'Location', 'Time', 'Evidence'];
     const alertTypeOptions = ALERT_TYPE_NAMES.map(n => ({ value: n, label: n }));
     const deviceOptions = devices.map(d => ({ value: d.imei, label: d.deviceName ?? d.imei }));
+
+    const requestUpload = async () => {
+        if (!detailsFor) return;
+        const files = alertFileNames(detailsFor);
+        if (files.length === 0) return;
+
+        setRequesting(true);
+        setUploadMessage('');
+        try {
+            const raw = detailsFor.raw || {};
+            await api.requestAlertFileUpload({
+                imei: detailsFor.imei,
+                file_names: files,
+                alert_time: raw['alert.time'] ?? detailsFor.timestamp,
+                alert_type: raw['alert.type'] ?? null,
+                alert_code: detailsFor.code,
+                longitude: detailsFor.longitude,
+                latitude: detailsFor.latitude,
+            });
+            setUploadMessage('Upload requested — check Fleet > Capture History for the result.');
+        } catch (e) {
+            setUploadMessage(e.response?.data?.message || 'Failed to request upload.');
+        } finally {
+            setRequesting(false);
+        }
+    };
 
     return (
         <>
@@ -1449,19 +1544,38 @@ function DriverBehaviorLive() {
                 <tbody>
                     {filteredLive.length === 0 ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 32, color: '#94a3b8' }}>Waiting for live events…</td></tr>
-                    ) : filteredLive.map((r, i) => (
-                        <tr key={r._key}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{resolveDeviceName(r)}</td>
-                            <td style={TD}>{r.imei ?? '—'}</td>
-                            <td style={TD}>{alertLabel(r)}</td>
-                            <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
-                            <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
-                            <td style={TD}>{fmtTime(r.timestamp)}</td>
-                        </tr>
-                    ))}
+                    ) : filteredLive.map((r, i) => {
+                        const fileCount = alertFileNames(r).length;
+                        return (
+                            <tr key={r._key}>
+                                <td style={TD}>{i + 1}</td>
+                                <td style={TD}>{resolveDeviceName(r)}</td>
+                                <td style={TD}>{r.imei ?? '—'}</td>
+                                <td style={TD}>{alertLabel(r)}</td>
+                                <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                                <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={TD}>{fmtTime(r.timestamp)}</td>
+                                <td style={TD}>
+                                    <button onClick={() => { setDetailsFor(r); setUploadMessage(''); }}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600 }}>
+                                        {fileCount > 0 ? `View (${fileCount})` : 'Details'}
+                                    </button>
+                                </td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
+
+            {detailsFor && (
+                <AlertRawDetailsModal
+                    event={detailsFor}
+                    onClose={() => setDetailsFor(null)}
+                    onRequestUpload={requestUpload}
+                    requesting={requesting}
+                    message={uploadMessage}
+                />
+            )}
         </>
     );
 }
@@ -3343,12 +3457,128 @@ function exportAlertsCsv(rows) {
     URL.revokeObjectURL(url);
 }
 
+// Historical counterpart of the live feed's AlertRawDetailsModal (Driver Behavior's Evidence
+// column) — but this row's shape comes from TurboHive's REST alerts endpoint (already-uploaded
+// `attachments[]`, no raw alert.file on-device filenames), so a retry needs our own
+// alert_file_uploads tracking row (matched by imei + closest alert_time) to know what filenames to
+// re-request. If no tracking row exists at all (alert never had evidence requested), retry isn't
+// possible from here — only from the live feed at the moment the alert first arrives.
+function HistoricalAlertDetailsModal({ event, onClose }) {
+    const [tracking, setTracking] = useState(null);
+    const [loading, setLoading]   = useState(true);
+    const [requesting, setRequesting] = useState(false);
+    const [message, setMessage]   = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await api.getAlertFileUploads({ imei: event.imei });
+                const records = res.data ?? [];
+                const eventTime = new Date(event.time).getTime();
+                const best = records
+                    .map(r => ({ r, diff: Math.abs(new Date(r.alert_time).getTime() - eventTime) }))
+                    .sort((a, b) => a.diff - b.diff)[0];
+                // Only trust a match within a generous 5-minute window — otherwise it's almost
+                // certainly a different, unrelated alert for the same device.
+                if (!cancelled) setTracking(best && best.diff <= 5 * 60 * 1000 ? best.r : null);
+            } catch (e) {
+                if (!cancelled) setTracking(null);
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [event.imei, event.time]);
+
+    const requestUpload = async () => {
+        if (!tracking?.file_names?.length) return;
+        setRequesting(true);
+        setMessage('');
+        try {
+            await api.requestAlertFileUpload({
+                imei: event.imei,
+                file_names: tracking.file_names,
+                alert_time: new Date(event.time).getTime(),
+                alert_type: event.type,
+                alert_code: event.code,
+                longitude: event.longitude,
+                latitude: event.latitude,
+            });
+            setMessage('Upload requested — check Fleet > Capture History for the result.');
+        } catch (e) {
+            setMessage(e.response?.data?.message || 'Failed to request upload.');
+        } finally {
+            setRequesting(false);
+        }
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#fff', borderRadius: 12, width: 460, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Alert Evidence</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+                </div>
+
+                <div style={{ padding: 20 }}>
+                    {message && <div style={{ marginBottom: 14, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534' }}>{message}</div>}
+
+                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                        Uploaded Files ({(event.attachments || []).length})
+                    </p>
+                    {(!event.attachments || event.attachments.length === 0) ? (
+                        <p style={{ margin: '0 0 16px', fontSize: 12.5, color: '#94a3b8' }}>Nothing uploaded to TurboHive yet for this alert.</p>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                            {event.attachments.map((m, i) => (
+                                <a key={m.id ?? i} href={m.url} target="_blank" rel="noreferrer"
+                                    style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', border: '1px solid #f1f5f9', borderRadius: 8, fontSize: 12, textDecoration: 'none', color: '#111827' }}>
+                                    <span>{/\.(mp4|mov|avi|mkv)$/i.test(m.fileName ?? '') ? '🎬' : '📷'} {m.fileName ?? `Channel ${m.channel}`}</span>
+                                    <span style={{ color: '#9ca3af' }}>{m.fileSize ? `${(m.fileSize / 1024).toFixed(0)} KB` : ''}</span>
+                                </a>
+                            ))}
+                        </div>
+                    )}
+
+                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                        Upload Request Tracking
+                    </p>
+                    {loading ? (
+                        <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8' }}>Checking…</p>
+                    ) : !tracking ? (
+                        <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8' }}>No matching upload request found in Capture History for this alert.</p>
+                    ) : (
+                        <>
+                            <div style={{ padding: '10px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>
+                                <div><strong>Status:</strong> {tracking.status}</div>
+                                {tracking.error && <div style={{ color: '#991b1b', marginTop: 4 }}>{tracking.error}</div>}
+                                <div style={{ marginTop: 4, color: '#6b7280' }}>{(tracking.file_names || []).length} file(s) requested</div>
+                                <ul style={{ margin: '6px 0 0', paddingLeft: 16 }}>
+                                    {(tracking.file_names || []).map(f => <li key={f} style={{ wordBreak: 'break-all' }}>{f}</li>)}
+                                </ul>
+                            </div>
+                            {tracking.status !== 'uploaded' && (tracking.file_names || []).length > 0 && (
+                                <button onClick={requestUpload} disabled={requesting}
+                                    style={{ width: '100%', padding: '9px 14px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: requesting ? 'not-allowed' : 'pointer' }}>
+                                    {requesting ? 'Sending…' : 'Retry Upload (UPLOADFILE)'}
+                                </button>
+                            )}
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // Built from TurboHive's GET /v3/alerts/page (see TurboHiveService::getAlerts) — the same endpoint
 // Overspeed and Driver Behavior's historical feed use, but unfiltered by category: every alert type
 // shows up here, using the full ALERT_TYPE_NAMES catalog for the filter (see Driver Behavior for
 // why that's matched client-side against `name` rather than sent as a server-side alertType param).
 // TurboHive has no Model/Account/reverse-geocoded-address fields the old Traccar-based report
-// showed, so those columns are dropped; Evidence reuses the same AttachmentLinks as Driver Behavior.
+// showed, so those columns are dropped; Evidence reuses the same AttachmentLinks as Driver Behavior,
+// plus a "Details" action (HistoricalAlertDetailsModal) for the full file list and manual retry.
 function AlertDetails() {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
@@ -3358,6 +3588,7 @@ function AlertDetails() {
     const [rows, setRows]           = useState([]);
     const [loading, setLoading]     = useState(false);
     const [error, setError]         = useState('');
+    const [detailsFor, setDetailsFor] = useState(null); // alert row object, or null
 
     useEffect(() => {
         api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
@@ -3454,12 +3685,21 @@ function AlertDetails() {
                                 <td style={TD}>{r.speed ?? '—'}</td>
                                 <td style={TD}>{fmtTime(r.time)}</td>
                                 <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
-                                <td style={TD}><AttachmentLinks attachments={r.attachments} /></td>
+                                <td style={TD}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <AttachmentLinks attachments={r.attachments} />
+                                        <button onClick={() => setDetailsFor(r)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12, fontWeight: 600 }}>Details</button>
+                                    </div>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
+
+            {detailsFor && (
+                <HistoricalAlertDetailsModal event={detailsFor} onClose={() => setDetailsFor(null)} />
+            )}
         </div>
     );
 }

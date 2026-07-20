@@ -29,7 +29,7 @@ const DEVICE_POLL_SECONDS = 30;
 // only exist on the separate /v3/track/location snapshot, keyed by "device.imei" (TurboHive's
 // flat dotted-key convention). `positionsByImei` merges that in on initial load, same as the
 // Traccar path already does; live updates then keep it fresh via applyTurboHivePosition() (MQTT).
-function normalizeTurboHiveDevice(device, positionsByImei = {}) {
+function normalizeTurboHiveDevice(device, positionsByImei = {}, vehicleTypesByImei = {}) {
     const imei = String(device.imei ?? device.deviceId ?? device.uniqueId ?? device.id ?? '');
     const pos = positionsByImei[imei];
     return {
@@ -46,12 +46,13 @@ function normalizeTurboHiveDevice(device, positionsByImei = {}) {
         altitude: pos?.['gnss.altitude']  ?? null,
         lastUpdate: pos?.['server.time']  ?? null,
         signal: device.batteryLevel ?? device.battery ?? device.signal ?? 0,
+        vehicleType: vehicleTypesByImei[imei] ?? null,
     };
 }
 
 /* Traccar's device/position shape -> the shape DeviceList/MapCanvas/TopBar already expect,
    plus the raw Traccar fields (groupId, phone, model, ...) EditDeviceModal needs to edit a device. */
-function normalizeLiveDevice(device, positionsByDeviceId) {
+function normalizeLiveDevice(device, positionsByDeviceId, vehicleTypesByImei = {}) {
     const pos = positionsByDeviceId[device.id];
     return {
         id:      device.id,
@@ -71,6 +72,7 @@ function normalizeLiveDevice(device, positionsByDeviceId) {
         disabled:       device.disabled,
         expirationTime: device.expirationTime,
         attributes:     device.attributes,
+        vehicleType:    vehicleTypesByImei[device.uniqueId] ?? null,
     };
 }
 
@@ -138,6 +140,16 @@ export default function Dashboard({ user, onLogout }) {
 
     const fetchLiveDevices = async () => {
         try {
+            // Best-effort — a vehicle without a type configured just falls back to the default
+            // pin/icon everywhere, so a failed lookup here shouldn't block loading devices at all.
+            const vehicleTypesByImei = {};
+            try {
+                const settingsRes = await api.getVehicleSettings();
+                for (const s of settingsRes.data ?? []) {
+                    if (s.imei && s.vehicle_type) vehicleTypesByImei[s.imei] = s.vehicle_type;
+                }
+            } catch (e) { /* no vehicle types available this refresh — icons fall back to default */ }
+
             if (turboHiveEnabled) {
                 const [{ data }, locationsRes] = await Promise.all([
                     api.getTurboHiveTrackableDevices(),
@@ -149,7 +161,7 @@ export default function Dashboard({ user, onLogout }) {
                     const imei = loc['device.imei'];
                     if (imei) positionsByImei[imei] = loc;
                 }
-                const normalized = rawList.map(d => normalizeTurboHiveDevice(d, positionsByImei));
+                const normalized = rawList.map(d => normalizeTurboHiveDevice(d, positionsByImei, vehicleTypesByImei));
                 setLiveDevices(normalized);
                 setLiveSelected(curr => curr ?? normalized[0]?.id ?? null);
             } else {
@@ -157,7 +169,7 @@ export default function Dashboard({ user, onLogout }) {
                 const positionsRes = await api.getLatestPositions();
                 const positionsByDeviceId = {};
                 for (const p of positionsRes.data) positionsByDeviceId[p.deviceId] = p;
-                const normalized = devicesRes.data.map(d => normalizeLiveDevice(d, positionsByDeviceId));
+                const normalized = devicesRes.data.map(d => normalizeLiveDevice(d, positionsByDeviceId, vehicleTypesByImei));
                 setLiveDevices(normalized);
                 setLiveSelected(curr => curr ?? normalized[0]?.id ?? null);
             }

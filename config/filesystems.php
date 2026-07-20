@@ -47,6 +47,16 @@ return [
             'report' => false,
         ],
 
+        // Same physical location the FTPGPS IIS FTP site already used (C:\FTPGPS) — the HTTP
+        // upload endpoint (GpsFileUploadController) writes here so anything already expecting
+        // files in that folder keeps working, whether the device sends FTP or HTTP.
+        'ftpgps' => [
+            'driver' => 'local',
+            'root' => env('FTPGPS_UPLOAD_PATH', 'C:\\FTPGPS'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

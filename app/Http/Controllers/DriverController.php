@@ -15,9 +15,13 @@ class DriverController extends Controller
     public function index()
     {
         return response()->json(
-            Driver::with('links')->orderBy('name')->get()->map(fn (Driver $d) => [
+            Driver::with(['links', 'faces'])->orderBy('name')->get()->map(fn (Driver $d) => [
                 ...$d->toArray(),
                 'imeis' => $d->links->pluck('imei')->values(),
+                // "Authorized to Drive" (AI facial authorization) — true once the driver has at
+                // least one enrolled face on any vehicle. Distinct from `status` (Active/Inactive),
+                // which is just the driver record's own on/off toggle.
+                'authorized' => $d->faces->contains(fn ($f) => $f->status === 'enrolled'),
             ])
         );
     }

@@ -35,11 +35,13 @@ export const api = {
     setVehicleDrivers: (imei, driverIds) => axios.put(`/api/vehicle-drivers/${imei}`, { driverIds }),
 
     // ── Per-vehicle relay-disconnect opt-in (Laravel DB, keyed by TurboHive IMEI) ──
+    getVehicleSettings: ()          => axios.get('/api/vehicle-settings'),
     getVehicleSetting: (imei)       => axios.get(`/api/vehicle-settings/${imei}`),
     setVehicleSetting: (imei, data) => axios.put(`/api/vehicle-settings/${imei}`, data),
 
     // ── Alert-evidence upload tracking history (system-generated, read-only) ──
-    getAlertFileUploads: (params = {}) => axios.get('/api/alert-file-uploads', { params }),
+    getAlertFileUploads:     (params = {}) => axios.get('/api/alert-file-uploads', { params }),
+    requestAlertFileUpload:  (payload)     => axios.post('/api/alert-file-uploads', payload),
 
     // ── Vehicle maintenance schedule/history (Laravel DB, keyed by TurboHive IMEI) ──
     getVehicleMaintenances:   ()         => axios.get('/api/vehicle-maintenances'),

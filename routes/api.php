@@ -9,6 +9,7 @@ use App\Http\Controllers\DriverCheckinController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\DriverFaceController;
 use App\Http\Controllers\GeofenceController;
+use App\Http\Controllers\GpsFileUploadController;
 use App\Http\Controllers\TurboHiveController;
 use App\Http\Controllers\VehicleDriverController;
 use App\Http\Controllers\VehicleMaintenanceController;
@@ -20,6 +21,11 @@ Route::post('/login',  [AuthController::class, 'login']);
 // Public — JC171 device webhook for captured face photos (UPLOADFACE target). Guarded by a
 // shared-secret path token instead of auth:sanctum since the device can't authenticate as a user.
 Route::post('/turbohive/face-upload/{token}', [DriverFaceController::class, 'upload']);
+
+// Public — HTTP replacement for the FTPGPS FTP site (device firmware also supports HTTP upload).
+// Guarded by a shared-secret path token instead of auth:sanctum since the device can't
+// authenticate as a user.
+Route::post('/gps-upload/{token}', [GpsFileUploadController::class, 'upload']);
 
 // Protected
 Route::middleware('auth:sanctum')->group(function () {
@@ -40,11 +46,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/vehicle-drivers/{imei}', [VehicleDriverController::class, 'sync']);
 
     // Per-vehicle relay-disconnect opt-in (by TurboHive IMEI) — see UnregisteredDriverAlertService
+    Route::get('/vehicle-settings', [VehicleSettingController::class, 'index']);
     Route::get('/vehicle-settings/{imei}', [VehicleSettingController::class, 'show']);
     Route::put('/vehicle-settings/{imei}', [VehicleSettingController::class, 'update']);
 
     // Alert-evidence upload tracking history (system-generated, read-only — see MqttWorker)
     Route::get('/alert-file-uploads', [AlertFileUploadController::class, 'index']);
+    Route::post('/alert-file-uploads', [AlertFileUploadController::class, 'store']);
 
     // Vehicle maintenance schedule/history (Laravel DB, keyed by TurboHive IMEI)
     Route::get('/vehicle-maintenances', [VehicleMaintenanceController::class, 'index']);

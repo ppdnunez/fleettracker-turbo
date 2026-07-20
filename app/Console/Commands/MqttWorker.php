@@ -13,6 +13,7 @@ use App\Events\DriverCheckedIn;
 use App\Models\AlertFileUpload;
 use App\Models\Driver;
 use App\Models\DriverCheckin;
+use App\Services\DriverRecognizedAlertService;
 use App\Services\GeofenceMonitorService;
 use App\Services\TurboHiveService;
 use App\Services\UnregisteredDriverAlertService;
@@ -29,12 +30,6 @@ class MqttWorker extends Command
     private const MAX_BACKOFF_SECONDS = 60;
     private const HEALTHY_AFTER_SECONDS = 30;
 
-    /** Last known speed per IMEI, updated on every position message and consulted by the peri/dlt
-     *  handler so an unregistered-driver relay disconnect can be gated on the vehicle being
-     *  stationary. Kept in-memory (this command runs as one long-lived process) rather than
-     *  queried from TurboHive on demand, since the live position stream already has it. */
-    private array $lastSpeedByImei = [];
-
     /**
      * php-mqtt/client's own setReconnectAutomatically() only covers transport-level resends, not
      * every failure mode — a broken socket during publish/loop (DataTransferException) is thrown
@@ -43,7 +38,7 @@ class MqttWorker extends Command
      * This wraps the entire connect+subscribe+loop cycle in a retry loop with backoff, so the
      * command itself never exits on a connection failure — only Ctrl+C / process kill stops it.
      */
-    public function handle(GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert, TurboHiveService $turboHive): void
+    public function handle(GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert, DriverRecognizedAlertService $driverRecognizedAlert, TurboHiveService $turboHive): void
     {
         $cfg    = config('services.turbohive_mqtt');
         $userId = $cfg['user_id'];
@@ -53,7 +48,7 @@ class MqttWorker extends Command
             $connectedAt = microtime(true);
 
             try {
-                $this->connectAndListen($cfg, $userId, $geofenceMonitor, $unregisteredDriverAlert, $turboHive);
+                $this->connectAndListen($cfg, $userId, $geofenceMonitor, $unregisteredDriverAlert, $driverRecognizedAlert, $turboHive);
             } catch (\Throwable $e) {
                 $this->error("MQTT worker connection lost: {$e->getMessage()}");
                 Log::warning('mqtt:worker connection lost, will reconnect', [
@@ -71,7 +66,7 @@ class MqttWorker extends Command
     }
 
     /** @throws \Throwable on any connection/subscribe/loop failure — caller retries. */
-    private function connectAndListen(array $cfg, string $userId, GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert, TurboHiveService $turboHive): void
+    private function connectAndListen(array $cfg, string $userId, GeofenceMonitorService $geofenceMonitor, UnregisteredDriverAlertService $unregisteredDriverAlert, DriverRecognizedAlertService $driverRecognizedAlert, TurboHiveService $turboHive): void
     {
         $this->info("Connecting to {$cfg['host']}:{$cfg['port']} as {$cfg['username']}…");
 
@@ -100,9 +95,6 @@ class MqttWorker extends Command
             $payload = $event->broadcastWith();
             $lat = $payload['lat'];
             $lng = $payload['lng'];
-            if (isset($payload['speed'])) {
-                $this->lastSpeedByImei[$imei] = (float) $payload['speed'];
-            }
             $this->line("[position] {$imei} → " . ($lat ?? '?') . ', ' . ($lng ?? '?'));
 
             if ($lat !== null && $lng !== null) {
@@ -112,12 +104,12 @@ class MqttWorker extends Command
             }
         });
 
-        // All device alerts: {userId}/alert/{imei}. Also where a JC171 AFIF face check with no
-        // match is expected to surface (unconfirmed alert.code — see
-        // services.turbohive.face_unrecognized_alert_code's docblock); left unarmed until that
-        // code is captured from a real device so nothing fires on a guess.
-        $faceAlertCode = config('services.turbohive.face_unrecognized_alert_code');
-        $mqtt->subscribe("{$userId}/alert/#", function (string $topic, string $message) use ($unregisteredDriverAlert, $faceAlertCode, $turboHive) {
+        // All device alerts: {userId}/alert/{imei}. Also where a JC171 AFIF face check surfaces —
+        // alert.code 1824 (no match) and 1823 (match), both confirmed live 2026-07-16 — see
+        // services.turbohive.face_unrecognized_alert_code/face_recognized_alert_code's docblocks.
+        $faceAlertCode      = config('services.turbohive.face_unrecognized_alert_code');
+        $faceRecognizedCode = config('services.turbohive.face_recognized_alert_code');
+        $mqtt->subscribe("{$userId}/alert/#", function (string $topic, string $message) use ($unregisteredDriverAlert, $driverRecognizedAlert, $faceAlertCode, $faceRecognizedCode, $turboHive) {
             $data = json_decode($message, true);
             if (!$data) return;
 
@@ -129,7 +121,11 @@ class MqttWorker extends Command
             $this->line("[alert]    {$imei} → " . ($alert['type'] ?? 'unknown'));
 
             if ($faceAlertCode !== null && $faceAlertCode !== '' && (string) $alert['code'] === (string) $faceAlertCode) {
-                $unregisteredDriverAlert->handle($imei, 'Face recognition — no match', $this->lastSpeedByImei[$imei] ?? null, 'face');
+                $unregisteredDriverAlert->handle($imei, 'Face recognition — no match', 'face');
+            }
+
+            if ($faceRecognizedCode !== null && $faceRecognizedCode !== '' && (string) $alert['code'] === (string) $faceRecognizedCode) {
+                $driverRecognizedAlert->handle($imei);
             }
 
             $this->requestAlertFileUpload($turboHive, $imei, $data);
@@ -185,7 +181,7 @@ class MqttWorker extends Command
             ]);
 
             if (!$driver) {
-                $unregisteredDriverAlert->handle($imei, $cardId, $this->lastSpeedByImei[$imei] ?? null, 'rfid');
+                $unregisteredDriverAlert->handle($imei, $cardId, 'rfid');
             }
 
             broadcast(new DriverCheckedIn($checkin));
@@ -199,13 +195,26 @@ class MqttWorker extends Command
         // upload.fileList is treated as a result, since a differently-named event with the same
         // shape would otherwise be silently dropped.
         $mqtt->subscribe("{$userId}/notify/#", function (string $topic, string $message) {
+            $imei = $this->extractImei($topic);
             $data = json_decode($message, true);
-            if (!$data) return;
+
+            if (!$data) {
+                $this->line("[notify]   {$imei} → unparseable payload: " . substr($message, 0, 200));
+                Log::info('Unparseable notify/# payload', ['imei' => $imei, 'raw' => $message]);
+                return;
+            }
 
             $fileList = $data['upload.fileList'] ?? $data['uploadFileList'] ?? null;
-            if (!is_array($fileList)) return;
+            if (!is_array($fileList)) {
+                // Logged rather than silently dropped — no confirmation has ever been observed on
+                // this topic yet (see AlertFileUpload rows stuck at status=requested), so if
+                // TurboHive is sending something back in an unrecognized shape, this is the only
+                // way to see it and adjust the parsing above.
+                $this->line("[notify]   {$imei} → unrecognized shape (no upload.fileList): " . substr($message, 0, 200));
+                Log::info('Unrecognized notify/# payload', ['imei' => $imei, 'raw' => $data]);
+                return;
+            }
 
-            $imei = $this->extractImei($topic);
             $this->recordUploadResult($imei, $data, $fileList);
         });
 
@@ -213,12 +222,31 @@ class MqttWorker extends Command
     }
 
     /**
+     * alert.codes worth requesting evidence for via UPLOADFILE — driving-behavior and DMS/ADAS
+     * events (speeding/harsh-driving, fatigue/distraction) confirmed against TurboHive's alert
+     * catalog. Face-recognition codes (1822-1825) are deliberately excluded — those drive the
+     * relay disconnect/reconnect path (UnregisteredDriverAlertService / DriverRecognizedAlertService)
+     * and don't need evidence upload. Alerts outside this list are still broadcast live and logged
+     * as usual; only the UPLOADFILE request (and the AlertFileUpload tracking row) is skipped for
+     * them, so evidence traffic stays scoped to alerts where photo/video is actually useful.
+     */
+    private const ALERT_FILE_UPLOAD_CODES = [
+        '1301', '1302', '1303', '1304', '1305', '1306', '1307', '1308', '1309', // speeding/harsh driving
+        '1801', '1802', '1803', '1804', '1805', '1806', '1807', '1808', '1809', '1810', // DMS: fatigue, phone, smoking, etc.
+        '1811', '1812', '1813', '1814', '1815', '1816', '1817', '1818', '1819', '1820', '1821', // DMS: capture/calibration/behavior
+    ];
+
+    /**
      * Builds and sends the UPLOADFILE command for an alert's evidence files (if any), and records
      * the request so the later {userId}/notify/{imei} confirmation has something to match against.
-     * alert.file is only present on alerts that actually captured evidence — most alerts have none.
+     * alert.file is only present on alerts that actually captured evidence — most alerts have none
+     * — and only alert.codes in ALERT_FILE_UPLOAD_CODES are requested at all.
      */
     private function requestAlertFileUpload(TurboHiveService $turboHive, string $imei, array $data): void
     {
+        $alertCode = (string) ($data['alert.code'] ?? $data['alertCode'] ?? '');
+        if (!in_array($alertCode, self::ALERT_FILE_UPLOAD_CODES, true)) return;
+
         $rawFiles = $data['alert.file'] ?? $data['alertFile'] ?? null;
         if (!$rawFiles) return;
 
@@ -243,7 +271,7 @@ class MqttWorker extends Command
             AlertFileUpload::create([
                 'imei'         => $imei,
                 'alert_type'   => $alertType,
-                'alert_code'   => $data['alert.code'] ?? $data['alertCode'] ?? null,
+                'alert_code'   => $alertCode,
                 'alert_time'   => $alertTimeMs ? Carbon::createFromTimestampMs((int) $alertTimeMs) : now(),
                 'file_names'   => $fileNames,
                 'longitude'    => $lng,

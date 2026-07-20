@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, ZoomControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { vehicleGlyphSvg } from '../vehicleIcons.js';
 
 // Fix default marker icon paths broken by bundlers
 delete L.Icon.Default.prototype._getIconUrl;
@@ -13,19 +14,42 @@ L.Icon.Default.mergeOptions({
 
 const CENTER = [14.5995, 120.9842];
 
-function makeIcon(selected, online, heading) {
-    const bg     = selected ? '#1e293b' : online ? '#3b82f6' : '#94a3b8';
-    const border = selected ? '#0f172a' : online ? '#1d4ed8' : '#64748b';
+// Pin color per state — 3 fixed states, so a shared gradient id per state (e.g. "pinGrad-on")
+// is safe to reuse across every marker in that state without an SVG id collision, rather than
+// needing a globally-unique id per marker instance.
+const PIN_COLORS = {
+    sel: { top: '#334155', bottom: '#0f172a', border: '#0f172a' },
+    on:  { top: '#60a5fa', bottom: '#1d4ed8', border: '#1d4ed8' },
+    off: { top: '#cbd5e1', bottom: '#64748b', border: '#64748b' },
+};
 
-    // Arrow rotated to heading (points north = 0°), plain dot when no heading data
-    const inner = heading != null
+function makeIcon(selected, online, heading, vehicleType) {
+    const state = selected ? 'sel' : online ? 'on' : 'off';
+    const c = PIN_COLORS[state];
+    const gradId = `pinGrad-${state}`;
+
+    // Vehicle-type emoji when set (not rotated — an emoji glyph tilting with heading reads as
+    // broken rather than directional); otherwise the original fallback — arrow rotated to
+    // heading, plain dot when no heading data.
+    const inner = vehicleGlyphSvg(vehicleType) ?? (heading != null
         ? `<polygon points="12,7 14.5,16 12,14 9.5,16" fill="white" opacity="0.95" transform="rotate(${heading},12,12)"/>`
-        : `<circle cx="12" cy="12" r="4" fill="white" opacity="0.9"/>`;
+        : `<circle cx="12" cy="12" r="4" fill="white" opacity="0.9"/>`);
 
+    // 3D look built from three cheap SVG tricks rather than a raster image: a top-to-bottom
+    // gradient on the pin body for shaded depth, a translucent highlight ellipse for a glossy
+    // sheen, and a flat ground-shadow ellipse under the tip to read as "lifted" off the map.
     const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="34" viewBox="0 0 24 34">
+            <defs>
+                <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="${c.top}"/>
+                    <stop offset="100%" stop-color="${c.bottom}"/>
+                </linearGradient>
+            </defs>
+            <ellipse cx="12" cy="33" rx="5" ry="1.6" fill="#000" opacity="0.25"/>
             <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 22 12 22s12-13 12-22C24 5.37 18.63 0 12 0z"
-                  fill="${bg}" stroke="${border}" stroke-width="1.5"/>
+                  fill="url(#${gradId})" stroke="${c.border}" stroke-width="1.5"/>
+            <ellipse cx="8.5" cy="6.5" rx="3.6" ry="2.6" fill="#ffffff" opacity="0.22"/>
             ${inner}
         </svg>`;
 
@@ -93,7 +117,7 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                         <Marker
                             key={d.id}
                             position={[Number(d.lat), Number(d.lng)]}
-                            icon={makeIcon(selected === d.id, d.status === 'ONLINE', d.heading ?? null)}
+                            icon={makeIcon(selected === d.id, d.status === 'ONLINE', d.heading ?? null, d.vehicleType ?? null)}
                             eventHandlers={{ click: () => onSelect(d.id) }}
                         >
                             <Popup>

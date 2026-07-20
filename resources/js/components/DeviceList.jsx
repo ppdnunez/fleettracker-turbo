@@ -1,3 +1,31 @@
+import { vehicleTypeEmoji } from '../vehicleIcons.js';
+
+// Generic hardware-tracker icon (a tilted box with a lighter top face and darker side face for a
+// simple pseudo-3D look, plus two small port/button accents) — shown when a vehicle has no
+// vehicle_type set, replacing the flat gear placeholder that used to sit there.
+function DeviceHardwareIcon() {
+    return (
+        <svg width="20" height="20" viewBox="0 0 24 24">
+            <defs>
+                <linearGradient id="deviceTopFace" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#cbd5e1" />
+                    <stop offset="100%" stopColor="#93a5bb" />
+                </linearGradient>
+                <linearGradient id="deviceSideFace" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#7b8fa8" />
+                    <stop offset="100%" stopColor="#48566b" />
+                </linearGradient>
+            </defs>
+            <g transform="rotate(-24 12 12)">
+                <rect x="4" y="10" width="16" height="6.5" rx="2" fill="url(#deviceSideFace)" />
+                <rect x="4" y="7.5" width="16" height="6" rx="2" fill="url(#deviceTopFace)" />
+                <rect x="7.5" y="9.5" width="3" height="2" rx="0.6" fill="#33415a" />
+                <rect x="12.5" y="9.5" width="3" height="2" rx="0.6" fill="#33415a" />
+            </g>
+        </svg>
+    );
+}
+
 function CollapseArrow({ open }) {
     return (
         <svg width="7" height="11" viewBox="0 0 7 11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -67,7 +95,9 @@ export default function DeviceList({ devices, selected, onSelect, search, setSea
                             <div key={d.id} onClick={() => onSelect(d.id)} style={{ padding: '12px 14px', cursor: 'pointer', borderBottom: '1px solid #f8fafc', background: selected === d.id ? '#eff6ff' : 'transparent', borderLeft: `3px solid ${selected === d.id ? '#3b82f6' : 'transparent'}` }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <div style={{ width: 28, height: 28, borderRadius: 7, background: selected === d.id ? '#dbeafe' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>⚙</div>
+                                        <div style={{ width: 28, height: 28, borderRadius: 7, background: selected === d.id ? '#dbeafe' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
+                                            {vehicleTypeEmoji(d.vehicleType) ?? <DeviceHardwareIcon />}
+                                        </div>
                                         <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{d.name}</span>
                                     </div>
                                     <span style={{ fontSize: 10, color: '#94a3b8' }}>···</span>

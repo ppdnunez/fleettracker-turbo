@@ -4,6 +4,7 @@ import MapCanvas from './MapCanvas.jsx';
 import ReportPage from './ReportPage.jsx';
 import GeofenceManagementPage from './GeofencePage.jsx';
 import { turboHiveEnabled, connectTurboHiveMqtt, applyTurboHivePosition } from '../turbohive-mqtt.js';
+import { VEHICLE_TYPES } from '../vehicleIcons.js';
 
 /* ── icons ───────────────────────────────────────────────────── */
 const SearchSVG = () => (
@@ -723,6 +724,259 @@ function DriverFaceModal({ driver, onClose }) {
 // works through Traccar elsewhere in the app. License/Safety Sticker status badges are computed
 // from each driver's expiry dates; the same dates drive the "drivers:notify-expirations" scheduled
 // email reminder on the backend.
+function DriverStatCard({ label, value, sublabel, color }) {
+    return (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', minWidth: 0 }}>
+            <p style={{ margin: '0 0 6px', fontSize: 11.5, color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</p>
+            <p style={{ margin: 0, fontSize: 21, fontWeight: 700, color: color || '#111827' }}>{value}</p>
+            {sublabel && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8' }}>{sublabel}</p>}
+        </div>
+    );
+}
+
+function DetailRow({ label, value, extra }) {
+    return (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: '#6b7280' }}>{label}</span>
+            <span style={{ color: '#111827', fontWeight: 500, textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>{value ?? (!extra && '—')}{extra}</span>
+        </div>
+    );
+}
+
+const FACE_STATUS_COLOR = { pending: '#f59e0b', enrolled: '#16a34a', failed: '#ef4444', deleted: '#9ca3af' };
+const DRIVER_DETAIL_TABS = ['Profile', 'Credentials', 'AI Facial Data', 'Activity Log'];
+
+// Right-side detail panel for the driver selected in the list. "AI Facial Data" reads the real
+// DriverFace enrollment records (see DriverFaceModal/DriverFaceController); "Activity Log" reads
+// real DriverCheckin history — both genuine data, just surfaced here instead of a separate modal.
+function DriverDetailPanel({ driver, onEdit, onManageFace }) {
+    const [tab, setTab] = useState('Profile');
+    const [faces, setFaces] = useState([]);
+    const [checkins, setCheckins] = useState([]);
+    const [loadingTab, setLoadingTab] = useState(false);
+
+    useEffect(() => { setTab('Profile'); }, [driver?.id]);
+
+    useEffect(() => {
+        if (!driver) return;
+        if (tab === 'AI Facial Data') {
+            setLoadingTab(true);
+            api.getDriverFaces({ driver_id: driver.id })
+                .then(res => setFaces(res.data ?? []))
+                .catch(() => setFaces([]))
+                .finally(() => setLoadingTab(false));
+        }
+        if (tab === 'Activity Log') {
+            setLoadingTab(true);
+            api.getDriverCheckins({ driverId: driver.id, size: 20 })
+                .then(res => setCheckins(res.data?.data ?? []))
+                .catch(() => setCheckins([]))
+                .finally(() => setLoadingTab(false));
+        }
+    }, [tab, driver?.id]);
+
+    if (!driver) {
+        return (
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                Select a driver from the list to view details.
+            </div>
+        );
+    }
+
+    const lStatus   = licenseStatus(driver.license_expiry);
+    const lReminder = expiryReminder(driver.license_expiry, driver.notify_days_before);
+    const initials  = driver.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+
+    return (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
+                    {initials}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{driver.name}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>{driver.badge_no}</p>
+                </div>
+                <Badge text={driver.authorized ? 'Authorized' : 'Not Authorized'} color={driver.authorized ? '#16a34a' : '#ef4444'} />
+            </div>
+
+            <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9', overflowX: 'auto' }}>
+                {DRIVER_DETAIL_TABS.map(t => (
+                    <button key={t} onClick={() => setTab(t)}
+                        style={{ padding: '9px 14px', border: 'none', borderBottom: tab === t ? '2px solid #3b82f6' : '2px solid transparent', background: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: tab === t ? '#1d4ed8' : '#6b7280', whiteSpace: 'nowrap' }}>
+                        {t}
+                    </button>
+                ))}
+            </div>
+
+            <div style={{ padding: 18, maxHeight: 380, overflowY: 'auto' }}>
+                {tab === 'Profile' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12.5 }}>
+                        <DetailRow label="Driver No." value={driver.badge_no} />
+                        <DetailRow label="Phone" value={driver.phone} />
+                        <DetailRow label="Register Place" value={driver.register_place} />
+                        <DetailRow label="Register Date" value={driver.register_date?.slice(0, 10)} />
+                        <DetailRow label="Status" value={driver.status} />
+                    </div>
+                )}
+
+                {tab === 'Credentials' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12.5 }}>
+                        <DetailRow label="License No." value={driver.license_no} />
+                        <DetailRow label="License Expiry" value={driver.license_expiry?.slice(0, 10)} extra={<Badge text={lStatus} color={STATUS_COLOR[lStatus]} />} />
+                        <DetailRow label="Reminder" extra={<Badge text={lReminder} color={REMINDER_COLOR[lReminder]} />} />
+                        <DetailRow label="RFID Card No." value={driver.rfid_card_no} />
+                        <DetailRow label="iButton No." value={driver.ibutton_no} />
+                        <DetailRow label="Safety Sticker Expiry" value={driver.safety_sticker_expiry?.slice(0, 10)} />
+                    </div>
+                )}
+
+                {tab === 'AI Facial Data' && (
+                    <div>
+                        <button onClick={() => onManageFace(driver)}
+                            style={{ marginBottom: 12, padding: '7px 14px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                            Manage Face Enrollment
+                        </button>
+                        {loadingTab ? (
+                            <p style={{ color: '#94a3b8', fontSize: 12.5 }}>Loading…</p>
+                        ) : faces.length === 0 ? (
+                            <p style={{ color: '#94a3b8', fontSize: 12.5 }}>No face enrollment records yet.</p>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {faces.map(f => (
+                                    <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid #f1f5f9', borderRadius: 8 }}>
+                                        {f.photo_path ? (
+                                            <img src={`/storage/${f.photo_path}`} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+                                        ) : (
+                                            <div style={{ width: 36, height: 36, borderRadius: 6, background: '#f1f5f9', flexShrink: 0 }} />
+                                        )}
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#111827' }}>{f.imei}</p>
+                                            <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>
+                                                {f.enrolled_at ? `Enrolled ${new Date(f.enrolled_at).toLocaleDateString()}` : f.requested_at ? `Requested ${new Date(f.requested_at).toLocaleDateString()}` : ''}
+                                            </p>
+                                        </div>
+                                        <Badge text={f.status} color={FACE_STATUS_COLOR[f.status] ?? '#9ca3af'} />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {tab === 'Activity Log' && (
+                    loadingTab ? (
+                        <p style={{ color: '#94a3b8', fontSize: 12.5 }}>Loading…</p>
+                    ) : checkins.length === 0 ? (
+                        <p style={{ color: '#94a3b8', fontSize: 12.5 }}>No check-in activity recorded yet.</p>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {checkins.map(c => (
+                                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', border: '1px solid #f1f5f9', borderRadius: 8, fontSize: 12 }}>
+                                    <span>Check-in — {c.imei}</span>
+                                    <span style={{ color: '#94a3b8' }}>{new Date(c.checkin_time).toLocaleString()}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )
+                )}
+            </div>
+
+            <div style={{ padding: '12px 18px', borderTop: '1px solid #f1f5f9' }}>
+                <button onClick={() => onEdit(driver)}
+                    style={{ width: '100%', padding: '8px 14px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                    Edit Profile
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// Provision only — no live camera feed, recognition engine, or event source is wired up yet (see
+// the earlier conversation on face-matching approaches). This scaffolds the intended layout so a
+// real integration can be dropped in later without redesigning the page.
+function AILiveAuthorizationCard() {
+    return (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: '#111827' }}>AI Authorization (Live)</h3>
+                <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>● Not connected</span>
+            </div>
+            <div style={{ padding: 18 }}>
+                <div style={{ background: '#111827', borderRadius: 8, aspectRatio: '16/9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                    <p style={{ color: '#6b7280', fontSize: 12.5, textAlign: 'center', padding: '0 20px', margin: 0 }}>
+                        📷 Live camera feed not yet connected.<br />Provisioned for future in-cab AI facial authorization.
+                    </p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+                    <div>
+                        <p style={{ margin: '0 0 2px', color: '#9ca3af' }}>Match Confidence</p>
+                        <p style={{ margin: 0, fontWeight: 700, color: '#cbd5e1' }}>—</p>
+                    </div>
+                    <div>
+                        <p style={{ margin: '0 0 2px', color: '#9ca3af' }}>Verification Time</p>
+                        <p style={{ margin: 0, fontWeight: 700, color: '#cbd5e1' }}>—</p>
+                    </div>
+                </div>
+                <button disabled
+                    style={{ width: '100%', marginTop: 14, padding: '8px 14px', background: '#f1f5f9', color: '#9ca3af', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: 'not-allowed' }}>
+                    View Full Screen (Coming Soon)
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// Provision only — see AILiveAuthorizationCard's docblock. Deliberately not backed by
+// DriverCheckin (RFID/iButton taps) since that isn't AI facial verification and labeling it as
+// such here would be misleading.
+function RecentVerificationEventsCard() {
+    return (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 18 }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 13.5, fontWeight: 700, color: '#111827' }}>Recent Verification Events</h3>
+            <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8', textAlign: 'center', padding: '20px 0' }}>
+                No verification events recorded yet — this feed will populate once live AI facial verification is wired up.
+            </p>
+        </div>
+    );
+}
+
+// Real data — same license_expiry/notify_days_before fields already driving the table's own
+// License Status/Reminder columns, just surfaced as a compact ranked list.
+function LicenseExpiryAlertCard({ drivers }) {
+    const alerts = drivers
+        .filter(d => d.license_expiry && ['Expired', 'Expiring soon'].includes(expiryReminder(d.license_expiry, d.notify_days_before)))
+        .sort((a, b) => new Date(a.license_expiry) - new Date(b.license_expiry))
+        .slice(0, 6);
+
+    return (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 18 }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 13.5, fontWeight: 700, color: '#111827' }}>License Expiry Alert</h3>
+            {alerts.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8', textAlign: 'center', padding: '12px 0' }}>No upcoming expirations.</p>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {alerts.map(d => {
+                        const status = expiryReminder(d.license_expiry, d.notify_days_before);
+                        return (
+                            <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                                <div style={{ minWidth: 0 }}>
+                                    <p style={{ margin: 0, fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</p>
+                                    <p style={{ margin: 0, color: '#9ca3af' }}>{d.license_no || '—'}</p>
+                                </div>
+                                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                                    <Badge text={status} color={REMINDER_COLOR[status]} />
+                                    <p style={{ margin: '2px 0 0', color: '#9ca3af' }}>{d.license_expiry.slice(0, 10)}</p>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function DriverPage() {
     const [drivers, setDrivers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -733,6 +987,7 @@ function DriverPage() {
     const [editing, setEditing] = useState(null); // driver object, 'new', or null
     const [pendingDeleteId, setPendingDeleteId] = useState(null);
     const [faceDriver, setFaceDriver] = useState(null); // driver object, or null
+    const [selectedId, setSelectedId] = useState(null); // driver id shown in the detail panel
 
     const fetchDrivers = async () => {
         setLoading(true);
@@ -762,16 +1017,43 @@ function DriverPage() {
         setPendingDeleteId(null);
         try {
             await api.deleteFleetDriver(id);
+            if (selectedId === id) setSelectedId(null);
             await fetchDrivers();
         } catch (e) {
             setError(e.response?.data?.message || 'Failed to delete driver.');
         }
     };
 
-    const COLS = ['No.','Driver No.','Driver Name','Phone','License No.','RFID Card No.','iButton No.','Register Place','Register Date','License Expiry','License Status','Driving license reminder','Safety Sticker Expiry','Safety Sticker Status','Status','Action'];
+    const totalDrivers = drivers.length;
+    const authorizedCount = drivers.filter(d => d.authorized).length;
+    const notAuthorizedCount = totalDrivers - authorizedCount;
+    const expiringSoonCount = drivers.filter(d => {
+        const days = daysUntil(d.license_expiry);
+        return days != null && days >= 0 && days <= 30;
+    }).length;
+    const pct = (n) => totalDrivers ? `${Math.round((n / totalDrivers) * 100)}%` : null;
+
+    const selectedDriver = drivers.find(d => d.id === selectedId) || null;
+
+    const COLS = ['No.','Driver No.','Driver Name','Phone','License No.','Authorization','RFID Card No.','iButton No.','Register Place','Register Date','License Expiry','License Status','Driving license reminder','Safety Sticker Expiry','Safety Sticker Status','Status','Action'];
+
+    const stopRowClick = (e) => e.stopPropagation();
 
     return (
-        <PageShell title="Driver">
+        <PageShell title="Driver Management with AI">
+            <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
+                Manage drivers, credentials, and AI facial authorization.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 12, marginBottom: 18 }}>
+                <DriverStatCard label="Total Drivers" value={totalDrivers} />
+                <DriverStatCard label="Authorized to Drive" value={authorizedCount} color="#16a34a" sublabel={pct(authorizedCount)} />
+                <DriverStatCard label="Not Authorized" value={notAuthorizedCount} color="#ef4444" sublabel={pct(notAuthorizedCount)} />
+                <DriverStatCard label="AI Verifications (Today)" value="—" sublabel="Provision — not yet logged" />
+                <DriverStatCard label="Failed Verifications (Today)" value="—" sublabel="Provision — not yet logged" />
+                <DriverStatCard label="Expiring Licenses (30 Days)" value={expiringSoonCount} color="#f59e0b" />
+            </div>
+
             <TabBar tabs={['Driver information']} active="Driver information" onChange={() => {}} />
             <FilterBar>
                 <FInput placeholder="Driver No./Driver Name" style={{ width: 200 }} value={search} onChange={e => setSearch(e.target.value)} />
@@ -781,49 +1063,60 @@ function DriverPage() {
                 </label>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </FilterBar>
-            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add</Btn>]} />
+            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add Driver</Btn>]} />
 
             {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
 
-            <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
-                    <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
-                    <tbody>
-                        {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
-                        ) : filtered.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
-                        ) : filtered.map((d, i) => {
-                            const lStatus = licenseStatus(d.license_expiry);
-                            const lReminder = expiryReminder(d.license_expiry, d.notify_days_before);
-                            const sStatus = expiryReminder(d.safety_sticker_expiry, d.notify_days_before);
-                            return (
-                                <tr key={d.id}>
-                                    <td style={TD}>{i + 1}</td>
-                                    <td style={TD}>{d.badge_no}</td>
-                                    <td style={{ ...TD, fontWeight: 500 }}>{d.name}</td>
-                                    <td style={TD}>{d.phone || '—'}</td>
-                                    <td style={TD}>{d.license_no || '—'}</td>
-                                    <td style={TD}>{d.rfid_card_no || '—'}</td>
-                                    <td style={TD}>{d.ibutton_no || '—'}</td>
-                                    <td style={TD}>{d.register_place || '—'}</td>
-                                    <td style={TD}>{d.register_date ? d.register_date.slice(0, 10) : '—'}</td>
-                                    <td style={TD}>{d.license_expiry ? d.license_expiry.slice(0, 10) : '—'}</td>
-                                    <td style={TD}><Badge text={lStatus} color={STATUS_COLOR[lStatus]} /></td>
-                                    <td style={TD}><Badge text={lReminder} color={REMINDER_COLOR[lReminder]} /></td>
-                                    <td style={TD}>{d.safety_sticker_expiry ? d.safety_sticker_expiry.slice(0, 10) : '—'}</td>
-                                    <td style={TD}><Badge text={sStatus} color={REMINDER_COLOR[sStatus]} /></td>
-                                    <td style={TD}>{d.status}</td>
-                                    <td style={{ ...TD, whiteSpace: 'nowrap' }}>
-                                        <button onClick={() => setEditing(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Edit</button>
-                                        <button onClick={() => setFaceDriver(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Face</button>
-                                        <button onClick={() => setPendingDeleteId(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Delete</button>
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
+                        <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                        <tbody>
+                            {loading ? (
+                                <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            ) : filtered.length === 0 ? (
+                                <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            ) : filtered.map((d, i) => {
+                                const lStatus = licenseStatus(d.license_expiry);
+                                const lReminder = expiryReminder(d.license_expiry, d.notify_days_before);
+                                const sStatus = expiryReminder(d.safety_sticker_expiry, d.notify_days_before);
+                                return (
+                                    <tr key={d.id} onClick={() => setSelectedId(d.id)}
+                                        style={{ cursor: 'pointer', background: selectedId === d.id ? '#eff6ff' : undefined }}>
+                                        <td style={TD}>{i + 1}</td>
+                                        <td style={TD}>{d.badge_no}</td>
+                                        <td style={{ ...TD, fontWeight: 500 }}>{d.name}</td>
+                                        <td style={TD}>{d.phone || '—'}</td>
+                                        <td style={TD}>{d.license_no || '—'}</td>
+                                        <td style={TD}><Badge text={d.authorized ? 'Authorized' : 'Not Authorized'} color={d.authorized ? '#16a34a' : '#ef4444'} /></td>
+                                        <td style={TD}>{d.rfid_card_no || '—'}</td>
+                                        <td style={TD}>{d.ibutton_no || '—'}</td>
+                                        <td style={TD}>{d.register_place || '—'}</td>
+                                        <td style={TD}>{d.register_date ? d.register_date.slice(0, 10) : '—'}</td>
+                                        <td style={TD}>{d.license_expiry ? d.license_expiry.slice(0, 10) : '—'}</td>
+                                        <td style={TD}><Badge text={lStatus} color={STATUS_COLOR[lStatus]} /></td>
+                                        <td style={TD}><Badge text={lReminder} color={REMINDER_COLOR[lReminder]} /></td>
+                                        <td style={TD}>{d.safety_sticker_expiry ? d.safety_sticker_expiry.slice(0, 10) : '—'}</td>
+                                        <td style={TD}><Badge text={sStatus} color={REMINDER_COLOR[sStatus]} /></td>
+                                        <td style={TD}>{d.status}</td>
+                                        <td style={{ ...TD, whiteSpace: 'nowrap' }} onClick={stopRowClick}>
+                                            <button onClick={() => setEditing(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Edit</button>
+                                            <button onClick={() => setFaceDriver(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Face</button>
+                                            <button onClick={() => setPendingDeleteId(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Delete</button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <DriverDetailPanel driver={selectedDriver} onEdit={setEditing} onManageFace={setFaceDriver} />
+                    <AILiveAuthorizationCard />
+                    <RecentVerificationEventsCard />
+                    <LicenseExpiryAlertCard drivers={drivers} />
+                </div>
             </div>
 
             {editing && (
@@ -925,6 +1218,7 @@ function VehicleSettingsModal({ vehicle, onClose }) {
     const [channel, setChannel]   = useState(10);
     const [fuelRate, setFuelRate] = useState('');
     const [tankCapacity, setTankCapacity] = useState('');
+    const [vehicleType, setVehicleType] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving]   = useState(false);
     const [error, setError]     = useState('');
@@ -937,6 +1231,7 @@ function VehicleSettingsModal({ vehicle, onClose }) {
                 setChannel(res.data.relay_channel ?? 10);
                 setFuelRate(res.data.fuel_rate_l_per_100km ?? '');
                 setTankCapacity(res.data.fuel_tank_capacity_liters ?? '');
+                setVehicleType(res.data.vehicle_type ?? '');
             } catch (e) {
                 setError('Failed to load vehicle settings.');
             } finally {
@@ -954,6 +1249,7 @@ function VehicleSettingsModal({ vehicle, onClose }) {
                 relay_channel: Number(channel) || 10,
                 fuel_rate_l_per_100km: fuelRate === '' ? null : Number(fuelRate),
                 fuel_tank_capacity_liters: tankCapacity === '' ? null : Number(tankCapacity),
+                vehicle_type: vehicleType || null,
             });
             onClose();
         } catch (e) {
@@ -989,6 +1285,15 @@ function VehicleSettingsModal({ vehicle, onClose }) {
                             <div style={{ ...driverFieldStyle, marginBottom: 16 }}>
                                 <label style={driverLabelStyle}>Relay Channel</label>
                                 <input type="number" min="1" max="255" value={channel} onChange={e => setChannel(e.target.value)} style={{ ...driverInputStyle, maxWidth: 120 }} />
+                            </div>
+
+                            <div style={{ ...driverFieldStyle, marginBottom: 16, borderTop: '1px solid #f1f5f9', paddingTop: 16 }}>
+                                <label style={driverLabelStyle}>Vehicle Type</label>
+                                <select value={vehicleType} onChange={e => setVehicleType(e.target.value)} style={{ ...driverInputStyle, background: '#fff', cursor: 'pointer', maxWidth: 200 }}>
+                                    <option value="">Default (no icon)</option>
+                                    {VEHICLE_TYPES.map(t => <option key={t.value} value={t.value}>{t.emoji} {t.label}</option>)}
+                                </select>
+                                <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#9ca3af' }}>Controls the icon shown on the live map pin and in the device list sidebar.</p>
                             </div>
 
                             <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -1133,17 +1438,19 @@ function VehiclePage() {
 // Mileage, Parking/Idling, Geo Fence, Online/Offline) via <ReportPage reportSection="..."/>, plus
 // the existing live map (MapCanvas) and geofence management page (GeofencePage) — no duplicated
 // logic, just reused as-is under a single Fleet-side module.
-function liveTrackDeviceShape(device, positionsByDeviceId) {
+function liveTrackDeviceShape(device, positionsByDeviceId, vehicleTypesByImei = {}) {
     const pos = positionsByDeviceId[device.id] || positionsByDeviceId[device.identifier] || positionsByDeviceId[device.uniqueId];
+    const imei = device.uniqueId ?? device.identifier ?? device.tracker;
     return {
         id:      device.id,
         name:    device.name || device.identifier || device.uniqueId || device.tracker,
         tracker: device.model || device.uniqueId || device.identifier || device.tracker,
-        imei:    device.uniqueId ?? device.identifier ?? device.tracker,
+        imei,
         status:  device.status === 'online' ? 'ONLINE' : (device.status || 'OFFLINE'),
         lat:     pos ? pos.latitude  : device.lat ?? null,
         lng:     pos ? pos.longitude : device.lng ?? null,
         signal:  pos?.attributes?.batteryLevel ?? pos?.attributes?.rssi ?? device.signal ?? 0,
+        vehicleType: vehicleTypesByImei[imei] ?? null,
     };
 }
 
@@ -1156,10 +1463,14 @@ function LiveLocationTab() {
         try {
             const deviceRequest = turboHiveEnabled ? api.getDevices() : api.getTraccarDevices();
             const positionRequest = turboHiveEnabled ? Promise.resolve({ data: [] }) : api.getLatestPositions();
-            const [devRes, posRes] = await Promise.all([deviceRequest, positionRequest]);
+            const [devRes, posRes, settingsRes] = await Promise.all([
+                deviceRequest, positionRequest, api.getVehicleSettings().catch(() => ({ data: [] })),
+            ]);
             const positionsByDeviceId = {};
             posRes.data.forEach(p => { positionsByDeviceId[p.deviceId] = p; });
-            setDevices(devRes.data.map(d => liveTrackDeviceShape(d, positionsByDeviceId)));
+            const vehicleTypesByImei = {};
+            (settingsRes.data ?? []).forEach(s => { if (s.imei && s.vehicle_type) vehicleTypesByImei[s.imei] = s.vehicle_type; });
+            setDevices(devRes.data.map(d => liveTrackDeviceShape(d, positionsByDeviceId, vehicleTypesByImei)));
         } catch (e) {
             // keep showing the last successful snapshot if a poll fails
         } finally {
