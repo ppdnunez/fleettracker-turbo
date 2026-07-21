@@ -35,16 +35,6 @@ return [
         'user_id'   => env('TURBOHIVE_MQTT_USER_ID'),
     ],
 
-    // Recipient for geofence enter/exit email alerts — see GeofenceMonitorService::checkPosition
-    'geofence' => [
-        'alert_email' => env('GEOFENCE_ALERT_EMAIL'),
-    ],
-
-    // Recipient for unregistered-driver-tap email alerts — see UnregisteredDriverAlertService
-    'driver_checkin' => [
-        'alert_email' => env('DRIVER_CHECKIN_ALERT_EMAIL'),
-    ],
-
     // Shared-secret path token guarding the public GPS file-upload webhook (GpsFileUploadController) —
     // the HTTP replacement for the FTPGPS FTP site, exposed over ngrok.
     'gps_upload' => [

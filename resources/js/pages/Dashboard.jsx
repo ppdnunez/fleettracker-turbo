@@ -10,6 +10,7 @@ import DeviceManagement from '../components/DeviceManagement.jsx';
 import ReportPage       from '../components/ReportPage.jsx';
 import FleetPage        from '../components/FleetPage.jsx';
 import GeofencePage     from '../components/GeofencePage.jsx';
+import AlertRecipientsPage from '../components/AlertRecipientsPage.jsx';
 import NotificationPage from '../components/NotificationPage.jsx';
 import { turboHiveEnabled, applyTurboHivePosition } from '../turbohive-mqtt.js';
 import CalendarPage     from '../components/CalendarPage.jsx';
@@ -345,6 +346,8 @@ export default function Dashboard({ user, onLogout }) {
                     <DeviceManagement />
                 ) : page === 'Geofence' ? (
                     <GeofencePage onBack={() => setPage('Dashboard')} />
+                ) : page === 'Alert Recipients' ? (
+                    <AlertRecipientsPage />
                 ) : page === 'Notification' ? (
                     <NotificationPage />
                 ) : page === 'Calendars' ? (

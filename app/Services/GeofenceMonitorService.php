@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Events\GeofenceEventTriggered;
 use App\Mail\GeofenceAlertMail;
+use App\Models\AlertRecipient;
 use App\Models\GeofenceDevice;
 use App\Models\GeofenceEvent;
 use Illuminate\Support\Facades\Log;
@@ -74,16 +75,18 @@ class GeofenceMonitorService
      */
     private function sendAlertEmail(GeofenceEvent $event, string $geofenceName): void
     {
-        $to = config('services.geofence.alert_email');
-        if (!$to) {
+        $recipients = AlertRecipient::emailsFor('geofence');
+        if (empty($recipients)) {
             return;
         }
 
         try {
-            Mail::to($to)->send(new GeofenceAlertMail($event, $geofenceName, $this->resolveDeviceName($event->imei)));
+            foreach ($recipients as $to) {
+                Mail::to($to)->send(new GeofenceAlertMail($event, $geofenceName, $this->resolveDeviceName($event->imei)));
+            }
         } catch (\Throwable $e) {
             Log::warning('Geofence alert email failed to send', [
-                'to' => $to,
+                'to' => $recipients,
                 'geofence_event_id' => $event->id,
                 'error' => $e->getMessage(),
             ]);

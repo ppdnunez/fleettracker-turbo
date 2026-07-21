@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Mail\VehicleMaintenanceCreatedMail;
-use App\Models\User;
+use App\Models\AlertRecipient;
 use App\Models\VehicleMaintenance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -57,8 +57,8 @@ class VehicleMaintenanceController extends Controller
      */
     private function sendCreatedEmail(VehicleMaintenance $record): void
     {
-        $recipients = User::pluck('email')->filter();
-        if ($recipients->isEmpty()) {
+        $recipients = AlertRecipient::emailsFor('vehicle_maintenance');
+        if (empty($recipients)) {
             return;
         }
 

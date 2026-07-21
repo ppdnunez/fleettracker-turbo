@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AlertFileUploadController;
+use App\Http\Controllers\AlertRecipientController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DeviceController;
@@ -53,6 +54,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Alert-evidence upload tracking history (system-generated, read-only — see MqttWorker)
     Route::get('/alert-file-uploads', [AlertFileUploadController::class, 'index']);
     Route::post('/alert-file-uploads', [AlertFileUploadController::class, 'store']);
+
+    // Subscriber list for every alert email this app sends — see AlertRecipient::CATEGORIES
+    Route::apiResource('alert-recipients', AlertRecipientController::class)->except(['show']);
 
     // Vehicle maintenance schedule/history (Laravel DB, keyed by TurboHive IMEI)
     Route::get('/vehicle-maintenances', [VehicleMaintenanceController::class, 'index']);

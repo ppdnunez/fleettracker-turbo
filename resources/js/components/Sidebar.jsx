@@ -150,7 +150,7 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
     const reportTo = (section) => { setReportSection(section); setPage('Report'); };
 
     const isReportActive = page === 'Report';
-    const isDeviceActive = page === 'Device Management' || page === 'Dashboard' || page === 'Geofence' || page === 'Notification' || page === 'Calendars' || page === 'Computed Attributes' || page === 'Maintenance' || page === 'Saved Commands' || page === 'Groups' || page === 'Drivers';
+    const isDeviceActive = page === 'Device Management' || page === 'Dashboard' || page === 'Geofence' || page === 'Alert Recipients' || page === 'Notification' || page === 'Calendars' || page === 'Computed Attributes' || page === 'Maintenance' || page === 'Saved Commands' || page === 'Groups' || page === 'Drivers';
     const isFleetActive  = page === 'Fleet';
 
     return (
@@ -228,6 +228,9 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
                         <NavItem label="Geofence" depth={1} sidebarOpen={open}
                             active={page === 'Geofence'}
                             onClick={() => navTo('Geofence')} />
+                        <NavItem label="Alert Recipients" depth={1} sidebarOpen={open}
+                            active={page === 'Alert Recipients'}
+                            onClick={() => navTo('Alert Recipients')} />
                         {!turboHiveEnabled && <>
                         <NavItem label="Notification" depth={1} sidebarOpen={open}
                             active={page === 'Notification'}

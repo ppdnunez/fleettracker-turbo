@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Mail\VehicleMaintenanceDueMail;
-use App\Models\User;
+use App\Models\AlertRecipient;
 use App\Models\VehicleMaintenance;
 use App\Services\TurboHiveService;
 use Illuminate\Console\Command;
@@ -13,10 +13,11 @@ use Illuminate\Support\Facades\Mail;
 
 // Scheduled daily (see routes/console.php). For each Scheduled maintenance record, checks
 // due_date and due_odometer_km against that record's notify thresholds (or the defaults below),
-// and emails every registered FleetTrack user once either falls within its window. "Once" per due
-// value is enforced via notified_due_date/notified_due_odometer_km — same pattern as
-// Driver::license_notified_at (see the vehicle_maintenances migration's comment for why a notified
-// *value* is stored rather than a boolean: editing the due date/odometer naturally re-arms it).
+// and emails every AlertRecipient subscribed to the 'vehicle_maintenance' category once either
+// falls within its window. "Once" per due value is enforced via
+// notified_due_date/notified_due_odometer_km — same pattern as Driver::license_notified_at (see
+// the vehicle_maintenances migration's comment for why a notified *value* is stored rather than a
+// boolean: editing the due date/odometer naturally re-arms it).
 class NotifyVehicleMaintenanceDue extends Command
 {
     protected $signature = 'vehicle-maintenance:notify-due';
@@ -28,9 +29,9 @@ class NotifyVehicleMaintenanceDue extends Command
 
     public function handle(TurboHiveService $turboHive): int
     {
-        $recipients = User::pluck('email')->filter()->all();
+        $recipients = AlertRecipient::emailsFor('vehicle_maintenance');
         if (empty($recipients)) {
-            $this->info('No registered users to notify.');
+            $this->info('No recipients subscribed to vehicle_maintenance alerts.');
             return self::SUCCESS;
         }
 

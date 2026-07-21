@@ -3,17 +3,18 @@
 namespace App\Console\Commands;
 
 use App\Mail\DriverExpiryNotice;
+use App\Models\AlertRecipient;
 use App\Models\Driver;
-use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
 
 // Scheduled daily (see routes/console.php). For each driver, checks license_expiry and
 // safety_sticker_expiry against that driver's notify_days_before (or DEFAULT_NOTICE_DAYS),
-// and emails every registered FleetTrack user once the expiry falls within that window.
-// "Once" per expiry date is enforced via {license,sticker}_notified_at — see the migration
-// comment on those columns for why a notified date is stored rather than a boolean.
+// and emails every AlertRecipient subscribed to the 'driver_expiry' category once the expiry
+// falls within that window. "Once" per expiry date is enforced via {license,sticker}_notified_at
+// — see the migration comment on those columns for why a notified date is stored rather than a
+// boolean.
 class NotifyDriverExpirations extends Command
 {
     protected $signature = 'drivers:notify-expirations';
@@ -24,9 +25,9 @@ class NotifyDriverExpirations extends Command
 
     public function handle(): int
     {
-        $recipients = User::pluck('email')->filter()->all();
+        $recipients = AlertRecipient::emailsFor('driver_expiry');
         if (empty($recipients)) {
-            $this->info('No registered users to notify.');
+            $this->info('No recipients subscribed to driver_expiry alerts.');
             return self::SUCCESS;
         }
 
