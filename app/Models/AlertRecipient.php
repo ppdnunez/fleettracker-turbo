@@ -16,8 +16,10 @@ class AlertRecipient extends Model
     public const CATEGORIES = [
         'geofence'            => 'Geofence Enter/Exit',
         'driver_checkin'      => 'Face Recognition / Driver Check-in',
-        'driver_expiry'       => 'Driver License & Safety Sticker Expiry',
+        'driver_expiry'       => 'Driver License Expiry',
+        'vehicle_expiry'      => 'Vehicle Safety Sticker Expiry',
         'vehicle_maintenance' => 'Vehicle Maintenance Due',
+        'sim_expiry'          => 'SIM Card Data/Load Expiry',
     ];
 
     protected $fillable = [

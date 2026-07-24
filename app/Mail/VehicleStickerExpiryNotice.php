@@ -2,20 +2,19 @@
 
 namespace App\Mail;
 
-use App\Models\Driver;
+use App\Models\VehicleSetting;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 
-class DriverExpiryNotice extends Mailable
+class VehicleStickerExpiryNotice extends Mailable
 {
     use SerializesModels;
 
     public function __construct(
-        public Driver $driver,
-        public string $documentType, // always 'License' — see NotifyDriverExpirations
+        public VehicleSetting $setting,
         public Carbon $expiryDate,
         public int $daysUntil,
     ) {}
@@ -25,19 +24,18 @@ class DriverExpiryNotice extends Mailable
         $status = $this->daysUntil < 0 ? 'has expired' : 'is expiring soon';
 
         return new Envelope(
-            subject: "{$this->documentType} {$status}: {$this->driver->name} ({$this->driver->badge_no})",
+            subject: "Safety Sticker {$status}: {$this->setting->imei}",
         );
     }
 
     public function content(): Content
     {
         return new Content(
-            view: 'emails.driver-expiry',
+            view: 'emails.vehicle-sticker-expiry',
             with: [
-                'driver'       => $this->driver,
-                'documentType' => $this->documentType,
-                'expiryDate'   => $this->expiryDate,
-                'daysUntil'    => $this->daysUntil,
+                'setting'    => $this->setting,
+                'expiryDate' => $this->expiryDate,
+                'daysUntil'  => $this->daysUntil,
             ],
         );
     }

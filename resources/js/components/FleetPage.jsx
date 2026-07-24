@@ -3,8 +3,11 @@ import { api } from '../api.js';
 import MapCanvas from './MapCanvas.jsx';
 import ReportPage from './ReportPage.jsx';
 import GeofenceManagementPage from './GeofencePage.jsx';
+import FaceRecognitionPage from './FaceRecognitionPage.jsx';
+import FuelPricePage from './FuelPricePage.jsx';
 import { turboHiveEnabled, connectTurboHiveMqtt, applyTurboHivePosition } from '../turbohive-mqtt.js';
 import { VEHICLE_TYPES } from '../vehicleIcons.js';
+import { FUEL_TYPES } from '../fuelTypes.js';
 
 /* ── icons ───────────────────────────────────────────────────── */
 const SearchSVG = () => (
@@ -87,14 +90,18 @@ function Btn({ children, primary, red, onClick }) {
 function DropBtn({ children }) {
     return <button style={{ padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', color: '#374151', fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>{children} <span style={{ fontSize: 9 }}>▼</span></button>;
 }
-function ActionRow({ left, right }) {
+function ActionRow({ left, right, hideExport }) {
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: 8, flex: 1, flexWrap: 'wrap' }}>{left}</div>
             <div style={{ display: 'flex', gap: 6 }}>
                 {right}
-                <button style={{ padding: '6px 14px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: '#374151', fontSize: 13, cursor: 'pointer' }}>Export</button>
-                <button style={{ padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 12 }}><ColPickSVG />▾</button>
+                {!hideExport && (
+                    <>
+                        <button style={{ padding: '6px 14px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: '#374151', fontSize: 13, cursor: 'pointer' }}>Export</button>
+                        <button style={{ padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 12 }}><ColPickSVG />▾</button>
+                    </>
+                )}
             </div>
         </div>
     );
@@ -179,23 +186,34 @@ function Donut({ segments }) {
 
 const REMINDER_DONUT_COLORS = { Normal: '#3b82f6', Expired: '#ef4444', 'Expiring soon': '#f59e0b' };
 
-/* Real license / safety-sticker expiry status, computed from the actual Driver list — same
-   daysUntil/expiryReminder helpers Driver page uses. */
-function ReminderCard({ drivers }) {
+/* Real license (Driver) / safety-sticker (VehicleSetting, per IMEI) expiry status — same
+   daysUntil/expiryReminder helpers Driver/Vehicle Settings use. */
+function ReminderCard({ drivers, vehicleSettings }) {
     const [tab, setTab] = useState('License');
-    const dateField = tab === 'License' ? 'license_expiry' : 'safety_sticker_expiry';
     const counts = { Normal: 0, Expired: 0, 'Expiring soon': 0 };
-    drivers.forEach(d => {
-        const status = expiryReminder(d[dateField], d.notify_days_before);
-        if (counts[status] !== undefined) counts[status]++;
-    });
+    if (tab === 'License') {
+        drivers.forEach(d => {
+            const status = expiryReminder(d.license_expiry, d.notify_days_before);
+            if (counts[status] !== undefined) counts[status]++;
+        });
+    } else if (tab === 'Safety Sticker') {
+        vehicleSettings.forEach(v => {
+            const status = expiryReminder(v.safety_sticker_expiry, v.sticker_notify_days_before);
+            if (counts[status] !== undefined) counts[status]++;
+        });
+    } else {
+        vehicleSettings.forEach(v => {
+            const status = expiryReminder(v.sim_data_expiry, v.sim_notify_days_before);
+            if (counts[status] !== undefined) counts[status]++;
+        });
+    }
     const segments = Object.entries(counts).map(([label, count]) => ({ label, count, color: REMINDER_DONUT_COLORS[label] }));
 
     return (
         <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 8 }}>Reminder</div>
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                {['License', 'Safety Sticker'].map(t => (
+                {['License', 'Safety Sticker', 'SIM Data'].map(t => (
                     <button key={t} onClick={() => setTab(t)} style={{ background: 'none', border: 'none', padding: '0 0 3px', fontSize: 12.5, cursor: 'pointer', color: tab === t ? '#3b82f6' : '#9ca3af', borderBottom: tab === t ? '2px solid #3b82f6' : '2px solid transparent' }}>{t} reminder</button>
                 ))}
             </div>
@@ -292,6 +310,7 @@ const ALARM_TYPE_PALETTE = ['#3b82f6', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6
 function FleetDashboard() {
     const [drivers,  setDrivers]  = useState([]);
     const [vehicles, setVehicles] = useState([]);
+    const [vehicleSettings, setVehicleSettings] = useState([]);
     const [mileage,  setMileage]  = useState([]);
     const [alerts,   setAlerts]   = useState([]);
     const [loading,  setLoading]  = useState(true);
@@ -302,14 +321,16 @@ function FleetDashboard() {
             setLoading(true);
             setError('');
             try {
-                const [drvRes, vehRes, mileRes, alertRes] = await Promise.all([
+                const [drvRes, vehRes, settingsRes, mileRes, alertRes] = await Promise.all([
                     api.getFleetDrivers(),
                     api.getTurboHiveTrackableDevices({ page: 1, size: 100 }),
+                    api.getVehicleSettings().catch(() => ({ data: [] })),
                     api.getTurboHiveRealtimeMileage({ page: 1, size: 100 }),
                     api.getTurboHiveAlerts({ page: 1, size: 100 }),
                 ]);
                 setDrivers(Array.isArray(drvRes.data) ? drvRes.data : []);
                 setVehicles(Array.isArray(vehRes.data?.data) ? vehRes.data.data : []);
+                setVehicleSettings(Array.isArray(settingsRes.data) ? settingsRes.data : []);
                 setMileage(Array.isArray(mileRes.data?.data) ? mileRes.data.data : []);
                 setAlerts(Array.isArray(alertRes.data?.list) ? alertRes.data.list : []);
             } catch (e) {
@@ -363,7 +384,7 @@ function FleetDashboard() {
 
             {/* Reminder + Recent Alerts */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                <ReminderCard drivers={drivers} />
+                <ReminderCard drivers={drivers} vehicleSettings={vehicleSettings} />
                 <RecentAlertsCard alerts={alerts} devicesByImei={devicesByImei} />
             </div>
 
@@ -424,7 +445,6 @@ function DriverFormModal({ driver, onClose, onSaved }) {
         register_place: driver?.register_place || '',
         register_date: driver?.register_date ? driver.register_date.slice(0, 10) : '',
         license_expiry: driver?.license_expiry ? driver.license_expiry.slice(0, 10) : '',
-        safety_sticker_expiry: driver?.safety_sticker_expiry ? driver.safety_sticker_expiry.slice(0, 10) : '',
         notify_days_before: driver?.notify_days_before ?? '',
         status: driver?.status || 'Active',
     });
@@ -505,10 +525,6 @@ function DriverFormModal({ driver, onClose, onSaved }) {
                     <div style={driverFieldStyle}>
                         <label style={driverLabelStyle}>License Expiry</label>
                         <input type="date" value={form.license_expiry} onChange={set('license_expiry')} style={driverInputStyle} />
-                    </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>Safety Sticker Expiry</label>
-                        <input type="date" value={form.safety_sticker_expiry} onChange={set('safety_sticker_expiry')} style={driverInputStyle} />
                     </div>
                     <div style={{ ...driverFieldStyle, gridColumn: '1 / -1' }}>
                         <label style={driverLabelStyle}>Notify before expiry (days)</label>
@@ -721,9 +737,10 @@ function DriverFaceModal({ driver, onClose }) {
 
 // FleetTrack-local driver registry (Approach 2): GET/POST/PUT/DELETE /api/drivers, which keeps a
 // matching Traccar driver in sync server-side (DriverController) so the device<->driver link still
-// works through Traccar elsewhere in the app. License/Safety Sticker status badges are computed
-// from each driver's expiry dates; the same dates drive the "drivers:notify-expirations" scheduled
-// email reminder on the backend.
+// works through Traccar elsewhere in the app. License status badges are computed from each
+// driver's license_expiry; the same date drives the "drivers:notify-expirations" scheduled email
+// reminder on the backend. (Safety sticker expiry lives on Vehicle Settings now — see
+// VehicleSettingsModal.)
 function DriverStatCard({ label, value, sublabel, color }) {
     return (
         <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', minWidth: 0 }}>
@@ -744,15 +761,13 @@ function DetailRow({ label, value, extra }) {
 }
 
 const FACE_STATUS_COLOR = { pending: '#f59e0b', enrolled: '#16a34a', failed: '#ef4444', deleted: '#9ca3af' };
-const DRIVER_DETAIL_TABS = ['Profile', 'Credentials', 'AI Facial Data', 'Activity Log'];
+const DRIVER_DETAIL_TABS = ['Profile', 'Credentials', 'AI Facial Data'];
 
 // Right-side detail panel for the driver selected in the list. "AI Facial Data" reads the real
-// DriverFace enrollment records (see DriverFaceModal/DriverFaceController); "Activity Log" reads
-// real DriverCheckin history — both genuine data, just surfaced here instead of a separate modal.
+// DriverFace enrollment records (see DriverFaceModal/DriverFaceController).
 function DriverDetailPanel({ driver, onEdit, onManageFace }) {
     const [tab, setTab] = useState('Profile');
     const [faces, setFaces] = useState([]);
-    const [checkins, setCheckins] = useState([]);
     const [loadingTab, setLoadingTab] = useState(false);
 
     useEffect(() => { setTab('Profile'); }, [driver?.id]);
@@ -764,13 +779,6 @@ function DriverDetailPanel({ driver, onEdit, onManageFace }) {
             api.getDriverFaces({ driver_id: driver.id })
                 .then(res => setFaces(res.data ?? []))
                 .catch(() => setFaces([]))
-                .finally(() => setLoadingTab(false));
-        }
-        if (tab === 'Activity Log') {
-            setLoadingTab(true);
-            api.getDriverCheckins({ driverId: driver.id, size: 20 })
-                .then(res => setCheckins(res.data?.data ?? []))
-                .catch(() => setCheckins([]))
                 .finally(() => setLoadingTab(false));
         }
     }, [tab, driver?.id]);
@@ -827,7 +835,6 @@ function DriverDetailPanel({ driver, onEdit, onManageFace }) {
                         <DetailRow label="Reminder" extra={<Badge text={lReminder} color={REMINDER_COLOR[lReminder]} />} />
                         <DetailRow label="RFID Card No." value={driver.rfid_card_no} />
                         <DetailRow label="iButton No." value={driver.ibutton_no} />
-                        <DetailRow label="Safety Sticker Expiry" value={driver.safety_sticker_expiry?.slice(0, 10)} />
                     </div>
                 )}
 
@@ -863,23 +870,6 @@ function DriverDetailPanel({ driver, onEdit, onManageFace }) {
                         )}
                     </div>
                 )}
-
-                {tab === 'Activity Log' && (
-                    loadingTab ? (
-                        <p style={{ color: '#94a3b8', fontSize: 12.5 }}>Loading…</p>
-                    ) : checkins.length === 0 ? (
-                        <p style={{ color: '#94a3b8', fontSize: 12.5 }}>No check-in activity recorded yet.</p>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {checkins.map(c => (
-                                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', border: '1px solid #f1f5f9', borderRadius: 8, fontSize: 12 }}>
-                                    <span>Check-in — {c.imei}</span>
-                                    <span style={{ color: '#94a3b8' }}>{new Date(c.checkin_time).toLocaleString()}</span>
-                                </div>
-                            ))}
-                        </div>
-                    )
-                )}
             </div>
 
             <div style={{ padding: '12px 18px', borderTop: '1px solid #f1f5f9' }}>
@@ -888,55 +878,6 @@ function DriverDetailPanel({ driver, onEdit, onManageFace }) {
                     Edit Profile
                 </button>
             </div>
-        </div>
-    );
-}
-
-// Provision only — no live camera feed, recognition engine, or event source is wired up yet (see
-// the earlier conversation on face-matching approaches). This scaffolds the intended layout so a
-// real integration can be dropped in later without redesigning the page.
-function AILiveAuthorizationCard() {
-    return (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: '#111827' }}>AI Authorization (Live)</h3>
-                <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>● Not connected</span>
-            </div>
-            <div style={{ padding: 18 }}>
-                <div style={{ background: '#111827', borderRadius: 8, aspectRatio: '16/9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                    <p style={{ color: '#6b7280', fontSize: 12.5, textAlign: 'center', padding: '0 20px', margin: 0 }}>
-                        📷 Live camera feed not yet connected.<br />Provisioned for future in-cab AI facial authorization.
-                    </p>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
-                    <div>
-                        <p style={{ margin: '0 0 2px', color: '#9ca3af' }}>Match Confidence</p>
-                        <p style={{ margin: 0, fontWeight: 700, color: '#cbd5e1' }}>—</p>
-                    </div>
-                    <div>
-                        <p style={{ margin: '0 0 2px', color: '#9ca3af' }}>Verification Time</p>
-                        <p style={{ margin: 0, fontWeight: 700, color: '#cbd5e1' }}>—</p>
-                    </div>
-                </div>
-                <button disabled
-                    style={{ width: '100%', marginTop: 14, padding: '8px 14px', background: '#f1f5f9', color: '#9ca3af', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: 'not-allowed' }}>
-                    View Full Screen (Coming Soon)
-                </button>
-            </div>
-        </div>
-    );
-}
-
-// Provision only — see AILiveAuthorizationCard's docblock. Deliberately not backed by
-// DriverCheckin (RFID/iButton taps) since that isn't AI facial verification and labeling it as
-// such here would be misleading.
-function RecentVerificationEventsCard() {
-    return (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 18 }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13.5, fontWeight: 700, color: '#111827' }}>Recent Verification Events</h3>
-            <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8', textAlign: 'center', padding: '20px 0' }}>
-                No verification events recorded yet — this feed will populate once live AI facial verification is wired up.
-            </p>
         </div>
     );
 }
@@ -1035,7 +976,7 @@ function DriverPage() {
 
     const selectedDriver = drivers.find(d => d.id === selectedId) || null;
 
-    const COLS = ['No.','Driver No.','Driver Name','Phone','License No.','Authorization','RFID Card No.','iButton No.','Register Place','Register Date','License Expiry','License Status','Driving license reminder','Safety Sticker Expiry','Safety Sticker Status','Status','Action'];
+    const COLS = ['No.','Driver No.','Driver Name','Phone','License No.','Authorization','RFID Card No.','iButton No.','Register Place','Register Date','License Expiry','License Status','Driving license reminder','Status','Action'];
 
     const stopRowClick = (e) => e.stopPropagation();
 
@@ -1045,12 +986,10 @@ function DriverPage() {
                 Manage drivers, credentials, and AI facial authorization.
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 12, marginBottom: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 18 }}>
                 <DriverStatCard label="Total Drivers" value={totalDrivers} />
                 <DriverStatCard label="Authorized to Drive" value={authorizedCount} color="#16a34a" sublabel={pct(authorizedCount)} />
                 <DriverStatCard label="Not Authorized" value={notAuthorizedCount} color="#ef4444" sublabel={pct(notAuthorizedCount)} />
-                <DriverStatCard label="AI Verifications (Today)" value="—" sublabel="Provision — not yet logged" />
-                <DriverStatCard label="Failed Verifications (Today)" value="—" sublabel="Provision — not yet logged" />
                 <DriverStatCard label="Expiring Licenses (30 Days)" value={expiringSoonCount} color="#f59e0b" />
             </div>
 
@@ -1063,7 +1002,7 @@ function DriverPage() {
                 </label>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </FilterBar>
-            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add Driver</Btn>]} />
+            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add Driver</Btn>]} hideExport />
 
             {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
 
@@ -1079,7 +1018,6 @@ function DriverPage() {
                             ) : filtered.map((d, i) => {
                                 const lStatus = licenseStatus(d.license_expiry);
                                 const lReminder = expiryReminder(d.license_expiry, d.notify_days_before);
-                                const sStatus = expiryReminder(d.safety_sticker_expiry, d.notify_days_before);
                                 return (
                                     <tr key={d.id} onClick={() => setSelectedId(d.id)}
                                         style={{ cursor: 'pointer', background: selectedId === d.id ? '#eff6ff' : undefined }}>
@@ -1096,8 +1034,6 @@ function DriverPage() {
                                         <td style={TD}>{d.license_expiry ? d.license_expiry.slice(0, 10) : '—'}</td>
                                         <td style={TD}><Badge text={lStatus} color={STATUS_COLOR[lStatus]} /></td>
                                         <td style={TD}><Badge text={lReminder} color={REMINDER_COLOR[lReminder]} /></td>
-                                        <td style={TD}>{d.safety_sticker_expiry ? d.safety_sticker_expiry.slice(0, 10) : '—'}</td>
-                                        <td style={TD}><Badge text={sStatus} color={REMINDER_COLOR[sStatus]} /></td>
                                         <td style={TD}>{d.status}</td>
                                         <td style={{ ...TD, whiteSpace: 'nowrap' }} onClick={stopRowClick}>
                                             <button onClick={() => setEditing(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Edit</button>
@@ -1113,8 +1049,6 @@ function DriverPage() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <DriverDetailPanel driver={selectedDriver} onEdit={setEditing} onManageFace={setFaceDriver} />
-                    <AILiveAuthorizationCard />
-                    <RecentVerificationEventsCard />
                     <LicenseExpiryAlertCard drivers={drivers} />
                 </div>
             </div>
@@ -1148,10 +1082,12 @@ function DriverPage() {
 }
 
 /* Vehicle */
-// Vehicle = a real TurboHive device (same trackable-device list Device Management shows). The
-// only thing this module adds on top is a local (Laravel DB) many-drivers-per-vehicle assignment,
-// via VehicleDriverController / driver_device — a vehicle can have multiple drivers (e.g.
-// shift-based driving), keyed by IMEI since TurboHive devices don't have a local `devices` row.
+// A "vehicle" is a local (Laravel DB) profile row (see VehicleController) bound 1:1 to a TurboHive
+// IMEI — name, plate number, make/model/year/color live here, distinct from the tracker's own
+// deviceName. On top of that: a many-drivers-per-vehicle assignment (VehicleDriverController /
+// driver_device — a vehicle can have multiple drivers, e.g. shift-based driving) and per-vehicle
+// settings (VehicleSettingController — relay opt-in, fuel, safety sticker), both still keyed by
+// IMEI rather than the local vehicle id.
 function AssignDriversModal({ vehicle, allDrivers, assignedIds, onClose, onSaved }) {
     const [selected, setSelected] = useState(new Set(assignedIds));
     const [saving, setSaving]     = useState(false);
@@ -1177,7 +1113,7 @@ function AssignDriversModal({ vehicle, allDrivers, assignedIds, onClose, onSaved
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
             <div style={{ background: '#fff', borderRadius: 12, width: 380, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
-                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Assign Drivers — {vehicle.deviceName || vehicle.imei}</h2>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Assign Drivers — {vehicle.name || vehicle.imei}</h2>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
                 </div>
 
@@ -1213,12 +1149,19 @@ function AssignDriversModal({ vehicle, allDrivers, assignedIds, onClose, onSaved
 // - Fuel Rate / Tank Capacity: inputs for the Fuel Management > Consumption tab's rate-based and
 //   sensor-based methods (see ReportPage.jsx's FuelConsumption component) — a vehicle without
 //   these set just can't use that particular method yet.
+// - Safety Sticker Expiry: moved here from the Driver module — a safety inspection sticker
+//   belongs to the vehicle, not whichever driver happens to be assigned (see
+//   NotifyVehicleStickerExpirations for the reminder email).
 function VehicleSettingsModal({ vehicle, onClose }) {
     const [enabled, setEnabled]   = useState(false);
+    const [faceFailEnabled, setFaceFailEnabled] = useState(false);
     const [channel, setChannel]   = useState(10);
     const [fuelRate, setFuelRate] = useState('');
     const [tankCapacity, setTankCapacity] = useState('');
     const [vehicleType, setVehicleType] = useState('');
+    const [fuelType, setFuelType] = useState('');
+    const [stickerExpiry, setStickerExpiry] = useState('');
+    const [stickerNotifyDays, setStickerNotifyDays] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving]   = useState(false);
     const [error, setError]     = useState('');
@@ -1228,10 +1171,14 @@ function VehicleSettingsModal({ vehicle, onClose }) {
             try {
                 const res = await api.getVehicleSetting(vehicle.imei);
                 setEnabled(!!res.data.relay_disconnect_enabled);
+                setFaceFailEnabled(!!res.data.relay_disconnect_on_face_fail);
                 setChannel(res.data.relay_channel ?? 10);
                 setFuelRate(res.data.fuel_rate_l_per_100km ?? '');
                 setTankCapacity(res.data.fuel_tank_capacity_liters ?? '');
                 setVehicleType(res.data.vehicle_type ?? '');
+                setFuelType(res.data.fuel_type ?? '');
+                setStickerExpiry(res.data.safety_sticker_expiry ? res.data.safety_sticker_expiry.slice(0, 10) : '');
+                setStickerNotifyDays(res.data.sticker_notify_days_before ?? '');
             } catch (e) {
                 setError('Failed to load vehicle settings.');
             } finally {
@@ -1246,10 +1193,14 @@ function VehicleSettingsModal({ vehicle, onClose }) {
         try {
             await api.setVehicleSetting(vehicle.imei, {
                 relay_disconnect_enabled: enabled,
+                relay_disconnect_on_face_fail: faceFailEnabled,
                 relay_channel: Number(channel) || 10,
                 fuel_rate_l_per_100km: fuelRate === '' ? null : Number(fuelRate),
                 fuel_tank_capacity_liters: tankCapacity === '' ? null : Number(tankCapacity),
                 vehicle_type: vehicleType || null,
+                fuel_type: fuelType || null,
+                safety_sticker_expiry: stickerExpiry || null,
+                sticker_notify_days_before: stickerNotifyDays === '' ? null : Number(stickerNotifyDays),
             });
             onClose();
         } catch (e) {
@@ -1263,7 +1214,7 @@ function VehicleSettingsModal({ vehicle, onClose }) {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
             <div style={{ background: '#fff', borderRadius: 12, width: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
-                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Vehicle Settings — {vehicle.deviceName || vehicle.imei}</h2>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Vehicle Settings — {vehicle.name || vehicle.imei}</h2>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
                 </div>
 
@@ -1282,6 +1233,14 @@ function VehicleSettingsModal({ vehicle, onClose }) {
                                 </span>
                             </label>
 
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={faceFailEnabled} onChange={e => setFaceFailEnabled(e.target.checked)} style={{ accentColor: '#3b82f6', width: 16, height: 16, marginTop: 2 }} />
+                                <span style={{ fontSize: 13, color: '#374151' }}>
+                                    <strong>Disconnect relay on failed face recognition.</strong><br />
+                                    <span style={{ fontSize: 12, color: '#6b7280' }}>Fires whenever the device's face check comes back with no match. Independent of the toggle above — an email alert is always sent, whether or not this is enabled.</span>
+                                </span>
+                            </label>
+
                             <div style={{ ...driverFieldStyle, marginBottom: 16 }}>
                                 <label style={driverLabelStyle}>Relay Channel</label>
                                 <input type="number" min="1" max="255" value={channel} onChange={e => setChannel(e.target.value)} style={{ ...driverInputStyle, maxWidth: 120 }} />
@@ -1296,6 +1255,15 @@ function VehicleSettingsModal({ vehicle, onClose }) {
                                 <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#9ca3af' }}>Controls the icon shown on the live map pin and in the device list sidebar.</p>
                             </div>
 
+                            <div style={{ ...driverFieldStyle, marginBottom: 16 }}>
+                                <label style={driverLabelStyle}>Fuel Type</label>
+                                <select value={fuelType} onChange={e => setFuelType(e.target.value)} style={{ ...driverInputStyle, background: '#fff', cursor: 'pointer', maxWidth: 200 }}>
+                                    <option value="">Not set</option>
+                                    {FUEL_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                </select>
+                                <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#9ca3af' }}>Matches this vehicle to the Fuel Price module's current petrol/diesel price.</p>
+                            </div>
+
                             <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                                 <div style={driverFieldStyle}>
                                     <label style={driverLabelStyle}>Fuel Rate (L/100km)</label>
@@ -1308,6 +1276,17 @@ function VehicleSettingsModal({ vehicle, onClose }) {
                                 <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: 11.5, color: '#9ca3af' }}>
                                     Used by Fuel Management &gt; Consumption's "Fuel Rate" and "Fuel Sensor" methods.
                                 </p>
+                            </div>
+
+                            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16, marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                                <div style={driverFieldStyle}>
+                                    <label style={driverLabelStyle}>Safety Sticker Expiry</label>
+                                    <input type="date" value={stickerExpiry} onChange={e => setStickerExpiry(e.target.value)} style={driverInputStyle} />
+                                </div>
+                                <div style={driverFieldStyle}>
+                                    <label style={driverLabelStyle}>Notify before expiry (days)</label>
+                                    <input type="number" min="1" max="365" placeholder="Default 14" value={stickerNotifyDays} onChange={e => setStickerNotifyDays(e.target.value)} style={driverInputStyle} />
+                                </div>
                             </div>
                         </>
                     )}
@@ -1324,12 +1303,130 @@ function VehicleSettingsModal({ vehicle, onClose }) {
     );
 }
 
+// Add/Edit form for the local vehicle registry. IMEI is only pickable when adding a new vehicle
+// (from `availableDevices` — TurboHive trackable devices not yet bound to any local vehicle row)
+// and is immutable afterwards, same pattern as DriverFormModal's badge_no.
+function VehicleFormModal({ vehicle, availableDevices, onClose, onSaved }) {
+    const isNew = !vehicle;
+    const [form, setForm] = useState({
+        imei: vehicle?.imei || '',
+        name: vehicle?.name || '',
+        plate_number: vehicle?.plate_number || '',
+        manufacturer: vehicle?.manufacturer || '',
+        model: vehicle?.model || '',
+        year: vehicle?.year ?? '',
+        color: vehicle?.color || '',
+        status: vehicle?.status || 'Active',
+    });
+    const [saving, setSaving] = useState(false);
+    const [error, setError]   = useState('');
+
+    const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+
+    const handleSave = async () => {
+        if (!form.imei) { setError('Select an IMEI to bind this vehicle to.'); return; }
+        if (!form.name.trim()) { setError('Vehicle Name is required.'); return; }
+        setSaving(true);
+        setError('');
+        const payload = { ...form, year: form.year === '' ? null : Number(form.year) };
+        try {
+            if (isNew) {
+                await api.createVehicle(payload);
+            } else {
+                await api.updateVehicle(vehicle.id, payload);
+            }
+            onSaved();
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to save vehicle.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#fff', borderRadius: 12, width: 480, maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>{isNew ? 'Add Vehicle' : 'Edit Vehicle'}</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+                </div>
+
+                <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    {error && <div style={{ gridColumn: '1 / -1', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+                    <div style={{ ...driverFieldStyle, gridColumn: '1 / -1' }}>
+                        <label style={driverLabelStyle}>IMEI *</label>
+                        {isNew ? (
+                            <select value={form.imei} onChange={set('imei')} style={{ ...driverInputStyle, background: '#fff', cursor: 'pointer' }}>
+                                <option value="">Select an unlinked device…</option>
+                                {availableDevices.map(d => (
+                                    <option key={d.imei} value={d.imei}>{d.imei} — {d.deviceName || 'unnamed device'}</option>
+                                ))}
+                            </select>
+                        ) : (
+                            <input value={form.imei} disabled style={{ ...driverInputStyle, background: '#f3f4f6', fontFamily: 'monospace' }} />
+                        )}
+                        {isNew && availableDevices.length === 0 && (
+                            <p style={{ margin: '4px 0 0', fontSize: 11.5, color: '#f59e0b' }}>Every trackable device is already linked to a vehicle.</p>
+                        )}
+                    </div>
+
+                    <div style={driverFieldStyle}>
+                        <label style={driverLabelStyle}>Vehicle Name *</label>
+                        <input value={form.name} onChange={set('name')} placeholder="e.g. Delivery Van 3" style={driverInputStyle} />
+                    </div>
+                    <div style={driverFieldStyle}>
+                        <label style={driverLabelStyle}>Plate Number</label>
+                        <input value={form.plate_number} onChange={set('plate_number')} style={driverInputStyle} />
+                    </div>
+                    <div style={driverFieldStyle}>
+                        <label style={driverLabelStyle}>Manufacturer</label>
+                        <input value={form.manufacturer} onChange={set('manufacturer')} placeholder="e.g. Toyota" style={driverInputStyle} />
+                    </div>
+                    <div style={driverFieldStyle}>
+                        <label style={driverLabelStyle}>Model</label>
+                        <input value={form.model} onChange={set('model')} placeholder="e.g. Hiace" style={driverInputStyle} />
+                    </div>
+                    <div style={driverFieldStyle}>
+                        <label style={driverLabelStyle}>Year</label>
+                        <input type="number" min="1900" max="2100" value={form.year} onChange={set('year')} style={driverInputStyle} />
+                    </div>
+                    <div style={driverFieldStyle}>
+                        <label style={driverLabelStyle}>Color</label>
+                        <input value={form.color} onChange={set('color')} style={driverInputStyle} />
+                    </div>
+                    {!isNew && (
+                        <div style={driverFieldStyle}>
+                            <label style={driverLabelStyle}>Status</label>
+                            <select value={form.status} onChange={set('status')} style={{ ...driverInputStyle, background: '#fff', cursor: 'pointer' }}>
+                                <option>Active</option>
+                                <option>Inactive</option>
+                            </select>
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={handleSave} disabled={saving} style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                        {saving ? 'Saving…' : 'Save'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function VehiclePage() {
-    const [vehicles, setVehicles] = useState([]);
+    const [vehicles, setVehicles] = useState([]);       // local registry — see VehicleController
+    const [devices,  setDevices]  = useState([]);       // raw TurboHive trackable devices
+    const [vehicleSettings, setVehicleSettings] = useState([]); // safety sticker + vehicle_type, by imei
     const [drivers,  setDrivers]  = useState([]);
     const [loading,  setLoading]  = useState(true);
     const [error,    setError]    = useState('');
     const [search,   setSearch]   = useState('');
+    const [editing,  setEditing]  = useState(null); // vehicle object, 'new', or null
+    const [pendingDeleteId, setPendingDeleteId] = useState(null);
     const [assigning, setAssigning] = useState(null); // vehicle object, or null
     const [vehicleSettingsFor, setVehicleSettingsFor] = useState(null); // vehicle object, or null
 
@@ -1337,8 +1434,15 @@ function VehiclePage() {
         setLoading(true);
         setError('');
         try {
-            const [vehRes, drvRes] = await Promise.all([api.getTurboHiveTrackableDevices({ page: 1, size: 100 }), api.getFleetDrivers()]);
-            setVehicles(Array.isArray(vehRes.data?.data) ? vehRes.data.data : []);
+            const [vehRes, devRes, settingsRes, drvRes] = await Promise.all([
+                api.getVehicles(),
+                api.getTurboHiveTrackableDevices({ page: 1, size: 100 }),
+                api.getVehicleSettings().catch(() => ({ data: [] })),
+                api.getFleetDrivers(),
+            ]);
+            setVehicles(Array.isArray(vehRes.data) ? vehRes.data : []);
+            setDevices(Array.isArray(devRes.data?.data) ? devRes.data.data : []);
+            setVehicleSettings(Array.isArray(settingsRes.data) ? settingsRes.data : []);
             setDrivers(Array.isArray(drvRes.data) ? drvRes.data : []);
         } catch (e) {
             setError('Failed to load vehicles.');
@@ -1356,49 +1460,88 @@ function VehiclePage() {
         (driversByImei[imei] ||= []).push(d);
     }));
 
+    const devicesByImei = {};
+    devices.forEach(d => { devicesByImei[d.imei] = d; });
+
+    const settingsByImei = {};
+    vehicleSettings.forEach(s => { settingsByImei[s.imei] = s; });
+
+    // TurboHive trackable devices with no local vehicle row yet — offered in the Add Vehicle
+    // IMEI picker, since a device already bound to a vehicle shouldn't be pickable again.
+    const boundImeis = new Set(vehicles.map(v => v.imei));
+    const availableDevices = devices.filter(d => !boundImeis.has(d.imei));
+
     const filtered = vehicles.filter(v =>
         !search ||
-        (v.deviceName || '').toLowerCase().includes(search.toLowerCase()) ||
+        (v.name || '').toLowerCase().includes(search.toLowerCase()) ||
+        (v.plate_number || '').toLowerCase().includes(search.toLowerCase()) ||
         (v.imei || '').includes(search)
     );
+
+    const handleDelete = async () => {
+        const id = pendingDeleteId;
+        setPendingDeleteId(null);
+        try {
+            await api.deleteVehicle(id);
+            await load();
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to delete vehicle.');
+        }
+    };
+
+    const COLS = ['No.','Vehicle Name','Plate Number','IMEI','Manufacturer / Model','Year','Color','Status','Online','Safety Sticker Expiry','Safety Sticker Status','Drivers','Action'];
 
     return (
         <PageShell title="Vehicle">
             <FilterBar>
-                <FInput placeholder="IMEI or Vehicle Name" style={{ width: 220 }} value={search} onChange={e => setSearch(e.target.value)} />
+                <FInput placeholder="Vehicle Name, Plate No., or IMEI" style={{ width: 240 }} value={search} onChange={e => setSearch(e.target.value)} />
                 <button onClick={() => setSearch('')} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
                 <button onClick={load} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh</button>
             </FilterBar>
+            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add Vehicle</Btn>]} hideExport />
 
             {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
 
             <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
                     <thead>
-                        <tr>{['No.','Vehicle Name','IMEI','Type','Manufacturer / Model','Status','Online','Drivers','Action'].map(c => <th key={c} style={TH}>{c}</th>)}</tr>
+                        <tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={9} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : filtered.length === 0 ? (
-                            <tr><td colSpan={9} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No vehicles found</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>
+                                {vehicles.length === 0 ? 'No vehicles yet — click "Add Vehicle" to link a tracked device.' : 'No vehicles found'}
+                            </td></tr>
                         ) : filtered.map((v, i) => {
                             const assigned = driversByImei[v.imei] || [];
+                            const device   = devicesByImei[v.imei];
+                            const setting  = settingsByImei[v.imei];
+                            const sStatus  = expiryReminder(setting?.safety_sticker_expiry, setting?.sticker_notify_days_before);
                             return (
                                 <tr key={v.id}>
                                     <td style={TD}>{i + 1}</td>
-                                    <td style={{ ...TD, fontWeight: 500 }}>{v.deviceName || '—'}</td>
+                                    <td style={{ ...TD, fontWeight: 500 }}>{v.name}</td>
+                                    <td style={TD}>{v.plate_number || '—'}</td>
                                     <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{v.imei}</td>
-                                    <td style={TD}>{v.deviceType || '—'}</td>
                                     <td style={TD}>{[v.manufacturer, v.model].filter(Boolean).join(' / ') || '—'}</td>
-                                    <td style={TD}><Badge text={v.status === 1 ? 'Active' : 'Inactive'} color={v.status === 1 ? '#16a34a' : '#ef4444'} /></td>
-                                    <td style={TD}><Badge text={v.onlineStatus === 1 ? 'Online' : 'Offline'} color={v.onlineStatus === 1 ? '#16a34a' : '#9ca3af'} /></td>
+                                    <td style={TD}>{v.year || '—'}</td>
+                                    <td style={TD}>{v.color || '—'}</td>
+                                    <td style={TD}><Badge text={v.status} color={v.status === 'Active' ? '#16a34a' : '#ef4444'} /></td>
+                                    <td style={TD}>
+                                        {device ? <Badge text={device.onlineStatus === 1 ? 'Online' : 'Offline'} color={device.onlineStatus === 1 ? '#16a34a' : '#9ca3af'} /> : <span style={{ color: '#9ca3af' }}>—</span>}
+                                    </td>
+                                    <td style={TD}>{setting?.safety_sticker_expiry ? setting.safety_sticker_expiry.slice(0, 10) : '—'}</td>
+                                    <td style={TD}><Badge text={sStatus} color={REMINDER_COLOR[sStatus]} /></td>
                                     <td style={TD}>
                                         {assigned.length === 0 ? <span style={{ color: '#9ca3af' }}>—</span> : assigned.map(d => d.name).join(', ')}
                                     </td>
                                     <td style={{ ...TD, whiteSpace: 'nowrap' }}>
+                                        <button onClick={() => setEditing(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Edit</button>
                                         <button onClick={() => setAssigning(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Assign Drivers</button>
-                                        <button onClick={() => setVehicleSettingsFor(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: 12.5, fontWeight: 600 }}>Vehicle Settings</button>
+                                        <button onClick={() => setVehicleSettingsFor(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Vehicle Settings</button>
+                                        <button onClick={() => setPendingDeleteId(v.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Delete</button>
                                     </td>
                                 </tr>
                             );
@@ -1406,6 +1549,28 @@ function VehiclePage() {
                     </tbody>
                 </table>
             </div>
+
+            {editing && (
+                <VehicleFormModal
+                    vehicle={editing === 'new' ? null : editing}
+                    availableDevices={availableDevices}
+                    onClose={() => setEditing(null)}
+                    onSaved={() => { setEditing(null); load(); }}
+                />
+            )}
+
+            {pendingDeleteId && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+                    <div style={{ background: '#fff', borderRadius: 12, padding: '24px 28px', width: 300, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', textAlign: 'center' }}>
+                        <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Delete vehicle?</h3>
+                        <p style={{ margin: '0 0 20px', fontSize: 12.5, color: '#64748b' }}>This unlinks the IMEI from this vehicle profile. This cannot be undone.</p>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => setPendingDeleteId(null)} style={{ flex: 1, padding: 9, borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={handleDelete} style={{ flex: 1, padding: 9, borderRadius: 7, border: 'none', background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Delete</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {assigning && (
                 <AssignDriversModal
@@ -1425,7 +1590,7 @@ function VehiclePage() {
             )}
 
             {vehicleSettingsFor && (
-                <VehicleSettingsModal vehicle={vehicleSettingsFor} onClose={() => setVehicleSettingsFor(null)} />
+                <VehicleSettingsModal vehicle={vehicleSettingsFor} onClose={() => { setVehicleSettingsFor(null); load(); }} />
             )}
         </PageShell>
     );
@@ -1573,7 +1738,7 @@ function VehicleTrackPage() {
 // Ranking) since the spec calls it out as a distinct analytics capability.
 // "Ranking" and "Tonne-Km" hidden from the tab bar temporarily per request — their report
 // components/routes are untouched, so re-add the two entries below to bring them back.
-const FUEL_MANAGEMENT_TABS = ['Fuel Curve', 'Consumption', 'Current Fuel', 'Refuelling', 'Idle Fuel', 'Abnormal Loss' /*, 'Ranking', 'Tonne-Km' */];
+const FUEL_MANAGEMENT_TABS = ['Fuel Curve', 'Consumption', 'Consumption (Mileage)', 'Consumption (Trips)', 'Current Fuel', 'Refuelling', 'Idle Fuel', 'Abnormal Loss', 'Fuel Price' /*, 'Ranking', 'Tonne-Km' */];
 
 function FuelManagementPage() {
     const [tab, setTab] = useState(FUEL_MANAGEMENT_TABS[0]);
@@ -1585,14 +1750,21 @@ function FuelManagementPage() {
             </p>
             <TabBar tabs={FUEL_MANAGEMENT_TABS} active={tab} onChange={setTab} />
 
-            {tab === 'Fuel Curve'    && <EmbeddedReport section="Fuel Curve" />}
-            {tab === 'Consumption'   && <EmbeddedReport section="Fuel Consumption" />}
-            {tab === 'Current Fuel'  && <EmbeddedReport section="Current fuel Value" />}
-            {tab === 'Refuelling'    && <EmbeddedReport section="Refuelling" />}
-            {tab === 'Idle Fuel'     && <EmbeddedReport section="Idle Fuel" />}
-            {tab === 'Abnormal Loss' && <EmbeddedReport section="Abnormal Fuel Loss" />}
-            {tab === 'Ranking'       && <EmbeddedReport section="Fuel Ranking" height={720} />}
-            {tab === 'Tonne-Km'      && <EmbeddedReport section="Tonne-Km Fuel Analytics" height={720} />}
+            {tab === 'Fuel Curve'          && <EmbeddedReport section="Fuel Curve" />}
+            {tab === 'Consumption'         && <EmbeddedReport section="Fuel Consumption" />}
+            {tab === 'Consumption (Mileage)' && <EmbeddedReport section="Fuel Consumption (Mileage)" />}
+            {tab === 'Consumption (Trips)' && <EmbeddedReport section="Fuel Consumption (Trips)" height={760} />}
+            {tab === 'Current Fuel'        && <EmbeddedReport section="Current fuel Value" />}
+            {tab === 'Refuelling'          && <EmbeddedReport section="Refuelling" />}
+            {tab === 'Idle Fuel'           && <EmbeddedReport section="Idle Fuel" />}
+            {tab === 'Abnormal Loss'       && <EmbeddedReport section="Abnormal Fuel Loss" />}
+            {tab === 'Fuel Price' && (
+                <div style={{ height: 640, display: 'flex', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                    <FuelPricePage />
+                </div>
+            )}
+            {tab === 'Ranking'             && <EmbeddedReport section="Fuel Ranking" height={720} />}
+            {tab === 'Tonne-Km'            && <EmbeddedReport section="Tonne-Km Fuel Analytics" height={720} />}
         </PageShell>
     );
 }
@@ -2425,6 +2597,7 @@ const PAGE_MAP = {
     CheckIn:       CheckInPage,
     CaptureHistory: CaptureHistoryPage,
     MediaGallery:  MediaGalleryPage,
+    FaceRecognition: FaceRecognitionPage,
     RoutePlanning: RoutePlanningPage,
     FleetReport:   FleetReportPage,
 };
@@ -2435,7 +2608,7 @@ const PAGE_MAP = {
 export default function FleetPage({ fleetPage = 'Dashboard', setFleetPage }) {
     const [accountOpen, setAccountOpen] = useState(true);
     const Content = PAGE_MAP[fleetPage] || FleetDashboard;
-    const showAccountList = !['Dashboard', 'Driver', 'Vehicle', 'VehicleTrack', 'VehicleMaintenance', 'FuelManagement', 'CheckIn', 'CaptureHistory', 'MediaGallery'].includes(fleetPage);
+    const showAccountList = !['Dashboard', 'Driver', 'Vehicle', 'VehicleTrack', 'VehicleMaintenance', 'FuelManagement', 'CheckIn', 'CaptureHistory', 'MediaGallery', 'FaceRecognition'].includes(fleetPage);
 
     return (
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', height: '100%' }}>

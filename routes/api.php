@@ -9,9 +9,12 @@ use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DriverCheckinController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\DriverFaceController;
+use App\Http\Controllers\FaceRecognitionEventController;
+use App\Http\Controllers\FuelPriceController;
 use App\Http\Controllers\GeofenceController;
 use App\Http\Controllers\GpsFileUploadController;
 use App\Http\Controllers\TurboHiveController;
+use App\Http\Controllers\VehicleController;
 use App\Http\Controllers\VehicleDriverController;
 use App\Http\Controllers\VehicleMaintenanceController;
 use App\Http\Controllers\VehicleSettingController;
@@ -35,8 +38,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('devices', DeviceController::class);
     Route::apiResource('drivers', DriverController::class)->except(['show']);
+    Route::apiResource('vehicles', VehicleController::class)->except(['show']);
     Route::apiResource('geofences', GeofenceController::class)->except(['show']);
     Route::post('/geofences/{geofence}/devices',        [GeofenceController::class, 'linkDevice']);
+    Route::put('/geofences/{geofence}/devices/{imei}',   [GeofenceController::class, 'updateDeviceDirection']);
     Route::delete('/geofences/{geofence}/devices/{imei}', [GeofenceController::class, 'unlinkDevice']);
     Route::get('/clients',      [ClientController::class, 'index']);
     Route::post('/clients',     [ClientController::class, 'store']);
@@ -54,6 +59,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // Alert-evidence upload tracking history (system-generated, read-only — see MqttWorker)
     Route::get('/alert-file-uploads', [AlertFileUploadController::class, 'index']);
     Route::post('/alert-file-uploads', [AlertFileUploadController::class, 'store']);
+
+    // Face recognition check history (alert.code 1823/1824, system-generated, read-only — see MqttWorker)
+    Route::get('/face-recognition-events', [FaceRecognitionEventController::class, 'index']);
+
+    // Petrol/diesel price history — see FuelPriceController
+    Route::get('/fuel-prices', [FuelPriceController::class, 'index']);
+    Route::post('/fuel-prices', [FuelPriceController::class, 'store']);
+    Route::delete('/fuel-prices/{fuelPrice}', [FuelPriceController::class, 'destroy']);
 
     // Subscriber list for every alert email this app sends — see AlertRecipient::CATEGORIES
     Route::apiResource('alert-recipients', AlertRecipientController::class)->except(['show']);
@@ -119,6 +132,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Commands  →  POST /v3/command/send
         Route::post('/command',              [TurboHiveController::class, 'sendCommand']);
+
+        // Commands (multi-device)  →  POST /v3/command/batchSend — see the Command module
+        Route::post('/command/batch',        [TurboHiveController::class, 'batchSendCommand']);
+        Route::get('/command-history',       [TurboHiveController::class, 'commandHistory']);
 
         // Live video  →  POST /v3/video/live/start|stop
         Route::post('/video/start',          [TurboHiveController::class, 'videoStart']);

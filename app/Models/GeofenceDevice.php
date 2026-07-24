@@ -9,7 +9,7 @@ class GeofenceDevice extends Model
 {
     protected $table = 'geofence_device';
 
-    protected $fillable = ['geofence_id', 'imei', 'is_inside'];
+    protected $fillable = ['geofence_id', 'imei', 'is_inside', 'alert_direction'];
 
     protected $casts = ['is_inside' => 'boolean'];
 

@@ -9,4 +9,6 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('drivers:notify-expirations')->daily();
+Schedule::command('vehicles:notify-sticker-expirations')->daily();
 Schedule::command('vehicle-maintenance:notify-due')->daily();
+Schedule::command('sim:notify-expirations')->daily();

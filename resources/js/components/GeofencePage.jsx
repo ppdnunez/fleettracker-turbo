@@ -215,6 +215,7 @@ export default function GeofencePage({ onBack }) {
     const [pendingDeleteId, setPendingDeleteId] = useState(null);
     const [devices,    setDevices]    = useState([]);
     const [linking,    setLinking]    = useState(null); // imei currently being toggled
+    const [settingDirection, setSettingDirection] = useState(null); // imei currently being updated
 
     const fetchGeofences = async () => {
         try {
@@ -246,6 +247,20 @@ export default function GeofencePage({ onBack }) {
             setError('Failed to update device link.');
         } finally {
             setLinking(null);
+        }
+    };
+
+    // Whether a linked device alerts on entering the geofence, exiting it, or both — see
+    // GeofenceMonitorService, which gates the email alert (not the event log/broadcast) on this.
+    const changeDirection = async (geofenceId, imei, alertDirection) => {
+        setSettingDirection(imei);
+        try {
+            await api.setGeofenceDeviceDirection(geofenceId, imei, alertDirection);
+            await fetchGeofences();
+        } catch (e) {
+            setError('Failed to update alert direction.');
+        } finally {
+            setSettingDirection(null);
         }
     };
 
@@ -325,8 +340,10 @@ export default function GeofencePage({ onBack }) {
                 {selectedId && (() => {
                     const selected = geofences.find(g => g.id === selectedId);
                     const linkedImeis = selected?.imeis ?? [];
+                    const directionByImei = {};
+                    (selected?.links ?? []).forEach(l => { directionByImei[l.imei] = l.alert_direction; });
                     return (
-                        <div style={{ borderTop: '1px solid #e2e8f0', flexShrink: 0, maxHeight: 240, display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ borderTop: '1px solid #e2e8f0', flexShrink: 0, maxHeight: 280, display: 'flex', flexDirection: 'column' }}>
                             <div style={{ padding: '10px 16px 6px', fontSize: 12, fontWeight: 700, color: '#374151' }}>
                                 Linked Devices — {selected?.name}
                             </div>
@@ -335,13 +352,24 @@ export default function GeofencePage({ onBack }) {
                                     <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, padding: 12 }}>No TurboHive devices found.</p>
                                 ) : devices.map(d => {
                                     const isLinked = linkedImeis.includes(d.imei);
+                                    const direction = directionByImei[d.imei] ?? 'both';
                                     return (
-                                        <label key={d.imei}
-                                            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: linking === d.imei ? 'default' : 'pointer', fontSize: 12.5, color: '#374151', opacity: linking === d.imei ? 0.6 : 1 }}>
-                                            <input type="checkbox" checked={isLinked} disabled={linking === d.imei}
-                                                onChange={() => toggleLink(selectedId, d.imei, isLinked)} />
-                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.deviceName ?? d.imei}</span>
-                                        </label>
+                                        <div key={d.imei} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, fontSize: 12.5, color: '#374151' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, cursor: linking === d.imei ? 'default' : 'pointer', opacity: linking === d.imei ? 0.6 : 1 }}>
+                                                <input type="checkbox" checked={isLinked} disabled={linking === d.imei}
+                                                    onChange={() => toggleLink(selectedId, d.imei, isLinked)} />
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.deviceName ?? d.imei}</span>
+                                            </label>
+                                            {isLinked && (
+                                                <select value={direction} disabled={settingDirection === d.imei}
+                                                    onChange={e => changeDirection(selectedId, d.imei, e.target.value)}
+                                                    style={{ flexShrink: 0, padding: '3px 5px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 11.5, color: '#374151', background: '#fff', cursor: settingDirection === d.imei ? 'default' : 'pointer', opacity: settingDirection === d.imei ? 0.6 : 1 }}>
+                                                    <option value="enter">Enter only</option>
+                                                    <option value="exit">Exit only</option>
+                                                    <option value="both">Both</option>
+                                                </select>
+                                            )}
+                                        </div>
                                     );
                                 })}
                             </div>

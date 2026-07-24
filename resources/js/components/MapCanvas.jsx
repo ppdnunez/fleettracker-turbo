@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, ZoomControl, useMap } from 'react-leaflet';
+import { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, ZoomControl, Circle, Polygon, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { vehicleGlyphSvg } from '../vehicleIcons.js';
+import { api } from '../api.js';
 
 // Fix default marker icon paths broken by bundlers
 delete L.Icon.Default.prototype._getIconUrl;
@@ -71,13 +72,33 @@ function isValidLatLng(lat, lng) {
     return Number.isFinite(nlat) && Number.isFinite(nlng);
 }
 
+// Close enough to read street names/building outlines (~30m/100ft scale bar) — picking a device
+// should zoom in on it, not just re-center at whatever zoom the map happened to be left at.
+const DEVICE_SELECT_ZOOM = 18;
+
 function FlyToSelected({ device }) {
     const map = useMap();
     useEffect(() => {
         if (isValidLatLng(device?.lat, device?.lng)) {
-            map.flyTo([Number(device.lat), Number(device.lng)], map.getZoom(), { duration: 1 });
+            map.flyTo([Number(device.lat), Number(device.lng)], DEVICE_SELECT_ZOOM, { duration: 1 });
         }
     }, [device, map]);
+    return null;
+}
+
+// Leaflet caches its container's pixel size and only recomputes it on an explicit
+// invalidateSize() call — it doesn't detect CSS-driven layout changes on its own. Opening the
+// right-side DeviceDetailPanel (or collapsing/expanding the left device list) shrinks this map's
+// flex container, and without this the map keeps rendering against the old (larger) size, which
+// made flyTo's zoom look like it silently did nothing.
+function InvalidateOnResize() {
+    const map = useMap();
+    useEffect(() => {
+        const container = map.getContainer();
+        const ro = new ResizeObserver(() => map.invalidateSize());
+        ro.observe(container);
+        return () => ro.disconnect();
+    }, [map]);
     return null;
 }
 
@@ -95,7 +116,63 @@ function fmtTime(ts) {
     }
 }
 
+// Same WKT subset GeofencePage.jsx draws/GeofenceMonitorService checks — CIRCLE/POLYGON only
+// (no LINESTRING, since that isn't a containment shape the backend evaluates either).
+function parseGeofenceArea(area) {
+    if (!area) return null;
+    let m = area.match(/^CIRCLE\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*,\s*([-\d.]+)\s*\)$/i);
+    if (m) return { type: 'circle', center: [Number(m[1]), Number(m[2])], radius: Number(m[3]) };
+
+    m = area.match(/^POLYGON\s*\(\(([^)]+)\)\)$/i);
+    if (m) return { type: 'polygon', points: m[1].split(',').map(p => p.trim().split(/\s+/).map(Number)) };
+
+    return null;
+}
+
+// Same fallback field-name guessing as ReportPage.jsx's obdFuelLevel — TurboHive's OBD payload
+// field name for fuel level isn't confirmed to be stable across device models.
+function obdFuelLevel(row) {
+    return row?.fuelLevel ?? row?.fuel_level ?? row?.fuelPercent ?? row?.fuel ?? null;
+}
+
+function GeofenceToggleIcon() {
+    return (
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+            <path d="M7.5 1 13.5 4.5 13.5 11 7.5 14 1.5 11 1.5 4.5Z" />
+        </svg>
+    );
+}
+
 export default function MapCanvas({ devices, selected, onSelect, selectedDevice, mqttConnected, nextRefreshIn }) {
+    const [geofences, setGeofences] = useState([]);
+    const [showGeofences, setShowGeofences] = useState(false);
+    const [drivers, setDrivers] = useState([]);
+    const [fuelByImei, setFuelByImei] = useState({}); // imei -> percent (or null once fetched-but-unavailable)
+
+    useEffect(() => {
+        api.getGeofences().then(res => setGeofences(res.data ?? [])).catch(() => setGeofences([]));
+        api.getFleetDrivers().then(res => setDrivers(res.data ?? [])).catch(() => setDrivers([]));
+    }, []);
+
+    const driversByImei = {};
+    drivers.forEach(d => (d.imeis || []).forEach(imei => {
+        (driversByImei[imei] ||= []).push(d);
+    }));
+
+    // Fetched lazily per popup open rather than for every marker up front — OBD is a per-device
+    // TurboHive call (see TurboHiveService::getObdData), too expensive to fire for the whole fleet
+    // just to populate a value most popups will never be opened to see.
+    const loadFuel = (imei) => {
+        if (imei in fuelByImei) return;
+        api.getTurboHiveObdData(imei)
+            .then(res => {
+                const rows = [...(res.data?.obdData ?? [])].sort((a, b) => (a.gateTime ?? 0) - (b.gateTime ?? 0));
+                const latest = rows[rows.length - 1];
+                setFuelByImei(f => ({ ...f, [imei]: obdFuelLevel(latest) }));
+            })
+            .catch(() => setFuelByImei(f => ({ ...f, [imei]: null })));
+    };
+
     return (
         <div style={{ flex: 1, position: 'relative' }}>
             <MapContainer
@@ -111,6 +188,16 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                 />
                 <ZoomControl position="topright" />
                 <FlyToSelected device={selectedDevice} />
+                <InvalidateOnResize />
+
+                {showGeofences && geofences.map(g => {
+                    const shape = parseGeofenceArea(g.area);
+                    if (!shape) return null;
+                    const pathOptions = { color: '#3b82f6', weight: 2, fillOpacity: 0.12 };
+                    return shape.type === 'circle'
+                        ? <Circle key={g.id} center={shape.center} radius={shape.radius} pathOptions={pathOptions} />
+                        : <Polygon key={g.id} positions={shape.points} pathOptions={pathOptions} />;
+                })}
 
                 {devices.map(d => (
                     isValidLatLng(d.lat, d.lng) && (
@@ -118,7 +205,7 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                             key={d.id}
                             position={[Number(d.lat), Number(d.lng)]}
                             icon={makeIcon(selected === d.id, d.status === 'ONLINE', d.heading ?? null, d.vehicleType ?? null)}
-                            eventHandlers={{ click: () => onSelect(d.id) }}
+                            eventHandlers={{ click: () => onSelect(d.id), popupopen: () => d.imei && loadFuel(d.imei) }}
                         >
                             <Popup>
                                 <div style={{ minWidth: 170, fontSize: 12, lineHeight: 1.6 }}>
@@ -145,6 +232,14 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                                             {d.signal != null && (
                                                 <tr><td style={{ color: '#64748b', paddingRight: 8 }}>Signal</td><td>{d.signal}%</td></tr>
                                             )}
+                                            <tr>
+                                                <td style={{ color: '#64748b', paddingRight: 8 }}>Driver</td>
+                                                <td>{(driversByImei[d.imei] || []).map(dr => dr.name).join(', ') || '—'}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style={{ color: '#64748b', paddingRight: 8 }}>Fuel</td>
+                                                <td>{d.imei in fuelByImei ? (fmt(fuelByImei[d.imei]) != null ? `${fmt(fuelByImei[d.imei])}%` : '—') : 'Loading…'}</td>
+                                            </tr>
                                             {fmtTime(d.lastUpdate) && (
                                                 <tr><td style={{ color: '#64748b', paddingRight: 8 }}>Updated</td><td style={{ color: '#64748b' }}>{fmtTime(d.lastUpdate)}</td></tr>
                                             )}
@@ -159,6 +254,22 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                     )
                 ))}
             </MapContainer>
+
+            {/* Show Geofences toggle — sits just under Leaflet's top-right zoom control */}
+            <button
+                onClick={() => setShowGeofences(v => !v)}
+                title={showGeofences ? 'Hide geofences' : 'Show geofences'}
+                style={{
+                    position: 'absolute', top: 78, right: 10, zIndex: 1000,
+                    width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: showGeofences ? '#3b82f6' : '#fff',
+                    color: showGeofences ? '#fff' : '#374151',
+                    border: '2px solid rgba(0,0,0,0.2)', borderRadius: 4,
+                    cursor: 'pointer', boxShadow: '0 1px 5px rgba(0,0,0,0.4)', padding: 0,
+                }}
+            >
+                <GeofenceToggleIcon />
+            </button>
 
             {/* MQTT live status badge — only shown when TurboHive provider is active */}
             {mqttConnected !== undefined && (

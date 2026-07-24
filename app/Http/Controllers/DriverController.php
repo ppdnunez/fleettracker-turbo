@@ -38,7 +38,6 @@ class DriverController extends Controller
             'register_place'        => 'nullable|string|max:100',
             'register_date'         => 'nullable|date',
             'license_expiry'        => 'nullable|date',
-            'safety_sticker_expiry' => 'nullable|date',
             'notify_days_before'    => 'nullable|integer|min:1|max:365',
             'status'                => 'nullable|in:Active,Inactive',
         ];

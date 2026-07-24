@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import ImportDeviceModal from './ImportDeviceModal.jsx';
 import DeviceDetailModal from './DeviceDetailModal.jsx';
 import IButtonConfigModal from './IButtonConfigModal.jsx';
+import DrivingBehaviorAlertModal from './DrivingBehaviorAlertModal.jsx';
 
 /* ── icons ──────────────────────────────────────────────────── */
 const SearchSVG = () => (
@@ -45,6 +46,13 @@ const IdCardSVG = () => (
         <circle cx="4.3" cy="6" r="1.15"/>
         <path d="M2.6 9.3c0-1 .8-1.6 1.7-1.6s1.7.6 1.7 1.6"/>
         <line x1="7.8" y1="5.2" x2="11.2" y2="5.2"/><line x1="7.8" y1="7" x2="11.2" y2="7"/>
+    </svg>
+);
+const GaugeSVG = () => (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M1.5 9A5.5 5.5 0 1 1 12.5 9"/>
+        <line x1="7" y1="9" x2="9.3" y2="5.3"/>
+        <circle cx="7" cy="9" r="0.9" fill="currentColor" stroke="none"/>
     </svg>
 );
 
@@ -102,6 +110,7 @@ export default function DeviceManagement() {
     const [showImport,     setShowImport]     = useState(false);
     const [detailDeviceId, setDetailDeviceId] = useState(null);
     const [ibuttonDevice,  setIbuttonDevice]  = useState(null);
+    const [drivingAlertDevice, setDrivingAlertDevice] = useState(null);
     const [pendingDelete,  setPendingDelete]  = useState(null);
     const [deleting,       setDeleting]       = useState(false);
     const [deleteError,    setDeleteError]    = useState('');
@@ -310,6 +319,7 @@ export default function DeviceManagement() {
                                     <button style={iconBtn} title="View location" onClick={() => viewLocation(d)}><PinSVG /></button>
                                     <button style={iconBtn} title="Device detail" onClick={() => setDetailDeviceId(d.id)}><ListSVG /></button>
                                     <button style={iconBtn} title="iButton configuration" onClick={() => setIbuttonDevice(d)}><IdCardSVG /></button>
+                                    <button style={iconBtn} title="Driving behavior alerts" onClick={() => setDrivingAlertDevice(d)}><GaugeSVG /></button>
                                     <button style={{ ...iconBtn, color: '#ef4444' }} title="Delete device" onClick={() => setPendingDelete(d)}><TrashSVG /></button>
                                 </td>
                             </tr>
@@ -362,6 +372,14 @@ export default function DeviceManagement() {
                     imei={ibuttonDevice.imei}
                     deviceName={ibuttonDevice.deviceName}
                     onClose={() => setIbuttonDevice(null)}
+                />
+            )}
+
+            {drivingAlertDevice && (
+                <DrivingBehaviorAlertModal
+                    imei={drivingAlertDevice.imei}
+                    deviceName={drivingAlertDevice.deviceName}
+                    onClose={() => setDrivingAlertDevice(null)}
                 />
             )}
 

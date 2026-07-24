@@ -13,6 +13,8 @@ use App\Events\DriverCheckedIn;
 use App\Models\AlertFileUpload;
 use App\Models\Driver;
 use App\Models\DriverCheckin;
+use App\Models\DriverFace;
+use App\Models\FaceRecognitionEvent;
 use App\Services\DriverRecognizedAlertService;
 use App\Services\GeofenceMonitorService;
 use App\Services\TurboHiveService;
@@ -122,10 +124,12 @@ class MqttWorker extends Command
 
             if ($faceAlertCode !== null && $faceAlertCode !== '' && (string) $alert['code'] === (string) $faceAlertCode) {
                 $unregisteredDriverAlert->handle($imei, 'Face recognition — no match', 'face');
+                $this->recordFaceRecognitionEvent($imei, $data, 'failed');
             }
 
             if ($faceRecognizedCode !== null && $faceRecognizedCode !== '' && (string) $alert['code'] === (string) $faceRecognizedCode) {
                 $driverRecognizedAlert->handle($imei);
+                $this->recordFaceRecognitionEvent($imei, $data, 'succeeded');
             }
 
             $this->requestAlertFileUpload($turboHive, $imei, $data);
@@ -324,6 +328,33 @@ class MqttWorker extends Command
         }
 
         $this->line("[upload]   {$imei} → {$status} (" . count($fileList) . ' file(s))');
+    }
+
+    /**
+     * Logs one row per JC171 AFIF face-recognition check (see FaceRecognitionEvent's migration
+     * docblock). driver_id is only set when the IMEI has exactly one enrolled DriverFace — with
+     * more than one enrolled driver on the same device there's no way to tell which face matched
+     * from this payload, so it's left null rather than guessed.
+     */
+    private function recordFaceRecognitionEvent(string $imei, array $data, string $result): void
+    {
+        $rawFiles = $data['alert.file'] ?? $data['alertFile'] ?? null;
+        $fileNames = $rawFiles ? array_values(array_filter(array_map('trim', explode(',', $rawFiles)))) : [];
+
+        $enrolledDriverIds = DriverFace::where('imei', $imei)->where('status', 'enrolled')->pluck('driver_id')->unique();
+        $driverId = $enrolledDriverIds->count() === 1 ? $enrolledDriverIds->first() : null;
+
+        $timeMs = $data['alert.time'] ?? $data['alertTime'] ?? $data['device.time'] ?? null;
+
+        FaceRecognitionEvent::create([
+            'imei'        => $imei,
+            'driver_id'   => $driverId,
+            'result'      => $result,
+            'file_names'  => $fileNames,
+            'latitude'    => $data['gnss.lat'] ?? $data['latitude'] ?? null,
+            'longitude'   => $data['gnss.lng'] ?? $data['longitude'] ?? null,
+            'occurred_at' => $timeMs ? Carbon::createFromTimestampMs((int) $timeMs) : now(),
+        ]);
     }
 
     private function extractImei(string $topic): string

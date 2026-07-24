@@ -15,7 +15,9 @@ use Illuminate\Support\Facades\Mail;
  * itself (see GeofenceController), so this mirrors Traccar's server-side approach: for each
  * position, test it against every geofence linked to that device (GeofenceDevice), compare with
  * the link's last known is_inside state, and persist + broadcast a GeofenceEvent on transition.
- * Called from MqttWorker on every incoming position.
+ * The event is always recorded and broadcast either way; only the email alert is gated by the
+ * link's alert_direction ('enter', 'exit', or 'both' — see GeofenceController::linkDevice /
+ * updateDeviceDirection). Called from MqttWorker on every incoming position.
  */
 class GeofenceMonitorService
 {
@@ -61,7 +63,11 @@ class GeofenceMonitorService
             ]);
 
             broadcast(new GeofenceEventTriggered($event, $geofence->name));
-            $this->sendAlertEmail($event, $geofence->name);
+
+            if ($link->alert_direction === 'both' || $link->alert_direction === $event->type) {
+                $this->sendAlertEmail($event, $geofence->name);
+            }
+
             $triggered[] = $event;
         }
 

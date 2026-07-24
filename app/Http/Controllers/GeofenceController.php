@@ -14,6 +14,10 @@ class GeofenceController extends Controller
             Geofence::with('links')->get()->map(fn (Geofence $g) => [
                 ...$g->toArray(),
                 'imeis' => $g->links->pluck('imei')->values(),
+                'links' => $g->links->map(fn (GeofenceDevice $l) => [
+                    'imei'            => $l->imei,
+                    'alert_direction' => $l->alert_direction,
+                ])->values(),
             ])
         );
     }
@@ -49,12 +53,15 @@ class GeofenceController extends Controller
 
     public function linkDevice(Request $request, Geofence $geofence)
     {
-        $data = $request->validate(['imei' => 'required|string']);
-
-        GeofenceDevice::firstOrCreate([
-            'geofence_id' => $geofence->id,
-            'imei'        => $data['imei'],
+        $data = $request->validate([
+            'imei'            => 'required|string',
+            'alert_direction' => 'nullable|in:enter,exit,both',
         ]);
+
+        GeofenceDevice::firstOrCreate(
+            ['geofence_id' => $geofence->id, 'imei' => $data['imei']],
+            ['alert_direction' => $data['alert_direction'] ?? 'both'],
+        );
 
         return response()->json(
             $geofence->links()->pluck('imei')->values()
@@ -68,5 +75,21 @@ class GeofenceController extends Controller
         return response()->json(
             $geofence->links()->pluck('imei')->values()
         );
+    }
+
+    /** Changes an already-linked device's alert direction without unlinking/relinking it. */
+    public function updateDeviceDirection(Request $request, Geofence $geofence, string $imei)
+    {
+        $data = $request->validate([
+            'alert_direction' => 'required|in:enter,exit,both',
+        ]);
+
+        $link = $geofence->links()->where('imei', $imei)->firstOrFail();
+        $link->update(['alert_direction' => $data['alert_direction']]);
+
+        return response()->json([
+            'imei'            => $link->imei,
+            'alert_direction' => $link->alert_direction,
+        ]);
     }
 }

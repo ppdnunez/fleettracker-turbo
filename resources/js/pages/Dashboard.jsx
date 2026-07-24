@@ -2,15 +2,18 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
 import Sidebar          from '../components/Sidebar.jsx';
 import DeviceList       from '../components/DeviceList.jsx';
+import DeviceDetailPanel from '../components/DeviceDetailPanel.jsx';
 import MapCanvas        from '../components/MapCanvas.jsx';
 import VideoMode        from '../components/VideoMode.jsx';
 import TopBar           from '../components/TopBar.jsx';
 import LogoutModal      from '../components/LogoutModal.jsx';
 import DeviceManagement from '../components/DeviceManagement.jsx';
+import CommandPage      from '../components/CommandPage.jsx';
 import ReportPage       from '../components/ReportPage.jsx';
 import FleetPage        from '../components/FleetPage.jsx';
 import GeofencePage     from '../components/GeofencePage.jsx';
 import AlertRecipientsPage from '../components/AlertRecipientsPage.jsx';
+import SimDataManagementPage from '../components/SimDataManagementPage.jsx';
 import NotificationPage from '../components/NotificationPage.jsx';
 import { turboHiveEnabled, applyTurboHivePosition } from '../turbohive-mqtt.js';
 import CalendarPage     from '../components/CalendarPage.jsx';
@@ -45,7 +48,13 @@ function normalizeTurboHiveDevice(device, positionsByImei = {}, vehicleTypesByIm
         heading:  pos?.['gnss.course']    ?? null,
         acc:      pos?.['status.acc']     ?? null,
         altitude: pos?.['gnss.altitude']  ?? null,
+        satellites: pos?.['gnss.satellites'] ?? null,
+        fixType:  pos?.['gnss.fixType']   ?? null,
+        // server.time = when TurboHive's server last heard from the device ("Last online");
+        // device.time = the device's own GPS-fix timestamp ("Last fix") — these can diverge when
+        // the device keeps a network connection without a GPS fix (e.g. indoors/no sky view).
         lastUpdate: pos?.['server.time']  ?? null,
+        fixTime:    pos?.['device.time']  ?? null,
         signal: device.batteryLevel ?? device.battery ?? device.signal ?? 0,
         vehicleType: vehicleTypesByImei[imei] ?? null,
     };
@@ -134,6 +143,7 @@ export default function Dashboard({ user, onLogout }) {
     const [liveDevices,   setLiveDevices]   = useState([]);
     const [liveSelected,  setLiveSelected]  = useState(null);
     const [liveLoading,   setLiveLoading]   = useState(true);
+    const [detailPanelOpen, setDetailPanelOpen] = useState(false); // right-side device detail panel — opens on device click
     const [mqttConnected, setMqttConnected] = useState(false);
     const [nextRefreshIn, setNextRefreshIn] = useState(DEVICE_POLL_SECONDS);
     const wsRef = useRef(null);
@@ -298,6 +308,10 @@ export default function Dashboard({ user, onLogout }) {
     const onlineCount    = liveDevices.filter(d => d.status === 'ONLINE').length;
     const selectedDevice = liveDevices.find(d => d.id === liveSelected);
 
+    // Clicking a device (list row or map marker) both selects it and opens the detail panel;
+    // closing the panel only hides it — the marker/list row stays selected/highlighted.
+    const selectDevice = (id) => { setLiveSelected(id); setDetailPanelOpen(true); };
+
     return (
         <div style={{ display: 'flex', height: '100vh', fontFamily: 'Inter,system-ui,sans-serif', background: '#f1f5f9', overflow: 'hidden' }}>
             {geofenceAlerts.length > 0 && (
@@ -344,6 +358,10 @@ export default function Dashboard({ user, onLogout }) {
 
                 {page === 'Device Management' ? (
                     <DeviceManagement />
+                ) : page === 'Sim Data Management' ? (
+                    <SimDataManagementPage />
+                ) : page === 'Command' ? (
+                    <CommandPage />
                 ) : page === 'Geofence' ? (
                     <GeofencePage onBack={() => setPage('Dashboard')} />
                 ) : page === 'Alert Recipients' ? (
@@ -381,7 +399,7 @@ export default function Dashboard({ user, onLogout }) {
                             <DeviceList
                                 devices={filtered}
                                 selected={liveSelected}
-                                onSelect={setLiveSelected}
+                                onSelect={selectDevice}
                                 search={search}
                                 setSearch={setSearch}
                                 loading={liveLoading}
@@ -395,12 +413,16 @@ export default function Dashboard({ user, onLogout }) {
                                 <MapCanvas
                                     devices={liveDevices}
                                     selected={liveSelected}
-                                    onSelect={setLiveSelected}
+                                    onSelect={selectDevice}
                                     selectedDevice={selectedDevice}
                                     mapMode={mapMode}
                                     mqttConnected={turboHiveEnabled ? mqttConnected : undefined}
                                     nextRefreshIn={turboHiveEnabled ? nextRefreshIn : undefined}
                                 />
+                            )}
+
+                            {detailPanelOpen && selectedDevice && (
+                                <DeviceDetailPanel device={selectedDevice} onClose={() => setDetailPanelOpen(false)} />
                             )}
                         </div>
                     </>

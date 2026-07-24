@@ -8,8 +8,10 @@ use Illuminate\Support\Facades\Log;
 /**
  * Reacts to a JC171 AFIF face-recognition success (alert.code 1823 — see
  * services.turbohive.face_recognized_alert_code) by reconnecting the relay for any vehicle that
- * has opted into the disconnect/reconnect feature (VehicleSetting::relay_disconnect_enabled) — the
- * complement to UnregisteredDriverAlertService's disconnect on a failed check.
+ * has opted into either disconnect trigger (VehicleSetting::relay_disconnect_enabled for an
+ * unregistered RFID/iButton tap, or relay_disconnect_on_face_fail for a failed face check) — the
+ * complement to UnregisteredDriverAlertService's disconnect on a failed check. Reconnecting fires
+ * if either toggle is on since a successful check should undo a disconnect from either trigger.
  *
  * Fires unconditionally on every success event for an opted-in vehicle: no stationary gate (unlike
  * disconnecting, restoring power is safe at any time) and no "was it actually disconnected"
@@ -25,7 +27,7 @@ class DriverRecognizedAlertService
     public function handle(string $imei): void
     {
         $setting = VehicleSetting::where('imei', $imei)->first();
-        if (!$setting?->relay_disconnect_enabled) {
+        if (!$setting?->relay_disconnect_enabled && !$setting?->relay_disconnect_on_face_fail) {
             return;
         }
 

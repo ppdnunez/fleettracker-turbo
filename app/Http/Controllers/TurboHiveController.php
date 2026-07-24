@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\DeviceCommand;
 use App\Services\TurboHiveService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -193,6 +194,90 @@ class TurboHiveController extends Controller
             (bool)  $request->input('sync', true),
             (int)   $request->input('timeout', 30),
         ));
+    }
+
+    /**
+     * See the Command module (CommandPage.jsx) — sends one command to multiple devices via
+     * TurboHive's /v3/command/batchSend, then persists a local device_commands row per IMEI since
+     * TurboHive has no history endpoint of its own for this.
+     */
+    public function batchSendCommand(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'imeis'         => 'required|array|min:1',
+            'imeis.*'       => 'string',
+            'content'       => 'required|string',
+            'messageFormat' => 'nullable|in:text,hex',
+            'isManual'      => 'nullable|boolean',
+            'sync'          => 'nullable|boolean',
+            'offline'       => 'nullable|boolean',
+            'timeout'       => 'nullable|integer|min:1|max:300',
+            'batchTimeout'  => 'nullable|integer|min:1|max:600',
+            'msgId'         => 'nullable|string',
+            'language'      => 'nullable|string',
+            'batchId'       => 'nullable|string',
+        ]);
+
+        $imeis  = array_values(array_unique($data['imeis']));
+        $result = $this->turboHive->batchSendCommand($imeis, $data['content'], $data);
+
+        $this->recordCommandHistory($imeis, $data, $result);
+
+        return response()->json($result);
+    }
+
+    /**
+     * TurboHive's batch response's data.results is per-imei when it has one; a request that fails
+     * validation before dispatch (e.g. code 1201/2120/2121) has no results at all, so every imei
+     * falls back to the top-level code/message instead of being left unrecorded.
+     */
+    private function recordCommandHistory(array $imeis, array $data, array $result): void
+    {
+        $resultsByImei = [];
+        foreach (($result['data']['results'] ?? []) as $r) {
+            if (isset($r['imei'])) {
+                $resultsByImei[$r['imei']] = $r;
+            }
+        }
+
+        $mode          = ($data['sync'] ?? false) ? 'sync' : 'async';
+        $messageFormat = $data['messageFormat'] ?? 'text';
+        $isManual      = $data['isManual'] ?? true;
+
+        foreach ($imeis as $imei) {
+            $perDevice = $resultsByImei[$imei] ?? null;
+            $code      = (int) ($perDevice['code'] ?? $result['code'] ?? 0);
+
+            DeviceCommand::create([
+                'batch_id'       => $result['data']['batchId'] ?? null,
+                'imei'           => $imei,
+                'content'        => $data['content'],
+                'message_format' => $messageFormat,
+                'is_manual'      => $isManual,
+                'mode'           => $mode,
+                'status'         => $code === 1000 ? 'success' : 'failed',
+                'response'       => $perDevice ?? $result,
+                'sent_by'        => auth()->id(),
+            ]);
+        }
+    }
+
+    /**
+     * Command History list for the Command module — defaults to the current user's own sent
+     * commands; ?all=1 shows every user's (the "Show ALL Commands" checkbox in CommandPage.jsx).
+     */
+    public function commandHistory(Request $request): JsonResponse
+    {
+        $query = DeviceCommand::with('sentBy:id,name')->orderByDesc('created_at');
+
+        if (!$request->boolean('all')) {
+            $query->where('sent_by', $request->user()?->id ?? auth()->id());
+        }
+        if ($request->filled('imei')) {
+            $query->where('imei', $request->query('imei'));
+        }
+
+        return response()->json($query->limit(200)->get());
     }
 
     // ── Battery ─────────────────────────────────────────────────────────────

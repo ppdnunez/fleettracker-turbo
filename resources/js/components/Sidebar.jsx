@@ -130,6 +130,7 @@ const FLEET_ITEMS = [
     { label: 'Check in Record', key: 'CheckIn' },
     { label: 'Capture History', key: 'CaptureHistory' },
     { label: 'Media Gallery',   key: 'MediaGallery' },
+    { label: 'Face Recognition', key: 'FaceRecognition' },
     // { label: 'Route Planning',  key: 'RoutePlanning' },
     // { label: 'Fleet Report',    key: 'FleetReport' },
 ];
@@ -150,7 +151,7 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
     const reportTo = (section) => { setReportSection(section); setPage('Report'); };
 
     const isReportActive = page === 'Report';
-    const isDeviceActive = page === 'Device Management' || page === 'Dashboard' || page === 'Geofence' || page === 'Alert Recipients' || page === 'Notification' || page === 'Calendars' || page === 'Computed Attributes' || page === 'Maintenance' || page === 'Saved Commands' || page === 'Groups' || page === 'Drivers';
+    const isDeviceActive = page === 'Device Management' || page === 'Sim Data Management' || page === 'Dashboard' || page === 'Geofence' || page === 'Alert Recipients' || page === 'Notification' || page === 'Calendars' || page === 'Computed Attributes' || page === 'Maintenance' || page === 'Saved Commands' || page === 'Groups' || page === 'Drivers' || page === 'Command';
     const isFleetActive  = page === 'Fleet';
 
     return (
@@ -222,6 +223,12 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
                         <NavItem label="Device Management" depth={1} sidebarOpen={open}
                             active={page === 'Device Management'}
                             onClick={() => navTo('Device Management')} />
+                        <NavItem label="Sim Data Management" depth={1} sidebarOpen={open}
+                            active={page === 'Sim Data Management'}
+                            onClick={() => navTo('Sim Data Management')} />
+                        <NavItem label="Command" depth={1} sidebarOpen={open}
+                            active={page === 'Command'}
+                            onClick={() => navTo('Command')} />
                         <NavItem label="Device Map & Video" depth={1} sidebarOpen={open}
                             active={page === 'Dashboard' && !isReportActive}
                             onClick={() => navTo('Dashboard')} />

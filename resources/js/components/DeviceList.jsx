@@ -45,17 +45,6 @@ function SearchIcon() {
     );
 }
 
-function SignalBars({ pct, online }) {
-    return (
-        <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 2, height: 14 }}>
-            {[25, 50, 75, 100].map((t, i) => (
-                <span key={i} style={{ width: 3, height: 4 + i * 2.5, borderRadius: 1, background: online && pct >= t ? '#3b82f6' : '#cbd5e1', display: 'block' }} />
-            ))}
-            <span style={{ fontSize: 10, color: online ? '#3b82f6' : '#94a3b8', marginLeft: 2, lineHeight: 1 }}>{pct}%</span>
-        </span>
-    );
-}
-
 export default function DeviceList({ devices, selected, onSelect, search, setSearch, loading, open, onToggle }) {
     return (
         <div style={{ display: 'flex', flexShrink: 0 }}>
@@ -102,9 +91,8 @@ export default function DeviceList({ devices, selected, onSelect, search, setSea
                                     </div>
                                     <span style={{ fontSize: 10, color: '#94a3b8' }}>···</span>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 36 }}>
+                                <div style={{ paddingLeft: 36 }}>
                                     <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 600 }}>{d.tracker}</span>
-                                    <SignalBars pct={d.signal || 0} online={d.status === 'ONLINE'} />
                                 </div>
                                 <div style={{ paddingLeft: 36, marginTop: 4 }}>
                                     <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, color: d.status === 'ONLINE' ? '#22c55e' : '#94a3b8' }}>● {d.status}</span>

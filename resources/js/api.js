@@ -30,6 +30,12 @@ export const api = {
     updateFleetDriver:  (id, data) => axios.put(`/api/drivers/${id}`, data),
     deleteFleetDriver:  (id)       => axios.delete(`/api/drivers/${id}`),
 
+    // ── Local vehicle registry (Laravel DB, one row per IMEI) ────────────────
+    getVehicles:    ()         => axios.get('/api/vehicles'),
+    createVehicle:  (data)     => axios.post('/api/vehicles', data),
+    updateVehicle:  (id, data) => axios.put(`/api/vehicles/${id}`, data),
+    deleteVehicle:  (id)       => axios.delete(`/api/vehicles/${id}`),
+
     // ── Vehicle <-> Driver assignment (Laravel DB, keyed by TurboHive IMEI) ──
     getVehicleDrivers: (imei)            => axios.get(`/api/vehicle-drivers/${imei}`),
     setVehicleDrivers: (imei, driverIds) => axios.put(`/api/vehicle-drivers/${imei}`, { driverIds }),
@@ -51,6 +57,14 @@ export const api = {
 
     // ── Driver check-ins (RFID/iButton taps, captured live via MqttWorker) ──
     getDriverCheckins: (params) => axios.get('/api/driver-checkins', { params }),
+
+    // ── Face recognition check history (alert.code 1823/1824, captured live via MqttWorker) ──
+    getFaceRecognitionEvents: (params = {}) => axios.get('/api/face-recognition-events', { params }),
+
+    // ── Petrol/diesel price history ─────────────────────────────────────────
+    getFuelPrices:    (params = {}) => axios.get('/api/fuel-prices', { params }),
+    createFuelPrice:  (data)        => axios.post('/api/fuel-prices', data),
+    deleteFuelPrice:  (id)          => axios.delete(`/api/fuel-prices/${id}`),
 
     // ── Local client registry (Laravel DB) ──────────────────────────────────
     getClients:   ()         => axios.get('/api/clients'),
@@ -98,6 +112,9 @@ export const api = {
     // ── TurboHive — commands ────────────────────────────────────────────────
     sendTurboHiveCommand: (imei, content, options = {}) =>
         axios.post('/api/turbohive/command', { imei, content, ...options }),
+    batchSendTurboHiveCommand: (imeis, content, options = {}) =>
+        axios.post('/api/turbohive/command/batch', { imeis, content, ...options }),
+    getCommandHistory: (params = {}) => axios.get('/api/turbohive/command-history', { params }),
 
     // ── TurboHive — video ───────────────────────────────────────────────────
     startTurboHiveVideo:    (imei, channel = 1, dataType = 'audio_video') =>
@@ -164,8 +181,9 @@ export const api = {
     createGeofence:               (data)     => axios.post('/api/geofences', data),
     updateGeofence:               (id, data) => axios.put(`/api/geofences/${id}`, data),
     deleteGeofence:               (id)       => axios.delete(`/api/geofences/${id}`),
-    linkGeofenceDevice:           (id, imei) => axios.post(`/api/geofences/${id}/devices`, { imei }),
+    linkGeofenceDevice:           (id, imei, alertDirection = 'both') => axios.post(`/api/geofences/${id}/devices`, { imei, alert_direction: alertDirection }),
     unlinkGeofenceDevice:         (id, imei) => axios.delete(`/api/geofences/${id}/devices/${imei}`),
+    setGeofenceDeviceDirection:   (id, imei, alertDirection) => axios.put(`/api/geofences/${id}/devices/${imei}`, { alert_direction: alertDirection }),
     getAlertRecipients:           ()         => axios.get('/api/alert-recipients'),
     createAlertRecipient:         (data)     => axios.post('/api/alert-recipients', data),
     updateAlertRecipient:         (id, data) => axios.put(`/api/alert-recipients/${id}`, data),

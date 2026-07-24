@@ -284,7 +284,7 @@ function ExternalBattery() {
                             <td style={TD}>{r.batteryVoltage != null ? (r.batteryVoltage / 1000).toFixed(2) : '—'}</td>
                             <td style={TD}>{r.vehicleSpeed ?? '—'}</td>
                             <td style={TD}>{r.accStatus === 1 ? 'ON' : r.accStatus === 0 ? 'OFF' : '—'}</td>
-                            <td style={TD}>{r.odometer ?? '—'}</td>
+                            <td style={TD}>{obdOdometer(r) ?? '—'}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -313,6 +313,25 @@ const FUEL_CONSUMPTION_METHODS = [
     { id: 'rate',      label: 'Fuel Rate' },
     { id: 'sensor',    label: 'Fuel Sensor' },
 ];
+
+// Standard fuel-economy formulas (region-dependent metric of choice):
+//   km/L      = Distance Traveled (km) / Fuel Added (L)
+//   L/100km   = Fuel Added (L) × 100 / Distance Traveled (km)
+//   MPG       = Distance Traveled (mi) / Fuel Added (gal) — US gallon (3.78541 L) assumed
+// Shared by all three Fuel Consumption methods below since each already produces a distanceKm +
+// fuelUsed pair (totalizer delta, rate estimate, or sensor-drop estimate) — only the source of
+// that pair differs, not the economy math applied to it.
+function fuelEconomy(distanceKm, fuelUsedL) {
+    if (distanceKm == null || fuelUsedL == null || distanceKm <= 0 || fuelUsedL <= 0) {
+        return { kmPerL: null, lPer100km: null, mpg: null };
+    }
+    const kmPerL = +(distanceKm / fuelUsedL).toFixed(2);
+    const lPer100km = +((fuelUsedL * 100) / distanceKm).toFixed(2);
+    const miles = distanceKm * 0.621371;
+    const gallons = fuelUsedL * 0.264172;
+    const mpg = +(miles / gallons).toFixed(2);
+    return { kmPerL, lPer100km, mpg };
+}
 
 function FuelConsumption() {
     const [devices, setDevices]   = useState([]);
@@ -346,13 +365,13 @@ function FuelConsumption() {
                 setRows([]);
             } else {
                 const first = points[0], last = points[points.length - 1];
-                const distanceKm = (first.odometer != null && last.odometer != null) ? +(last.odometer - first.odometer).toFixed(2) : null;
+                const firstOdo = obdOdometer(first), lastOdo = obdOdometer(last);
+                const distanceKm = (firstOdo != null && lastOdo != null) ? +(lastOdo - firstOdo).toFixed(2) : null;
                 const row = { startTime: first.gateTime, endTime: last.gateTime, distanceKm, points: points.length };
 
                 if (method === 'totalizer') {
                     row.fuelUsed = (first.totalFuelConsumption != null && last.totalFuelConsumption != null)
                         ? +(last.totalFuelConsumption - first.totalFuelConsumption).toFixed(2) : null;
-                    row.avgConsumption = (row.fuelUsed != null && distanceKm > 0) ? +((row.fuelUsed / distanceKm) * 100).toFixed(2) : null;
                 } else if (method === 'rate') {
                     row.fuelRate = vehicleSetting?.fuel_rate_l_per_100km ?? null;
                     row.fuelUsed = (row.fuelRate != null && distanceKm != null) ? +((distanceKm * row.fuelRate) / 100).toFixed(2) : null;
@@ -366,6 +385,11 @@ function FuelConsumption() {
                     row.tankCapacity = vehicleSetting?.fuel_tank_capacity_liters ?? null;
                     row.fuelUsed = (row.usedPct != null && row.tankCapacity != null) ? +((row.usedPct / 100) * row.tankCapacity).toFixed(2) : null;
                 }
+
+                const economy = fuelEconomy(distanceKm, row.fuelUsed);
+                row.kmPerL = economy.kmPerL;
+                row.lPer100km = economy.lPer100km;
+                row.mpg = economy.mpg;
 
                 setRows([row]);
             }
@@ -385,11 +409,12 @@ function FuelConsumption() {
 
     const selectedDevice = devices.find(d => d.imei === deviceId);
 
+    const ECONOMY_COLS = ['km/L', 'L/100km', 'MPG'];
     const COLS = method === 'totalizer'
-        ? ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Used (L)', 'Avg Consumption (L/100km)', 'Data Points']
+        ? ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Used (L)', ...ECONOMY_COLS, 'Data Points']
         : method === 'rate'
-        ? ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Rate (L/100km)', 'Est. Fuel Used (L)', 'Data Points']
-        : ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Start Level (%)', 'End Level (%)', 'Tank Capacity (L)', 'Est. Fuel Used (L)', 'Data Points'];
+        ? ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Rate (L/100km)', 'Est. Fuel Used (L)', ...ECONOMY_COLS, 'Data Points']
+        : ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Start Level (%)', 'End Level (%)', 'Tank Capacity (L)', 'Est. Fuel Used (L)', ...ECONOMY_COLS, 'Data Points'];
 
     const notice = method === 'totalizer'
         ? 'Only OBD-capable devices report a fuel totalizer. Fuel Used / Distance are the delta between the first and last reading (max 30-day range per query).'
@@ -399,6 +424,11 @@ function FuelConsumption() {
 
     const missingSetting = method === 'rate' && deviceId && vehicleSetting && vehicleSetting.fuel_rate_l_per_100km == null;
     const missingTank = method === 'sensor' && deviceId && vehicleSetting && vehicleSetting.fuel_tank_capacity_liters == null;
+    // Distinct from missingSetting/missingTank: the row loaded fine (Start/End Time, Data Points
+    // are populated) but neither reading in range carried an odometer value at all, so Distance —
+    // and anything derived from it — can never be computed no matter how Fuel Rate/Tank Capacity
+    // are configured. Only totalizer/rate show a Distance column at all.
+    const missingDistance = (method === 'totalizer' || method === 'rate') && rows.length > 0 && rows[0].distanceKm == null;
 
     return (
         <>
@@ -431,9 +461,11 @@ function FuelConsumption() {
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
             <Notice color="#dbeafe" icon="ℹ" text={notice} />
+            <Notice color="#dbeafe" icon="ℹ" text="Fuel Economy: km/L = Distance ÷ Fuel Used, L/100km = Fuel Used × 100 ÷ Distance, MPG = Distance ÷ Fuel Used converted to miles/US gallons. Shown once Distance and Fuel Used are both available, whichever method computed them." />
             {missingSetting && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Fuel Rate configured yet — Est. Fuel Used will show as “—” until one is set." />}
             {missingTank && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Tank Capacity configured yet — Est. Fuel Used will show as “—” until one is set." />}
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
+            {missingDistance && <Notice color="#fef3c7" icon="⚠" text="This device didn't report an odometer reading for the selected range, so Distance (and anything calculated from it) shows as “—” — this is a device/data limitation, not a missing setting." />}
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
@@ -452,7 +484,6 @@ function FuelConsumption() {
                             {method === 'totalizer' && <>
                                 <td style={TD}>{r.distanceKm ?? '—'}</td>
                                 <td style={TD}>{r.fuelUsed ?? '—'}</td>
-                                <td style={TD}>{r.avgConsumption ?? '—'}</td>
                             </>}
                             {method === 'rate' && <>
                                 <td style={TD}>{r.distanceKm ?? '—'}</td>
@@ -460,16 +491,145 @@ function FuelConsumption() {
                                 <td style={TD}>{r.fuelUsed ?? '—'}</td>
                             </>}
                             {method === 'sensor' && <>
+                                <td style={TD}>{r.distanceKm ?? '—'}</td>
                                 <td style={TD}>{r.startPct ?? '—'}</td>
                                 <td style={TD}>{r.endPct ?? '—'}</td>
                                 <td style={TD}>{r.tankCapacity ?? '—'}</td>
                                 <td style={TD}>{r.fuelUsed ?? '—'}</td>
                             </>}
+                            <td style={TD}>{r.kmPerL ?? '—'}</td>
+                            <td style={TD}>{r.lPer100km ?? '—'}</td>
+                            <td style={TD}>{r.mpg ?? '—'}</td>
                             <td style={TD}>{r.points}</td>
                         </tr>
                     ))}
                 </tbody>
             </table>
+        </>
+    );
+}
+
+// Built from TurboHive's GET /v3/track (raw GNSS points, max 30-day range per query, see
+// TurboHiveService::getTrackList) — distance is the same haversine-between-consecutive-points sum
+// segmentTrips()/Trips use, just totalled across the whole range instead of per ACC-on trip, then
+// multiplied by a per-vehicle Fuel Rate (VehicleSetting.fuel_rate_l_per_100km, set via Vehicle >
+// Vehicle Settings). Deliberately never touches OBD or a fuel-level sensor — GNSS position is the
+// one thing every trackable device reports regardless of OBD support, so this works even for
+// devices Fuel Consumption's "Fuel Rate"/"OBD Totalizer"/"Fuel Sensor" methods can't (no OBD harness
+// at all).
+function MileageFuelConsumption() {
+    const [devices, setDevices]   = useState([]);
+    const [deviceId, setDeviceId] = useState('');
+    const [vehicleSetting, setVehicleSetting] = useState(null);
+    const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
+    const [to, setTo]             = useState(() => toLocalInput(new Date()));
+    const [row, setRow]           = useState(null);
+    const [loading, setLoading]   = useState(false);
+    const [error, setError]       = useState('');
+
+    useEffect(() => {
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
+    }, []);
+
+    useEffect(() => {
+        if (!deviceId) { setVehicleSetting(null); return; }
+        api.getVehicleSetting(deviceId).then(res => setVehicleSetting(res.data)).catch(() => setVehicleSetting(null));
+    }, [deviceId]);
+
+    const search = async () => {
+        if (!deviceId) { setError('Select a device.'); return; }
+        setError('');
+        setLoading(true);
+        try {
+            const startTime = new Date(from).getTime();
+            const endTime   = new Date(to).getTime();
+            const res = await api.getTurboHiveTrackList(deviceId, startTime, endTime);
+            if (res.data?.error) throw new Error(res.data.error);
+            const points = [...(res.data?.list ?? [])].sort((a, b) => (a.deviceTime ?? 0) - (b.deviceTime ?? 0));
+            if (points.length < 2) {
+                setRow(null);
+            } else {
+                let distanceKm = 0;
+                for (let i = 1; i < points.length; i++) {
+                    distanceKm += haversineKm(points[i - 1].latitude, points[i - 1].longitude, points[i].latitude, points[i].longitude);
+                }
+                distanceKm = +distanceKm.toFixed(2);
+                const fuelRate = vehicleSetting?.fuel_rate_l_per_100km ?? null;
+                const fuelUsed = fuelRate != null ? +((distanceKm * fuelRate) / 100).toFixed(2) : null;
+                const economy = fuelEconomy(distanceKm, fuelUsed);
+                setRow({
+                    startTime: points[0].deviceTime, endTime: points[points.length - 1].deviceTime,
+                    distanceKm, fuelRate, fuelUsed, points: points.length,
+                    kmPerL: economy.kmPerL, lPer100km: economy.lPer100km, mpg: economy.mpg,
+                });
+            }
+        } catch (e) {
+            setError(e.message || e.response?.data?.message || 'Failed to load mileage-based fuel consumption report.');
+            setRow(null);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const reset = () => {
+        const d = new Date(); d.setHours(0,0,0,0);
+        setDeviceId(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
+        setRow(null); setError('');
+    };
+
+    const selectedDevice = devices.find(d => d.imei === deviceId);
+    const missingSetting = !!(deviceId && vehicleSetting && vehicleSetting.fuel_rate_l_per_100km == null);
+
+    const COLS = ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Rate (L/100km)', 'Est. Fuel Used (L)', 'km/L', 'L/100km', 'MPG', 'Data Points'];
+
+    return (
+        <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    <option value="">Select device</option>
+                    {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
+                </select>
+                <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <span style={{ color: '#9ca3af' }}>-</span>
+                <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+            </div>
+            <Notice color="#dbeafe" icon="ℹ" text="Estimated purely from distance travelled (GNSS position, not OBD) × this vehicle's configured Fuel Rate — set it under Vehicle > Vehicle Settings. Works for any trackable device, with or without an OBD harness." />
+            {missingSetting && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Fuel Rate configured yet — Est. Fuel Used will show as “—” until one is set." />}
+            {error && <Notice color="#fee2e2" icon="⚠" text={error} />}
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
+                    <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : !row ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        ) : (
+                            <tr>
+                                <td style={TD}>1</td>
+                                <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
+                                <td style={TD}>{deviceId}</td>
+                                <td style={TD}>{fmtTime(row.startTime)}</td>
+                                <td style={TD}>{fmtTime(row.endTime)}</td>
+                                <td style={TD}>{row.distanceKm}</td>
+                                <td style={TD}>{row.fuelRate ?? '—'}</td>
+                                <td style={TD}>{row.fuelUsed ?? '—'}</td>
+                                <td style={TD}>{row.kmPerL ?? '—'}</td>
+                                <td style={TD}>{row.lPer100km ?? '—'}</td>
+                                <td style={TD}>{row.mpg ?? '—'}</td>
+                                <td style={TD}>{row.points}</td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
         </>
     );
 }
@@ -578,6 +738,14 @@ async function loadObdPoints(imei, fromLocal, toLocal, pageSize = 100) {
 // fallback names DeviceSensorUpdated.php already guesses for the MQTT sensor feed.
 function obdFuelLevel(p) {
     return p.fuelLevel ?? p.fuel_level ?? p.fuelPercent ?? p.fuel ?? null;
+}
+
+// Same best-effort fallback as obdFuelLevel, for the same reason: TurboHive's exact field name
+// for OBD odometer isn't confirmed to be stable across device models — segmentTrips (GNSS track
+// distance, a different endpoint) already found "device.meter" isn't reliably populated, so a
+// direct p.odometer read silently going null for some devices is expected, not assumed impossible.
+function obdOdometer(p) {
+    return p.odometer ?? p.mileage ?? p.totalMileage ?? p.odo ?? p.odoMeter ?? null;
 }
 
 // Single-line sparkline, same hand-rolled approach as TempHumidityChart below (no chart dependency
@@ -807,7 +975,8 @@ function AbnormalFuelLoss() {
         const from = obdFuelLevel(prev), to = obdFuelLevel(curr);
         if (from == null || to == null) return null;
         const change = +(to - from).toFixed(1);
-        const distanceKm = (prev.odometer != null && curr.odometer != null) ? curr.odometer - prev.odometer : null;
+        const prevOdo = obdOdometer(prev), currOdo = obdOdometer(curr);
+        const distanceKm = (prevOdo != null && currOdo != null) ? currOdo - prevOdo : null;
         return (change <= -ABNORMAL_DROP_THRESHOLD && distanceKm != null && distanceKm <= ABNORMAL_DROP_MAX_KM)
             ? { fromPercent: from, toPercent: to, changePercent: change, time: curr.gateTime }
             : null;
@@ -927,7 +1096,8 @@ async function computeFuelEfficiencyRows(devices, from, to) {
             const points = await loadObdPoints(d.imei, from, to);
             if (points.length < 2) return null;
             const first = points[0], last = points[points.length - 1];
-            const distanceKm = (first.odometer != null && last.odometer != null) ? +(last.odometer - first.odometer).toFixed(2) : null;
+            const firstOdo = obdOdometer(first), lastOdo = obdOdometer(last);
+            const distanceKm = (firstOdo != null && lastOdo != null) ? +(lastOdo - firstOdo).toFixed(2) : null;
             const fuelUsed = (first.totalFuelConsumption != null && last.totalFuelConsumption != null) ? +(last.totalFuelConsumption - first.totalFuelConsumption).toFixed(2) : null;
             if (distanceKm == null || fuelUsed == null || distanceKm <= 0) return null;
             const fuelPer100km = +((fuelUsed / distanceKm) * 100).toFixed(2);
@@ -1150,6 +1320,225 @@ function TempHumidityChart({ rows }) {
                 <path d={pathFor('humidity', hMin, hMax)} fill="none" stroke="#3b82f6" strokeWidth="2" />
             </svg>
         </div>
+    );
+}
+
+// Same best-effort fallback pattern as obdOdometer/obdFuelLevel — TurboHive's /v3/obd response
+// isn't documented to include position fields at all, but some device models report them
+// alongside the OBD telemetry. Falls back to "—" (via LocationLink) rather than assuming absence.
+function obdLat(p) { return p.latitude ?? p.lat ?? null; }
+function obdLon(p) { return p.longitude ?? p.lon ?? p.lng ?? null; }
+
+// Segments a chronologically-sorted OBD track into trips using the same ACC-on-run definition as
+// segmentTrips() (GNSS-based, above) — falls back to a speed threshold when accStatus isn't
+// reported. Unlike segmentTrips's haversine-summed distance, this uses the OBD odometer /
+// totalFuelConsumption deltas directly between each trip's first and last point, since that's real
+// device-reported data rather than a client-side estimate — the only report in this file that can
+// show genuine per-trip fuel consumption (see Fuel Consumption above for the same delta approach
+// applied to a whole date range instead of per trip).
+function segmentObdTrips(points) {
+    const trips = [];
+    let run = [];
+    const flush = () => {
+        if (run.length >= 2) {
+            const first = run[0], last = run[run.length - 1];
+            const firstOdo = obdOdometer(first), lastOdo = obdOdometer(last);
+            const distanceKm = (firstOdo != null && lastOdo != null) ? +(lastOdo - firstOdo).toFixed(2) : null;
+            const fuelUsed = (first.totalFuelConsumption != null && last.totalFuelConsumption != null)
+                ? +(last.totalFuelConsumption - first.totalFuelConsumption).toFixed(2) : null;
+            let maxSpeedKmh = 0, speedSum = 0;
+            for (const p of run) {
+                const s = p.vehicleSpeed ?? p.speed ?? 0;
+                speedSum += s;
+                maxSpeedKmh = Math.max(maxSpeedKmh, s);
+            }
+            trips.push({
+                startTime: first.gateTime, endTime: last.gateTime,
+                startLat: obdLat(first), startLon: obdLon(first),
+                endLat: obdLat(last), endLon: obdLon(last),
+                durationMs: last.gateTime - first.gateTime,
+                distanceKm, fuelUsed,
+                fuelPer100km: (fuelUsed != null && distanceKm > 0) ? +((fuelUsed / distanceKm) * 100).toFixed(2) : null,
+                avgSpeedKmh: +(speedSum / run.length).toFixed(2),
+                maxSpeedKmh,
+            });
+        }
+        run = [];
+    };
+    for (const p of points) {
+        const acc = p.accStatus ?? ((p.vehicleSpeed ?? p.speed ?? 0) > 2 ? 1 : 0);
+        if (acc === 1) run.push(p); else flush();
+    }
+    flush();
+    return trips;
+}
+
+// Groups trips (from segmentObdTrips) by calendar day, newest day first, trips within a day
+// newest first — matches the day-header layout ("YYYY-MM-DD: N trips") TurboHive's own Fuel
+// Consumption-by-trip view uses.
+function groupTripsByDay(trips) {
+    const byDay = new Map();
+    for (const t of trips) {
+        const day = new Date(t.startTime).toISOString().slice(0, 10);
+        if (!byDay.has(day)) byDay.set(day, []);
+        byDay.get(day).push(t);
+    }
+    return [...byDay.entries()]
+        .map(([date, dayTrips]) => ({ date, trips: dayTrips.sort((a, b) => b.startTime - a.startTime) }))
+        .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// Built from TurboHive's GET /v3/obd (same endpoint as Fuel Consumption / Travel Statistics (OBD)),
+// segmented into trips client-side via segmentObdTrips() rather than a dedicated trips field —
+// grouped per day with a Summary section below, mirroring TurboHive's own trip-based fuel report.
+// Only OBD-capable devices report a fuel totalizer; a trip with no totalizer delta shows "—" for
+// Fuel Used and Fuel/100km rather than a misleading 0.
+function TripFuelConsumption() {
+    const [devices, setDevices]     = useState([]);
+    const [deviceId, setDeviceId]   = useState('');
+    const [from, setFrom]           = useState(() => { const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0,0,0,0); return toLocalInput(d); });
+    const [to, setTo]               = useState(() => toLocalInput(new Date()));
+    const [days, setDays]           = useState([]);
+    const [collapsed, setCollapsed] = useState({});
+    const [loading, setLoading]     = useState(false);
+    const [error, setError]         = useState('');
+
+    useEffect(() => {
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
+    }, []);
+
+    const search = async () => {
+        if (!deviceId) { setError('Select a device.'); return; }
+        setError('');
+        setLoading(true);
+        try {
+            const points = await loadObdPoints(deviceId, from, to, 100);
+            const grouped = groupTripsByDay(segmentObdTrips(points));
+            setDays(grouped);
+            setCollapsed({});
+        } catch (e) {
+            setError(e.message || e.response?.data?.message || 'Failed to load trip fuel consumption report.');
+            setDays([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const reset = () => {
+        const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0,0,0,0);
+        setDeviceId(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
+        setDays([]); setError('');
+    };
+
+    const selectedDevice = devices.find(d => d.imei === deviceId);
+    const allTrips = days.flatMap(d => d.trips);
+    const totalMileage = allTrips.reduce((sum, t) => sum + (t.distanceKm ?? 0), 0);
+    const totalFuel = allTrips.reduce((sum, t) => sum + (t.fuelUsed ?? 0), 0);
+    const totalDurationMs = allTrips.reduce((sum, t) => sum + t.durationMs, 0);
+    const avgSpeed = allTrips.length ? allTrips.reduce((sum, t) => sum + t.avgSpeedKmh, 0) / allTrips.length : 0;
+    const maxSpeed = allTrips.length ? Math.max(...allTrips.map(t => t.maxSpeedKmh)) : 0;
+    const fuelPer100km = totalMileage > 0 ? +((totalFuel * 100) / totalMileage).toFixed(2) : null;
+
+    const TRIP_COLS = ['Start time', 'Start location', 'End time', 'End location', 'Duration', 'Total Mileage(km)', 'Total Fuel Consumption (L)', 'Fuel/100KM(L)', 'Average Speed (km/h)', 'Max. speed(km/h)'];
+
+    return (
+        <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    <option value="">Select device</option>
+                    {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
+                </select>
+                <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <span style={{ color: '#9ca3af' }}>-</span>
+                <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+            </div>
+            <Notice color="#dbeafe" icon="ℹ" text="A trip is a run of ACC-on OBD points (max 30-day range per query); Distance and Fuel Used are the device's own odometer/fuel-totalizer deltas across each trip, not estimates." />
+            {error && <Notice color="#fee2e2" icon="⚠" text={error} />}
+
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</div>
+            ) : days.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</div>
+            ) : (
+                <div style={{ overflowX: 'auto' }}>
+                    {days.map(({ date, trips }) => {
+                        const isCollapsed = !!collapsed[date];
+                        return (
+                            <div key={date} style={{ marginBottom: 10, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                                <button onClick={() => setCollapsed(c => ({ ...c, [date]: !c[date] }))}
+                                    style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                                    <span>{date}: {trips.length} trip{trips.length !== 1 ? 's' : ''}</span>
+                                    <span style={{ color: '#9ca3af' }}>{isCollapsed ? '▸' : '▾'}</span>
+                                </button>
+                                {!isCollapsed && (
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
+                                        <thead><tr>{TRIP_COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                                        <tbody>
+                                            {trips.map((t, i) => (
+                                                <tr key={i}>
+                                                    <td style={TD}>{fmtTime(t.startTime)}</td>
+                                                    <td style={TD}><LocationLink lat={t.startLat} lon={t.startLon} /></td>
+                                                    <td style={TD}>{fmtTime(t.endTime)}</td>
+                                                    <td style={TD}><LocationLink lat={t.endLat} lon={t.endLon} /></td>
+                                                    <td style={TD}>{formatHMS(t.durationMs)}</td>
+                                                    <td style={TD}>{t.distanceKm ?? '—'}</td>
+                                                    <td style={TD}>{t.fuelUsed ?? '—'}</td>
+                                                    <td style={TD}>{t.fuelPer100km ?? '—'}</td>
+                                                    <td style={TD}>{t.avgSpeedKmh.toFixed(2)}</td>
+                                                    <td style={TD}>{t.maxSpeedKmh}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+                        );
+                    })}
+
+                    <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                        <div style={{ padding: '10px 14px', background: '#f8fafc', fontSize: 13, fontWeight: 600, color: '#374151' }}>Summary</div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
+                            <thead><tr>{['No.', 'Device Name', 'IMEI', 'Model', 'Duration', 'Total Mileage(km)', 'Total Fuel Consumption (L)', 'Fuel/100KM(L)', 'Average Speed (km/h)', 'Max. speed(km/h)'].map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                            <tbody>
+                                <tr>
+                                    <td style={TD}>1</td>
+                                    <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
+                                    <td style={TD}>{deviceId}</td>
+                                    <td style={TD}>{selectedDevice?.model ?? '—'}</td>
+                                    <td style={TD}>{formatHMS(totalDurationMs)}</td>
+                                    <td style={TD}>{totalMileage.toFixed(2)}</td>
+                                    <td style={TD}>{totalFuel.toFixed(2)}</td>
+                                    <td style={TD}>{fuelPer100km ?? '—'}</td>
+                                    <td style={TD}>{avgSpeed.toFixed(2)}</td>
+                                    <td style={TD}>{maxSpeed}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div style={{ padding: '8px 14px', background: '#f8fafc', fontSize: 13, fontWeight: 600, color: '#374151', borderTop: '1px solid #e5e7eb' }}>Total</div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+                            <thead><tr>{['Trips', 'Total Mileage(km)', 'Duration', 'Average Speed (km/h)', 'Max. speed(km/h)', 'Total Fuel Consumption (L)'].map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                            <tbody>
+                                <tr>
+                                    <td style={TD}>{allTrips.length}</td>
+                                    <td style={TD}>{totalMileage.toFixed(2)}</td>
+                                    <td style={TD}>{formatHMS(totalDurationMs)}</td>
+                                    <td style={TD}>{avgSpeed.toFixed(2)}</td>
+                                    <td style={TD}>{maxSpeed}</td>
+                                    <td style={TD}>{totalFuel.toFixed(2)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </>
     );
 }
 
@@ -1806,8 +2195,9 @@ function groupObdByDay(points) {
 
     return [...byDay.entries()].map(([date, dayPoints]) => {
         const first = dayPoints[0], last = dayPoints[dayPoints.length - 1];
-        const distanceKm = (first.odometer != null && last.odometer != null)
-            ? +(last.odometer - first.odometer).toFixed(2) : null;
+        const firstOdo = obdOdometer(first), lastOdo = obdOdometer(last);
+        const distanceKm = (firstOdo != null && lastOdo != null)
+            ? +(lastOdo - firstOdo).toFixed(2) : null;
         const durationMinutes = Math.round((last.gateTime - first.gateTime) / 60000);
         const speeds = dayPoints.map(p => p.vehicleSpeed ?? p.speed).filter(v => v != null);
         const maxSpeedKmh = speeds.length ? Math.max(...speeds) : null;
@@ -2735,8 +3125,13 @@ function Trips() {
     );
 }
 
-// Built from TurboHive's GET /v3/alerts/page filtered to alertType=OVERSPEED — each row is a
-// discrete overspeed alert the device itself fired (not a continuous over-limit period recomputed
+// Built from TurboHive's GET /v3/alerts/page, filtered client-side to alert.name === 'Speeding'
+// (alert code 1301 — see DeviceAlertReceived::KNOWN_CODE_NAMES) — the exact same filter Driver
+// Behavior's "Speeding" Event Type option applies, rather than a separate/guessed server-side
+// alertType=OVERSPEED value (TurboHive's own catalog calls this alert "Speeding", not "Overspeed").
+// Kept as its own Motion Statistics entry (rather than pointing here at Driver Behavior) since it's
+// reached from a different part of the sidebar, but the data and columns are now identical. Each
+// row is a discrete alert the device itself fired (not a continuous over-limit period recomputed
 // from raw positions, since that's what the old Traccar-based report did and TurboHive already
 // does the detection device-side). See TurboHiveService::getAlerts.
 function Overspeed() {
@@ -2760,13 +3155,7 @@ function Overspeed() {
         setLoading(true);
         setError('');
         try {
-            const params = {
-                startTime: new Date(f).getTime(),
-                endTime:   new Date(t).getTime(),
-                alertType: 'OVERSPEED',
-                page: 1,
-                size: 100,
-            };
+            const params = { startTime: new Date(f).getTime(), endTime: new Date(t).getTime(), page: 1, size: 100 };
             if (dId) params.imeis = [dId];
             const res = await api.getTurboHiveAlerts(params);
             if (res.data?.error) {
@@ -2791,8 +3180,12 @@ function Overspeed() {
         setRows([]); setError('');
     };
 
-    const deviceName = (imei) => devices.find(d => d.imei === imei)?.deviceName ?? imei;
-    const COLS = ['No.', 'Device Name', 'IMEI', 'Description', 'Speed (km/h)', 'Alert Time', 'Coordinates'];
+    const filtered = rows.filter(r => r.name === 'Speeding');
+
+    // Historical rows carry deviceName straight from TurboHive's response (device.name); fall back
+    // to the locally loaded device list — same convention as Driver Behavior's resolveDeviceName.
+    const resolveDeviceName = (r) => r.deviceName || devices.find(d => d.imei === r.imei)?.deviceName || r.imei;
+    const COLS = ['No.', 'Device name', 'IMEI', 'Event Type', 'Speed (km/h)', 'Location', 'Time', 'Evidence'];
 
     return (
         <>
@@ -2810,7 +3203,7 @@ function Overspeed() {
                 <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Overspeed threshold is configured on TurboHive/device side — this lists alerts it already fired, not a recomputed period." />
+            <Notice color="#dbeafe" icon="ℹ" text="Filtered to Event Type = 'Speeding' (alert code 1301) — same alerts and columns as Driver Behavior's Speeding filter, thresholds are configured on TurboHive/device side." />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                     <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
@@ -2819,17 +3212,18 @@ function Overspeed() {
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
-                        ) : rows.length === 0 ? (
+                        ) : filtered.length === 0 ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
-                        ) : rows.map((r, i) => (
-                            <tr key={r.id}>
+                        ) : filtered.map((r, i) => (
+                            <tr key={r.id ?? i}>
                                 <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{deviceName(r.imei)}</td>
+                                <td style={TD}>{resolveDeviceName(r)}</td>
                                 <td style={TD}>{r.imei ?? '—'}</td>
-                                <td style={TD}>{r.description ?? r.name ?? '—'}</td>
-                                <td style={TD}>{r.speed ?? '—'}</td>
-                                <td style={TD}>{fmtTime(r.time)}</td>
+                                <td style={TD}>{alertLabel(r)}</td>
+                                <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
                                 <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={TD}>{fmtTime(r.time)}</td>
+                                <td style={TD}><AttachmentLinks attachments={r.attachments} /></td>
                             </tr>
                         ))}
                     </tbody>
@@ -3711,6 +4105,8 @@ const PAGES = {
     'Internal Battery':              InternalBattery,
     'External Battery':              ExternalBattery,
     'Fuel Consumption':              FuelConsumption,
+    'Fuel Consumption (Mileage)':     MileageFuelConsumption,
+    'Fuel Consumption (Trips)':      TripFuelConsumption,
     'Current fuel Value':            CurrentFuelValue,
     'Fuel Curve':                    FuelCurve,
     'Refuelling':                    Refuelling,

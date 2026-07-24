@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
 // Kept in sync with App\Models\AlertRecipient::CATEGORIES on the backend — every alert email this
-// app sends fans out through one of these four categories.
+// app sends fans out through one of these categories.
 const CATEGORIES = [
     ['geofence', 'Geofence Enter/Exit'],
     ['driver_checkin', 'Face Recognition / Driver Check-in'],
-    ['driver_expiry', 'Driver License & Safety Sticker Expiry'],
+    ['driver_expiry', 'Driver License Expiry'],
+    ['vehicle_expiry', 'Vehicle Safety Sticker Expiry'],
     ['vehicle_maintenance', 'Vehicle Maintenance Due'],
+    ['sim_expiry', 'SIM Card Data/Load Expiry'],
 ];
 const CATEGORY_LABELS = Object.fromEntries(CATEGORIES);
 const categoryLabel = (key) => CATEGORY_LABELS[key] || key;
@@ -161,7 +163,7 @@ export default function AlertRecipientsPage() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', position: 'relative' }}>
             <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
                 <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#111827' }}>Alert Recipients</h2>
-                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#6b7280' }}>Who gets emailed for geofence, driver check-in, license/sticker expiry, and maintenance alerts.</p>
+                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#6b7280' }}>Who gets emailed for geofence, driver check-in, license/sticker/SIM expiry, and maintenance alerts.</p>
             </div>
 
             <div style={{ padding: '12px 20px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>

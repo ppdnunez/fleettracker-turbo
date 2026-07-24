@@ -13,14 +13,16 @@ use Illuminate\Support\Facades\Mail;
  * uses: an RFID/iButton check-in that didn't match any local Driver row (see
  * MqttWorker::connectAndListen's peri/dlt handler), or a JC171 AFIF face-recognition check that
  * came back with no match (alert.code 1824 — see services.turbohive.face_unrecognized_alert_code).
- * A relay disconnect (immobilizer) is sent whenever the vehicle has opted in
- * (VehicleSetting::relay_disconnect_enabled), with no stationary/ACC gate: the relay this command
- * drives is wired to the starter circuit only, used purely for cranking, not to ignition or fuel.
- * Cutting it while the engine is already running (ACC=1) does nothing to a moving vehicle — the
- * only effect is that the *next* start attempt won't crank. So there's nothing unsafe about firing
- * it unconditionally; gating on speed/ACC would only have delayed the immobilization until the
- * driver happened to stop, for no safety benefit. An email alert is always sent regardless, so the
- * event is never silent even if the relay command itself fails.
+ * A relay disconnect (immobilizer) is sent whenever the vehicle has opted in — RFID/iButton via
+ * VehicleSetting::relay_disconnect_enabled, face-recognition failure via its own
+ * relay_disconnect_on_face_fail, kept as two separate toggles (Vehicle Settings) so either
+ * detection method can immobilize independently of the other. No stationary/ACC gate: the relay
+ * this command drives is wired to the starter circuit only, used purely for cranking, not to
+ * ignition or fuel. Cutting it while the engine is already running (ACC=1) does nothing to a
+ * moving vehicle — the only effect is that the *next* start attempt won't crank. So there's
+ * nothing unsafe about firing it unconditionally; gating on speed/ACC would only have delayed the
+ * immobilization until the driver happened to stop, for no safety benefit. An email alert is
+ * always sent regardless, so the event is never silent even if the relay command itself fails.
  */
 class UnregisteredDriverAlertService
 {
@@ -28,13 +30,17 @@ class UnregisteredDriverAlertService
     {
     }
 
-    /** @param string $source 'rfid' or 'face' — only used to label the email alert. */
+    /** @param string $source 'rfid' or 'face' — picks which relay_disconnect_* toggle gates the relay, and labels the email alert. */
     public function handle(string $imei, string $identifier, string $source = 'rfid'): void
     {
         $setting = VehicleSetting::where('imei', $imei)->first();
         $relayTriggered = false;
 
-        if ($setting?->relay_disconnect_enabled) {
+        $shouldDisconnect = $source === 'face'
+            ? (bool) $setting?->relay_disconnect_on_face_fail
+            : (bool) $setting?->relay_disconnect_enabled;
+
+        if ($shouldDisconnect) {
             $relayTriggered = $this->disconnectRelay($imei, $setting->relay_channel);
         }
 

@@ -395,6 +395,33 @@ class TurboHiveService
     }
 
     /**
+     * Sends the same command to multiple devices in one request (see the Command module,
+     * CommandPage.jsx). Async (sync=false) is TurboHive's own recommendation for batch dispatch to
+     * avoid head-of-line blocking — results still arrive in this response's data.results per-imei
+     * when available, but for a large/slow batch a device's row may only show as accepted here and
+     * settle later (TurboHive pushes the final result via Kafka, which this app doesn't consume, so
+     * TurboHiveController::batchSendCommand persists whatever this call returns as the final word).
+     */
+    public function batchSendCommand(array $imeis, string $content, array $options = []): array
+    {
+        $body = $this->client()->post('/v3/command/batchSend', array_filter([
+            'batchId'       => $options['batchId'] ?? null,
+            'imeis'         => $imeis,
+            'content'       => $content,
+            'msgId'         => $options['msgId'] ?? '80',
+            'language'      => $options['language'] ?? null,
+            'sync'          => $options['sync'] ?? false,
+            'offline'       => $options['offline'] ?? true,
+            'timeout'       => $options['timeout'] ?? 30,
+            'batchTimeout'  => $options['batchTimeout'] ?? 45,
+            'messageFormat' => $options['messageFormat'] ?? 'text',
+            'isManual'      => $options['isManual'] ?? true,
+        ], fn ($v) => $v !== null))->json();
+
+        return $body ?? [];
+    }
+
+    /**
      * Requests the device push a set of already-captured evidence files (photos/video) off-device,
      * per the TH Integration Guide's "Generate File Upload Command from JSON" step — the device's
      * alert push only lists filenames it already has locally, it doesn't upload them itself. Result
@@ -506,6 +533,15 @@ class TurboHiveService
             $status  = strtoupper($m[2]);
         }
 
+        // "LTE Signal Level:Strong" — cellular signal descriptor, shown on the device detail
+        // panel (Dashboard.jsx's DeviceDetailPanel) since TurboHive's device-list/position feeds
+        // carry no signal-strength field of their own (see normalizeTurboHiveDevice's `signal`,
+        // which is effectively always 0 for TurboHive devices).
+        $signalLevel = null;
+        if (preg_match('/LTE Signal Level:\s*(\w+)/i', $content, $sm)) {
+            $signalLevel = ucfirst(strtolower($sm[1]));
+        }
+
         // TurboHive returns code=1000 on success; anything else (2004 device offline,
         // 2001 not found, 1001 internal error, ...) means content has no battery reading.
         $error = ((int) ($result['code'] ?? 0) !== 1000 && $voltage === null)
@@ -513,12 +549,13 @@ class TurboHiveService
             : null;
 
         return [
-            'imei'      => $imei,
-            'voltage'   => $voltage,
-            'status'    => $status,
-            'error'     => $error,
-            'raw'       => $content,
-            'checkedAt' => now()->getTimestampMs(),
+            'imei'        => $imei,
+            'voltage'     => $voltage,
+            'status'      => $status,
+            'signalLevel' => $signalLevel,
+            'error'       => $error,
+            'raw'         => $content,
+            'checkedAt'   => now()->getTimestampMs(),
         ];
     }
 
