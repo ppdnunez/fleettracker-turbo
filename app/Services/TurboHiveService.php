@@ -514,6 +514,49 @@ class TurboHiveService
         return $this->sendCommand($imei, "UPLOADFACE,{$url}#");
     }
 
+    /**
+     * Uploads a face image straight to TurboHive's device-facing ingest endpoint (POST
+     * /face/uploadPic — see face-upload-api.md), the same API the JC171 itself calls after an
+     * EVENTSET,FACE,SHOT capture. Used to push a browser-captured/selected photo into TurboHive
+     * without a real device-issued instructionId — TurboHive only uses it to build the request
+     * signature, so we mint our own. Response codes are 200/400/403/500, not the v3 API's
+     * 1000-based codes used elsewhere in this class.
+     */
+    public function uploadFacePhoto(string $imei, string $fileName, string $contents = ''): array
+    {
+        $url = config('services.turbohive.face_upload_api_url');
+        if (!$url) {
+            throw new \RuntimeException('TURBOHIVE_FACE_UPLOAD_API_URL is not configured — set it in .env to the vendor-provided face upload host (see face-upload-api.md).');
+        }
+
+        $secretKey     = config('services.turbohive.face_upload_secret_key');
+        $instructionId = strtoupper(bin2hex(random_bytes(4)));
+        $timestamp     = (string) now()->getTimestampMs();
+        $sign          = rtrim(base64_encode(md5($imei . $instructionId . $secretKey . $timestamp)));
+
+        $body = Http::attach('file', $contents, $fileName)
+            ->post($url, [
+                'imei'          => $imei,
+                'instructionId' => $instructionId,
+                'timestamp'     => $timestamp,
+                'sign'          => $sign,
+            ])->json();
+
+        // '_request' isn't part of TurboHive's response — merged in so callers (and, via
+        // testUploadToTurboHive's passthrough, the browser's Network tab) can see exactly what
+        // was sent without needing server log access.
+        return array_merge($body ?? [], [
+            '_request' => [
+                'url'           => $url,
+                'imei'          => $imei,
+                'fileName'      => $fileName,
+                'instructionId' => $instructionId,
+                'timestamp'     => $timestamp,
+                'sign'          => $sign,
+            ],
+        ]);
+    }
+
     // ── Battery ─────────────────────────────────────────────────────────────
 
     /**

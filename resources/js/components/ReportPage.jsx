@@ -1685,6 +1685,26 @@ const ALERT_TYPE_NAMES = [
     'INPUT2 Off', 'Motion Start', 'Motion Stop', 'File Uploaded', 'Loud Ambient Sound', 'Data Usage Exception',
 ];
 
+// TurboHive's "Driving Behavior" alert category (category id 13, alert codes 1301-1309) — the
+// subset of ALERT_TYPE_NAMES that DriverBehaviorLive/DriverBehavior below are scoped to, both for
+// their Alert Type filter's options and for which rows show up at all (not just Overspeed/ADAS/
+// door/power/etc alerts that happen to share the same GET /v3/alerts/page feed).
+const DRIVING_BEHAVIOR_ALERT_NAMES = [
+    'Speeding', 'Harsh Acceleration', 'Sharp Left Turn', 'Sharp Right Turn', 'Hard Braking', 'Sharp Turn',
+    'Fatigue Warning', 'Daily Driving Timeout', 'Over Driving',
+];
+
+// TurboHive's "DSM" (Driver State Monitoring) alert category (category id 18, alert codes
+// 1801-1825) — same role as DRIVING_BEHAVIOR_ALERT_NAMES above, but for the Dsm/DsmLive report
+// pair below.
+const DMS_ALERT_NAMES = [
+    'Fatigue Driving', 'Using Phone', 'Smoking', 'Driver Distraction', 'No Face Detected', 'Camera Blocked',
+    'Seatbelt Unfastened', 'Sunglasses Detected', 'Hands Off Wheel', 'Answering Phone', 'Auto Capture',
+    'Driver Change', 'DSM Calibration Anomaly', 'Frequent Blinking', 'Yawning', 'Seatbelt Fastened',
+    'Capture Completed', 'Driver Info Changed', 'Face Alignment Error', 'Head Lowered', 'Driver Drinking',
+    'Driver Eyes Closed', 'Face Recognition Succeeded', 'Face Recognition Failed', 'Face Data Uploaded',
+];
+
 // The live MQTT alert feed carries no alert.name/description at all (only a numeric alert.type
 // and alert.code) — DeviceAlertReceived::broadcastWith maps a few confirmed codes to names, but
 // falls back to showing the raw code for anything unmapped rather than a meaningless "Unknown".
@@ -1882,10 +1902,11 @@ function DriverBehaviorLive() {
         return () => { window.Echo.leaveChannel('fleet'); setMqttConnected(false); };
     }, []);
 
-    const filteredLive = liveEvents.filter(r => (!deviceId || r.imei === deviceId) && (!alertType || r.name === alertType));
+    const filteredLive = liveEvents.filter(r =>
+        DRIVING_BEHAVIOR_ALERT_NAMES.includes(r.name) && (!deviceId || r.imei === deviceId) && (!alertType || r.name === alertType));
     const resolveDeviceName = (r) => r.deviceName || devices.find(d => d.imei === r.imei)?.deviceName || r.imei;
     const COLS = ['No.', 'Device name', 'IMEI', 'Event Type', 'Speed (km/h)', 'Location', 'Time', 'Evidence'];
-    const alertTypeOptions = ALERT_TYPE_NAMES.map(n => ({ value: n, label: n }));
+    const alertTypeOptions = DRIVING_BEHAVIOR_ALERT_NAMES.map(n => ({ value: n, label: n }));
     const deviceOptions = devices.map(d => ({ value: d.imei, label: d.deviceName ?? d.imei }));
 
     const requestUpload = async () => {
@@ -2024,7 +2045,7 @@ function DriverBehavior() {
         search({ deviceId: '', from: defaults.from, to: defaults.to });
     };
 
-    const byAlertType = r => !alertType || r.name === alertType;
+    const byAlertType = r => DRIVING_BEHAVIOR_ALERT_NAMES.includes(r.name) && (!alertType || r.name === alertType);
     const filteredHistorical = rows.filter(byAlertType);
 
     // Historical rows carry deviceName straight from TurboHive's response (device.name); the live
@@ -2033,7 +2054,255 @@ function DriverBehavior() {
     const COLS = ['No.', 'Device name', 'IMEI', 'Event Type', 'Speed (km/h)', 'Location', 'Time'];
     const HIST_COLS = [...COLS, 'Evidence'];
 
-    const alertTypeOptions = ALERT_TYPE_NAMES.map(n => ({ value: n, label: n }));
+    const alertTypeOptions = DRIVING_BEHAVIOR_ALERT_NAMES.map(n => ({ value: n, label: n }));
+    const deviceOptions = devices.map(d => ({ value: d.imei, label: d.deviceName ?? d.imei }));
+
+    return (
+        <>
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
+                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
+                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
+                    <div>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 6 }}>Time Range</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff' }}>
+                            <span style={{ color: '#9ca3af' }}>🕐</span>
+                            <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
+                                style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                            <span style={{ color: '#9ca3af' }}>-</span>
+                            <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
+                                style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={clear} style={{ padding: '9px 18px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Clear</button>
+                        <button onClick={() => search()} style={{ padding: '9px 22px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
+                    </div>
+                </div>
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
+                <thead><tr>{HIST_COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <tbody>
+                    {loading ? (
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error ? (
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                    ) : filteredHistorical.length === 0 ? (
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                    ) : filteredHistorical.map((r, i) => (
+                        <tr key={r.id ?? i}>
+                            <td style={TD}>{i + 1}</td>
+                            <td style={TD}>{resolveDeviceName(r)}</td>
+                            <td style={TD}>{r.imei ?? '—'}</td>
+                            <td style={TD}>{alertLabel(r)}</td>
+                            <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                            <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                            <td style={TD}>{fmtTime(r.time)}</td>
+                            <td style={TD}><AttachmentLinks attachments={r.attachments} /></td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </>
+    );
+}
+
+// Live-only sibling of this report — see Dsm() below for the historical half. Same MQTT-fed
+// pattern as DriverBehaviorLive/DriverBehavior, just scoped to DMS_ALERT_NAMES (category 18)
+// instead of DRIVING_BEHAVIOR_ALERT_NAMES (category 13) — see those two for the shared plumbing
+// (alertFileNames, AlertRawDetailsModal, the 'fleet' Reverb channel) this reuses as-is.
+function DsmLive() {
+    const [devices, setDevices]     = useState([]);
+    const [deviceId, setDeviceId]   = useState('');
+    const [alertType, setAlertType] = useState('');
+
+    const [liveEvents, setLiveEvents]       = useState([]); // newest-first, capped at 30
+    const [mqttConnected, setMqttConnected] = useState(false);
+    const liveKeyRef = useRef(0);
+
+    const [detailsFor, setDetailsFor] = useState(null); // live event object, or null
+    const [requesting, setRequesting] = useState(false);
+    const [uploadMessage, setUploadMessage] = useState('');
+
+    useEffect(() => {
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
+    }, []);
+
+    useEffect(() => {
+        if (!window.Echo) return;
+        const channel = window.Echo.channel('fleet');
+        channel.listen('.alert.received', (data) => {
+            setMqttConnected(true);
+            liveKeyRef.current += 1;
+            setLiveEvents(evts => [{ ...data, _key: liveKeyRef.current }, ...evts].slice(0, 30));
+        });
+        channel.error(() => setMqttConnected(false));
+
+        const pusher = window.Echo.connector?.pusher;
+        if (pusher) {
+            const syncState = () => setMqttConnected(pusher.connection.state === 'connected');
+            syncState();
+            pusher.connection.bind('state_change', syncState);
+            return () => {
+                pusher.connection.unbind('state_change', syncState);
+                window.Echo.leaveChannel('fleet');
+            };
+        }
+        return () => { window.Echo.leaveChannel('fleet'); setMqttConnected(false); };
+    }, []);
+
+    const filteredLive = liveEvents.filter(r =>
+        DMS_ALERT_NAMES.includes(r.name) && (!deviceId || r.imei === deviceId) && (!alertType || r.name === alertType));
+    const resolveDeviceName = (r) => r.deviceName || devices.find(d => d.imei === r.imei)?.deviceName || r.imei;
+    const COLS = ['No.', 'Device name', 'IMEI', 'Event Type', 'Speed (km/h)', 'Location', 'Time', 'Evidence'];
+    const alertTypeOptions = DMS_ALERT_NAMES.map(n => ({ value: n, label: n }));
+    const deviceOptions = devices.map(d => ({ value: d.imei, label: d.deviceName ?? d.imei }));
+
+    const requestUpload = async () => {
+        if (!detailsFor) return;
+        const files = alertFileNames(detailsFor);
+        if (files.length === 0) return;
+
+        setRequesting(true);
+        setUploadMessage('');
+        try {
+            const raw = detailsFor.raw || {};
+            await api.requestAlertFileUpload({
+                imei: detailsFor.imei,
+                file_names: files,
+                alert_time: raw['alert.time'] ?? detailsFor.timestamp,
+                alert_type: raw['alert.type'] ?? null,
+                alert_code: detailsFor.code,
+                longitude: detailsFor.longitude,
+                latitude: detailsFor.latitude,
+            });
+            setUploadMessage('Upload requested — check Fleet > Capture History for the result.');
+        } catch (e) {
+            setUploadMessage(e.response?.data?.message || 'Failed to request upload.');
+        } finally {
+            setRequesting(false);
+        }
+    };
+
+    return (
+        <>
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
+                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
+                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <h4 style={{ margin: 0, fontSize: 14, color: '#374151' }}>Live Feed</h4>
+                <MqttBadge connected={mqttConnected} />
+            </div>
+            <Notice color="#dbeafe" icon="ℹ" text="Pushed live from TurboHive's MQTT alert topic as devices report them while this page is open — not a full history." />
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <tbody>
+                    {filteredLive.length === 0 ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 32, color: '#94a3b8' }}>Waiting for live events…</td></tr>
+                    ) : filteredLive.map((r, i) => {
+                        const fileCount = alertFileNames(r).length;
+                        return (
+                            <tr key={r._key}>
+                                <td style={TD}>{i + 1}</td>
+                                <td style={TD}>{resolveDeviceName(r)}</td>
+                                <td style={TD}>{r.imei ?? '—'}</td>
+                                <td style={TD}>{alertLabel(r)}</td>
+                                <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                                <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={TD}>{fmtTime(r.timestamp)}</td>
+                                <td style={TD}>
+                                    <button onClick={() => { setDetailsFor(r); setUploadMessage(''); }}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600 }}>
+                                        {fileCount > 0 ? `View (${fileCount})` : 'Details'}
+                                    </button>
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+
+            {detailsFor && (
+                <AlertRawDetailsModal
+                    event={detailsFor}
+                    onClose={() => setDetailsFor(null)}
+                    onRequestUpload={requestUpload}
+                    requesting={requesting}
+                    message={uploadMessage}
+                />
+            )}
+        </>
+    );
+}
+
+// Historical half of the DSM report — see DsmLive() above for the MQTT-fed live sibling. Built
+// from GET /v3/alerts/page (see TurboHiveService::getAlerts), same endpoint Driver Behavior's
+// historical feed uses, filtered client-side to DMS_ALERT_NAMES for the same reason documented on
+// DriverBehavior() above (alertType is TurboHive's internal code, not the human alert.name).
+function Dsm() {
+    const [devices, setDevices]   = useState([]);
+    const [deviceId, setDeviceId] = useState('');
+    const [alertType, setAlertType] = useState('');
+
+    const [from, setFrom]       = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
+    const [to, setTo]           = useState(() => toLocalInput(new Date()));
+    const [rows, setRows]       = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError]     = useState('');
+
+    useEffect(() => {
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
+    }, []);
+
+    const search = async (overrides = {}) => {
+        const f = overrides.from ?? from, t = overrides.to ?? to;
+        const dId = 'deviceId' in overrides ? overrides.deviceId : deviceId;
+        setLoading(true);
+        setError('');
+        try {
+            const params = { startTime: new Date(f).getTime(), endTime: new Date(t).getTime(), page: 1, size: 100 };
+            if (dId) params.imeis = [dId];
+            const res = await api.getTurboHiveAlerts(params);
+            if (res.data?.error) {
+                setError(res.data.error);
+                setRows([]);
+            } else {
+                setRows(res.data?.list ?? []);
+            }
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to load DSM events.');
+            setRows([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { search(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const clear = () => {
+        const d = new Date(); d.setHours(0,0,0,0);
+        const defaults = { from: toLocalInput(d), to: toLocalInput(new Date()) };
+        setDeviceId(''); setAlertType(''); setFrom(defaults.from); setTo(defaults.to);
+        search({ deviceId: '', from: defaults.from, to: defaults.to });
+    };
+
+    const byAlertType = r => DMS_ALERT_NAMES.includes(r.name) && (!alertType || r.name === alertType);
+    const filteredHistorical = rows.filter(byAlertType);
+
+    const resolveDeviceName = (r) => r.deviceName || devices.find(d => d.imei === r.imei)?.deviceName || r.imei;
+    const COLS = ['No.', 'Device name', 'IMEI', 'Event Type', 'Speed (km/h)', 'Location', 'Time'];
+    const HIST_COLS = [...COLS, 'Evidence'];
+
+    const alertTypeOptions = DMS_ALERT_NAMES.map(n => ({ value: n, label: n }));
     const deviceOptions = devices.map(d => ({ value: d.imei, label: d.deviceName ?? d.imei }));
 
     return (
@@ -4117,6 +4386,8 @@ const PAGES = {
     'Temperature & Humidity':        TemperatureHumidity,
     'Driver Behavior':               DriverBehavior,
     'Driver Behavior (Live)':        DriverBehaviorLive,
+    'DMS':                           Dsm,
+    'DMS (Live)':                    DsmLive,
     'Positioning & Battery':         PositioningBattery,
     'Travel statistics (OBD)':       TravelStatisticsOBD,
     'Track Details':                 TrackDetails,

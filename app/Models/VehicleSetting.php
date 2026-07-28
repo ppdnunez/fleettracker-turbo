@@ -18,6 +18,9 @@ class VehicleSetting extends Model
         'safety_sticker_expiry',
         'sticker_notify_days_before',
         'sticker_notified_at',
+        'insurance_expiry',
+        'insurance_notify_days_before',
+        'insurance_notified_at',
         'sim_number',
         'sim_data_expiry',
         'sim_notify_days_before',
@@ -31,6 +34,8 @@ class VehicleSetting extends Model
             'relay_disconnect_on_face_fail' => 'boolean',
             'safety_sticker_expiry'    => 'date',
             'sticker_notified_at'      => 'date',
+            'insurance_expiry'         => 'date',
+            'insurance_notified_at'    => 'date',
             'sim_data_expiry'          => 'date',
             'sim_notified_at'          => 'date',
         ];

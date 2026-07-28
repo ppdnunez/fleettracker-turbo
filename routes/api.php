@@ -156,6 +156,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/face/configure',  [DriverFaceController::class, 'configure']);
         Route::post('/face/enroll',     [DriverFaceController::class, 'enroll']);
         Route::post('/face/upload-photo', [DriverFaceController::class, 'uploadFromCamera']);
+        Route::post('/face/upload-turbohive', [DriverFaceController::class, 'uploadToTurboHive']);
+        Route::post('/face/upload-turbohive-test', [DriverFaceController::class, 'testUploadToTurboHive']);
         Route::post('/face/test',       [DriverFaceController::class, 'test']);
         Route::post('/face/delete',     [DriverFaceController::class, 'destroy']);
         Route::post('/face/roster',     [DriverFaceController::class, 'roster']);

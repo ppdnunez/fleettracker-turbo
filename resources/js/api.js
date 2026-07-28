@@ -142,6 +142,14 @@ export const api = {
         form.append('photo', photoBlob, 'capture.jpg');
         return axios.post('/api/turbohive/face/upload-photo', form, { headers: { 'Content-Type': 'multipart/form-data' } });
     },
+    uploadDriverFaceToTurboHive: (driverId, imei, photoBlob, filename = 'face.jpg') => {
+        const form = new FormData();
+        form.append('driver_id', driverId);
+        form.append('imei', imei);
+        form.append('photo', photoBlob, filename);
+        return axios.post('/api/turbohive/face/upload-turbohive', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    },
+    testUploadFaceFileName: (imei, fileName) => axios.post('/api/turbohive/face/upload-turbohive-test', { imei, file_name: fileName }),
     testDriverFace:          (imei)                               => axios.post('/api/turbohive/face/test', { imei }),
     deleteDriverFace:        (driverId, imei)                     => axios.post('/api/turbohive/face/delete', { driver_id: driverId, imei }),
     checkFaceRoster:         (imei)                               => axios.post('/api/turbohive/face/roster', { imei }),

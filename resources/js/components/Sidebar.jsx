@@ -65,14 +65,14 @@ const LogoutSVG = () => (
 /* ── nav tree structure ─────────────────────────────────────── */
 const REPORT_DEVICE = [
     'Internal Battery','External Battery','Fuel Consumption',
-    'Driver Behavior','Positioning & Battery',
+    'Driver Behavior','DMS','Positioning & Battery',
     'Travel statistics (OBD)',
 ];
 const REPORT_MOTION = [
     'Track Details','Replay','Mileage','Trips','Overspeed','Parking','Idling','Ignition','Geo Fence',
 ];
 const REPORT_ALERT = ['Alert Details'];
-const REPORT_LIVE = ['Current fuel Value', 'Temperature & Humidity', 'Driver Behavior (Live)'];
+const REPORT_LIVE = ['Current fuel Value', 'Temperature & Humidity', 'Driver Behavior (Live)', 'DMS (Live)'];
 
 /* ── helpers ─────────────────────────────────────────────────── */
 const EXPANDED_W = 220;

@@ -23,6 +23,12 @@ return [
         // catalog). Arms MqttWorker's relay-reconnect path (see DriverRecognizedAlertService) —
         // the complement to face_unrecognized_alert_code's disconnect.
         'face_recognized_alert_code' => env('TURBOHIVE_FACE_RECOGNIZED_ALERT_CODE', '1823'),
+        // Device-facing face image ingest API (POST /face/uploadPic — see face-upload-api.md),
+        // the same endpoint the JC171 itself calls after an EVENTSET,FACE,SHOT capture. Distinct
+        // from base_url above (different host/port, different auth scheme, different response
+        // codes — 200/400/403/500 rather than the v3 API's 1000-based codes).
+        'face_upload_api_url'    => env('TURBOHIVE_FACE_UPLOAD_API_URL'),
+        'face_upload_secret_key' => env('TURBOHIVE_FACE_UPLOAD_SECRET_KEY', 'jimidvr@123!443'),
     ],
 
     // Used by the mqtt:worker Artisan command (TCP connection, server-side only)

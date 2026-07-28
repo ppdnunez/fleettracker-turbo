@@ -119,6 +119,57 @@ class DriverFaceController extends Controller
         return response()->json(['command' => $result, 'face' => $face->fresh('driver')]);
     }
 
+    /**
+     * Uploads a browser-captured/selected photo straight to TurboHive's own face-image ingest API
+     * (POST /face/uploadPic — see face-upload-api.md) instead of routing through our own storage
+     * + FACE,DOWN command (uploadFromCamera() above) — the vendor-documented path for getting a
+     * photo into TurboHive. Also keeps a local copy for our own DriverFace record.
+     */
+    public function uploadToTurboHive(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'driver_id' => 'required|exists:drivers,id',
+            'imei'      => 'required|string',
+            'photo'     => 'required|image|max:184320', // 180 MB, per face-upload-api.md
+        ]);
+
+        $driver = Driver::findOrFail($data['driver_id']);
+        $photo  = $request->file('photo');
+        $path   = $photo->store('driver-faces', 'public');
+
+        $result = $this->turboHive->uploadFacePhoto($data['imei'], $photo->getClientOriginalName(), file_get_contents($photo->getRealPath()));
+        $ok     = (int) ($result['code'] ?? 0) === 200;
+
+        $face = DriverFace::updateOrCreate(
+            ['driver_id' => $driver->id, 'imei' => $data['imei']],
+            [
+                'photo_path'   => $path,
+                'status'       => $ok ? 'pending' : 'failed',
+                'error'        => $ok ? null : ($result['message'] ?? 'Failed to upload photo to TurboHive.'),
+                'requested_at' => now(),
+            ]
+        );
+
+        return response()->json(['result' => $result, 'face' => $face->fresh('driver')]);
+    }
+
+    /**
+     * Raw test of TurboHive's face-image ingest API (POST /face/uploadPic — see
+     * face-upload-api.md) with no actual photo — just a file name (e.g. "22222-Jerome") sent as
+     * the multipart "file" field's filename with empty content. Lets us verify the signature/host
+     * and see TurboHive's real response (code 200/400/403/500) without needing a real image.
+     * Nothing is stored locally and no DriverFace record is touched — this is a pass-through.
+     */
+    public function testUploadToTurboHive(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'imei'      => 'required|string',
+            'file_name' => 'required|string|max:255',
+        ]);
+
+        return response()->json($this->turboHive->uploadFacePhoto($data['imei'], $data['file_name']));
+    }
+
     public function test(Request $request): JsonResponse
     {
         $data = $request->validate(['imei' => 'required|string']);

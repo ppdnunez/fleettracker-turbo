@@ -24,9 +24,11 @@ class VehicleSettingController extends Controller
         return response()->json(
             VehicleSetting::where(fn ($q) => $q->whereNotNull('vehicle_type')
                     ->orWhereNotNull('safety_sticker_expiry')
+                    ->orWhereNotNull('insurance_expiry')
                     ->orWhereNotNull('sim_data_expiry'))
                 ->get([
                     'imei', 'vehicle_type', 'safety_sticker_expiry', 'sticker_notify_days_before',
+                    'insurance_expiry', 'insurance_notify_days_before',
                     'sim_number', 'sim_data_expiry', 'sim_notify_days_before',
                 ])
         );
@@ -47,6 +49,8 @@ class VehicleSettingController extends Controller
             'fuel_type'                   => $setting->fuel_type ?? null,
             'safety_sticker_expiry'       => $setting->safety_sticker_expiry?->format('Y-m-d'),
             'sticker_notify_days_before'  => $setting->sticker_notify_days_before ?? null,
+            'insurance_expiry'            => $setting->insurance_expiry?->format('Y-m-d'),
+            'insurance_notify_days_before' => $setting->insurance_notify_days_before ?? null,
             'sim_number'                  => $setting->sim_number ?? null,
             'sim_data_expiry'             => $setting->sim_data_expiry?->format('Y-m-d'),
             'sim_notify_days_before'      => $setting->sim_notify_days_before ?? null,
@@ -65,6 +69,8 @@ class VehicleSettingController extends Controller
             'fuel_type'                  => 'nullable|string|in:petrol,diesel,electric,hybrid,lpg',
             'safety_sticker_expiry'      => 'nullable|date',
             'sticker_notify_days_before' => 'nullable|integer|min:1|max:365',
+            'insurance_expiry'           => 'nullable|date',
+            'insurance_notify_days_before' => 'nullable|integer|min:1|max:365',
             'sim_number'                 => 'nullable|string|max:32',
             'sim_data_expiry'            => 'nullable|date',
             'sim_notify_days_before'     => 'nullable|integer|min:1|max:365',
@@ -82,6 +88,8 @@ class VehicleSettingController extends Controller
                 'fuel_type'                  => $data['fuel_type'] ?? null,
                 'safety_sticker_expiry'      => $data['safety_sticker_expiry'] ?? null,
                 'sticker_notify_days_before' => $data['sticker_notify_days_before'] ?? null,
+                'insurance_expiry'           => $data['insurance_expiry'] ?? null,
+                'insurance_notify_days_before' => $data['insurance_notify_days_before'] ?? null,
                 'sim_number'                 => $data['sim_number'] ?? null,
                 'sim_data_expiry'            => $data['sim_data_expiry'] ?? null,
                 'sim_notify_days_before'     => $data['sim_notify_days_before'] ?? null,

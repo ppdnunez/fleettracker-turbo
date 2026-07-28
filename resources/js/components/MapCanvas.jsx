@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, ZoomControl, Circle, Polygon, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -143,9 +143,110 @@ function GeofenceToggleIcon() {
     );
 }
 
+function LayersIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2" />
+            <polyline points="2 17 12 22 22 17" />
+            <polyline points="2 12 12 17 22 12" />
+        </svg>
+    );
+}
+
+// Google's XYZ tile mirrors (mt0-mt3) — unofficial (no API key), used the same way most
+// Leaflet/OSM-based projects pull Google tiles outside the JS Maps SDK. lyrs codes: m=roadmap,
+// p=terrain, s=satellite, y=hybrid (satellite+labels); "m,traffic" overlays live traffic on the
+// roadmap in one tile fetch.
+const GOOGLE_SUBDOMAINS = ['mt0', 'mt1', 'mt2', 'mt3'];
+const GOOGLE_ATTRIBUTION = '&copy; Google';
+function googleLayer(lyrs) {
+    return { url: `https://{s}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`, subdomains: GOOGLE_SUBDOMAINS, attribution: GOOGLE_ATTRIBUTION };
+}
+
+const ARCGIS_ATTRIBUTION = '&copy; Esri';
+
+// Base-map catalog for the layer-picker control — "Mixing" entries stack two TileLayers (imagery
+// + a labels/roads reference layer) to read as a hybrid map, same as the Google hybrid option.
+const MAP_LAYERS = {
+    osm: {
+        label: 'OpenStreetMap',
+        tiles: [{ url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: 'abc', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }],
+    },
+    googleStreet:    { label: 'Google Map(Street)',    tiles: [googleLayer('m')] },
+    googleTerrain:   { label: 'Google Map(Terrain)',   tiles: [googleLayer('p')] },
+    googleSatellite: { label: 'Google Map(Satellite)', tiles: [googleLayer('s')] },
+    googleMixing:    { label: 'Google Map(Mixing)',    tiles: [googleLayer('y')] },
+    googleTraffic:   { label: 'Google Map(Traffic)',   tiles: [googleLayer('m,traffic')] },
+    arcgisStreet: {
+        label: 'Arcgis(Street)',
+        tiles: [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', attribution: ARCGIS_ATTRIBUTION }],
+    },
+    arcgisSatellite: {
+        label: 'Arcgis(Satellite)',
+        tiles: [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: ARCGIS_ATTRIBUTION }],
+    },
+    arcgisMixing: {
+        label: 'Arcgis(Mixing)',
+        tiles: [
+            { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: ARCGIS_ATTRIBUTION },
+            { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}' },
+        ],
+    },
+};
+
+function MapLayerPicker({ layerKey, onChange }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        const onDocClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, []);
+
+    return (
+        <div ref={ref} style={{ position: 'absolute', top: 116, right: 10, zIndex: 1000 }}>
+            <button
+                onClick={() => setOpen(v => !v)}
+                title="Change map layer"
+                style={{
+                    width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: open ? '#3b82f6' : '#fff', color: open ? '#fff' : '#374151',
+                    border: '2px solid rgba(0,0,0,0.2)', borderRadius: 4,
+                    cursor: 'pointer', boxShadow: '0 1px 5px rgba(0,0,0,0.4)', padding: 0,
+                }}
+            >
+                <LayersIcon />
+            </button>
+
+            {open && (
+                <div style={{
+                    position: 'absolute', top: 0, right: 38,
+                    background: '#fff', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+                    padding: '6px 0', width: 190,
+                }}>
+                    {Object.entries(MAP_LAYERS).map(([key, def]) => (
+                        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', fontSize: 13, color: '#374151', cursor: 'pointer' }}>
+                            <input
+                                type="radio"
+                                name="mapLayer"
+                                checked={layerKey === key}
+                                onChange={() => { onChange(key); setOpen(false); }}
+                                style={{ accentColor: '#3b82f6', width: 15, height: 15, margin: 0 }}
+                            />
+                            {def.label}
+                        </label>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function MapCanvas({ devices, selected, onSelect, selectedDevice, mqttConnected, nextRefreshIn }) {
     const [geofences, setGeofences] = useState([]);
     const [showGeofences, setShowGeofences] = useState(false);
+    const [layerKey, setLayerKey] = useState('osm');
     const [drivers, setDrivers] = useState([]);
     const [fuelByImei, setFuelByImei] = useState({}); // imei -> percent (or null once fetched-but-unavailable)
 
@@ -182,10 +283,9 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                 scrollWheelZoom
                 zoomControl={false}
             >
-                <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
+                {MAP_LAYERS[layerKey].tiles.map((t, i) => (
+                    <TileLayer key={`${layerKey}-${i}`} url={t.url} subdomains={t.subdomains} attribution={t.attribution} />
+                ))}
                 <ZoomControl position="topright" />
                 <FlyToSelected device={selectedDevice} />
                 <InvalidateOnResize />
@@ -270,6 +370,8 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
             >
                 <GeofenceToggleIcon />
             </button>
+
+            <MapLayerPicker layerKey={layerKey} onChange={setLayerKey} />
 
             {/* MQTT live status badge — only shown when TurboHive provider is active */}
             {mqttConnected !== undefined && (

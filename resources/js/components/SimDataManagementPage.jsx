@@ -30,7 +30,7 @@ const inputStyle = { padding: '8px 10px', border: '1px solid #d1d5db', borderRad
 
 // Edits only the SIM fields, but loads and re-submits the vehicle's full settings row — the
 // backend's PUT /vehicle-settings/{imei} replaces relay/fuel/sticker fields too (see
-// VehicleSettingController::update), same constraint FleetPage's VehicleSettingsModal works under.
+// VehicleSettingController::update), same constraint FleetPage's VehicleFormModal works under.
 //
 // Doubles as the picker flow: when `device` is null (opened via the "+ Add SIM Data" button)
 // `pickableDevices` is shown as a Device select instead of a fixed header — every device from
@@ -81,6 +81,8 @@ function SimSettingsModal({ device, pickableDevices, onClose, onSaved }) {
                 fuel_type: loaded?.fuel_type ?? null,
                 safety_sticker_expiry: loaded?.safety_sticker_expiry ?? null,
                 sticker_notify_days_before: loaded?.sticker_notify_days_before ?? null,
+                insurance_expiry: loaded?.insurance_expiry ?? null,
+                insurance_notify_days_before: loaded?.insurance_notify_days_before ?? null,
                 sim_number: simNumber.trim() || null,
                 sim_data_expiry: simExpiry || null,
                 sim_notify_days_before: simNotifyDays === '' ? null : Number(simNotifyDays),

@@ -18,6 +18,7 @@ class AlertRecipient extends Model
         'driver_checkin'      => 'Face Recognition / Driver Check-in',
         'driver_expiry'       => 'Driver License Expiry',
         'vehicle_expiry'      => 'Vehicle Safety Sticker Expiry',
+        'vehicle_insurance_expiry' => 'Vehicle Insurance Expiry',
         'vehicle_maintenance' => 'Vehicle Maintenance Due',
         'sim_expiry'          => 'SIM Card Data/Load Expiry',
     ];
