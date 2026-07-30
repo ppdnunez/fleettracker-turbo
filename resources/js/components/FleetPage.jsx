@@ -307,7 +307,7 @@ const ALARM_TYPE_PALETTE = ['#3b82f6', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6
 // ranking, recent list) from GET /v3/alerts/page. Anything TurboHive has no simple aggregate for
 // (fuel consumption, exercise/idle/parked duration — all would need per-device date-range queries)
 // was removed rather than left as fabricated placeholder data.
-function FleetDashboard() {
+export function FleetDashboard({ compact = false, cockpit = false, mapContent = null, onNavigate = null }) {
     const [drivers,  setDrivers]  = useState([]);
     const [vehicles, setVehicles] = useState([]);
     const [vehicleSettings, setVehicleSettings] = useState([]);
@@ -356,6 +356,94 @@ function FleetDashboard() {
         .slice(0, 6)
         .map(([label, count], i) => ({ label, count, color: ALARM_TYPE_PALETTE[i % ALARM_TYPE_PALETTE.length] }));
 
+    if (cockpit) {
+        const onlineRate = vehicles.length > 0 ? (onlineCount / vehicles.length) * 100 : 0;
+        const cockpitKpis = [
+            { label: 'Tracked Vehicles', value: vehicles.length, note: 'Active fleet', color: '#4da8ff' },
+            { label: 'Online Rate', value: `${onlineRate.toFixed(1)}%`, note: `${onlineCount} vehicles online`, color: '#3fc07a' },
+            { label: 'Distance Today', value: `${todayMileage.toFixed(1)} km`, note: 'Fleet-wide mileage', color: '#f2a93b' },
+            { label: 'Alerts · 7 Days', value: recentAlerts.length, note: 'Requires attention', color: '#ff5c5c' },
+            { label: 'Registered Drivers', value: drivers.length, note: 'Driver registry', color: '#b98af0' },
+        ];
+        const cockpitModules = [
+            { key: 'VehicleTrack', code: 'MOD-01', name: 'Vehicle Track', description: 'Real-time location, route replay, geofence and online status.', color: '#4da8ff' },
+            { key: 'Driver', code: 'MOD-02', name: 'Driver Management', description: 'Roster, licensing, assignments and driver identity.', color: '#43d4d4' },
+            { key: 'FaceRecognition', code: 'MOD-03', name: 'Face Recognition', description: 'Driver identity verification and recognition events.', color: '#b98af0' },
+            { key: 'FuelManagement', code: 'MOD-04', name: 'Fuel Management', description: 'Fuel levels, prices, consumption and abnormal-loss review.', color: '#f2a93b' },
+            { key: 'VehicleMaintenance', code: 'MOD-05', name: 'Inspection & Maintenance', description: 'Maintenance schedules, service history and due items.', color: '#3fc07a' },
+            { key: 'MediaGallery', code: 'MOD-06', name: 'Video Evidence', description: 'Captured media, incident evidence and historical playback.', color: '#ff5c5c' },
+        ];
+
+        return (
+            <div className="mine-cockpit-canvas">
+                <div className="mine-cockpit-intro">
+                    <div>
+                        <span className="mine-eyebrow">Fleet-wide snapshot</span>
+                        <h2>Fleet Operations Cockpit</h2>
+                        <p>GPS tracking, driver safety, vehicle condition and operational performance in one live view.</p>
+                    </div>
+                    <span className="mine-live-pill">
+                        <i />
+                        {loading ? 'Synchronizing' : 'Live operations'}
+                    </span>
+                </div>
+
+                {error && <div className="mine-error-banner">{error}</div>}
+
+                <section className="mine-kpi-grid" aria-label="Fleet operations KPIs">
+                    {cockpitKpis.map(kpi => (
+                        <article className="mine-kpi-tile" key={kpi.label} style={{ '--mine-kpi-color': kpi.color }}>
+                            <div className="mine-kpi-label"><i />{kpi.label}</div>
+                            <div className="mine-kpi-value">{kpi.value}</div>
+                            <div className="mine-kpi-note">{kpi.note}</div>
+                        </article>
+                    ))}
+                </section>
+
+                <section className="mine-panel">
+                    <header className="mine-panel-header">
+                        <div>
+                            <h3>Live Site Map</h3>
+                            <p>Live vehicle positions, device status and video access across the operating area.</p>
+                        </div>
+                        <div className="mine-map-legend">
+                            <span><i className="online" />Online</span>
+                            <span><i className="offline" />Offline</span>
+                            <span><i className="selected" />Selected</span>
+                        </div>
+                    </header>
+                    <div className="mine-live-map-frame">
+                        {mapContent}
+                    </div>
+                </section>
+
+                <section className="mine-panel">
+                    <header className="mine-panel-header">
+                        <div>
+                            <h3>Operational Modules</h3>
+                            <p>Core fleet workflows connected to the live operations view.</p>
+                        </div>
+                    </header>
+                    <div className="mine-module-grid">
+                        {cockpitModules.map(module => (
+                            <button
+                                key={module.key}
+                                className="mine-module-card"
+                                style={{ '--mine-module-color': module.color }}
+                                onClick={() => onNavigate?.(module.key)}
+                            >
+                                <span className="mine-module-code">{module.code}</span>
+                                <span className="mine-module-name">{module.name}</span>
+                                <span className="mine-module-description">{module.description}</span>
+                                <span className="mine-module-link">Open module <b>→</b></span>
+                            </button>
+                        ))}
+                    </div>
+                </section>
+            </div>
+        );
+    }
+
     if (loading) {
         return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>Loading dashboard…</div>;
     }
@@ -369,8 +457,13 @@ function FleetDashboard() {
             {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
 
             {/* Hero + stat cards */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                <div style={{ flex: 2, background: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)', borderRadius: 10, padding: '20px 24px', color: '#fff', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}>
+            <div style={{
+                display: compact ? 'grid' : 'flex',
+                gridTemplateColumns: compact ? 'repeat(2, minmax(0, 1fr))' : undefined,
+                gap: 12,
+                marginBottom: 12,
+            }}>
+                <div style={{ flex: 2, gridColumn: compact ? '1 / -1' : undefined, background: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)', borderRadius: 10, padding: '20px 24px', color: '#fff', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 40, marginBottom: 10 }}>
                         <div><div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Total Drivers</div><div style={{ fontSize: 36, fontWeight: 800 }}>{drivers.length}</div></div>
                         <div><div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Total Vehicles</div><div style={{ fontSize: 36, fontWeight: 800 }}>{vehicles.length}</div></div>
@@ -383,13 +476,13 @@ function FleetDashboard() {
             </div>
 
             {/* Reminder + Recent Alerts */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+            <div style={{ display: 'flex', flexDirection: compact ? 'column' : 'row', gap: 12, marginBottom: 12 }}>
                 <ReminderCard drivers={drivers} vehicleSettings={vehicleSettings} />
                 <RecentAlertsCard alerts={alerts} devicesByImei={devicesByImei} />
             </div>
 
             {/* Alarm type + Alarm ranking */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+            <div style={{ display: 'flex', flexDirection: compact ? 'column' : 'row', gap: 12, marginBottom: 12 }}>
                 <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', marginBottom: 8 }}>Alarm type ratio</div>
                     <Donut segments={alertTypeSegments} />

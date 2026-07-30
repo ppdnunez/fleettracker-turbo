@@ -10,7 +10,7 @@ import LogoutModal      from '../components/LogoutModal.jsx';
 import DeviceManagement from '../components/DeviceManagement.jsx';
 import CommandPage      from '../components/CommandPage.jsx';
 import ReportPage       from '../components/ReportPage.jsx';
-import FleetPage        from '../components/FleetPage.jsx';
+import FleetPage, { FleetDashboard } from '../components/FleetPage.jsx';
 import GeofencePage     from '../components/GeofencePage.jsx';
 import AlertRecipientsPage from '../components/AlertRecipientsPage.jsx';
 import SimDataManagementPage from '../components/SimDataManagementPage.jsx';
@@ -130,7 +130,7 @@ function applyLiveDevices(devices, updates) {
 
 export default function Dashboard({ user, onLogout }) {
     const [search,         setSearch]         = useState('');
-    const [page,           setPage]           = useState('Dashboard');
+    const [page,           setPage]           = useState('Fleet');
     const [showLogout,     setShowLogout]      = useState(false);
     const [mapMode,        setMapMode]        = useState('Map');
     const [panelOpen,      setPanelOpen]      = useState(true);
@@ -313,7 +313,7 @@ export default function Dashboard({ user, onLogout }) {
     const selectDevice = (id) => { setLiveSelected(id); setDetailPanelOpen(true); };
 
     return (
-        <div style={{ display: 'flex', height: '100vh', fontFamily: 'Inter,system-ui,sans-serif', background: '#f1f5f9', overflow: 'hidden' }}>
+        <div className="fleet-app-shell" style={{ display: 'flex', height: '100vh', fontFamily: 'Inter,system-ui,sans-serif', background: '#f1f5f9', overflow: 'hidden' }}>
             {geofenceAlerts.length > 0 && (
                 <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 2000, display: 'flex', flexDirection: 'column', gap: 8, width: 300 }}>
                     {geofenceAlerts.map(a => {
@@ -345,16 +345,24 @@ export default function Dashboard({ user, onLogout }) {
                 setFleetPage={setFleetPage}
             />
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ height: 46, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9, padding: '0 18px', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                        {user.name[0]}
+            <div className="fleet-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+                <header className="app-workspace-header mine-workspace-header">
+                    <div>
+                        <p className="workspace-kicker">Fleet operations</p>
+                        <h1 className="workspace-title">
+                            {page === 'Fleet' ? fleetPage : page === 'Report' ? reportSection : page}
+                        </h1>
                     </div>
-                    <div style={{ overflow: 'hidden' }}>
-                        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{user.name}</p>
-                        <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', textTransform: 'capitalize' }}>{user.role || 'Administrator'}</p>
+                    <div className="workspace-user">
+                        <div className="workspace-avatar">
+                            {user.name?.trim()?.[0]?.toUpperCase() || 'U'}
+                        </div>
+                        <div style={{ overflow: 'hidden' }}>
+                            <p className="workspace-user-name">{user.name}</p>
+                            <p className="workspace-user-role">{user.role || 'Administrator'}</p>
+                        </div>
                     </div>
-                </div>
+                </header>
 
                 {page === 'Device Management' ? (
                     <DeviceManagement />
@@ -363,7 +371,7 @@ export default function Dashboard({ user, onLogout }) {
                 ) : page === 'Command' ? (
                     <CommandPage />
                 ) : page === 'Geofence' ? (
-                    <GeofencePage onBack={() => setPage('Dashboard')} />
+                    <GeofencePage onBack={() => { setPage('Fleet'); setFleetPage('Dashboard'); }} />
                 ) : page === 'Alert Recipients' ? (
                     <AlertRecipientsPage />
                 ) : page === 'Notification' ? (
@@ -384,48 +392,58 @@ export default function Dashboard({ user, onLogout }) {
                     <ClientsPage />
                 ) : page === 'Report' ? (
                     <ReportPage reportSection={reportSection} setReportSection={setReportSection} />
-                ) : page === 'Fleet' ? (
+                ) : page === 'Fleet' && fleetPage !== 'Dashboard' ? (
                     <FleetPage fleetPage={fleetPage} setFleetPage={setFleetPage} />
-                ) : (
-                    <>
-                        <TopBar
-                            onlineCount={onlineCount}
-                            total={liveDevices.length}
-                            mapMode={mapMode}
-                            setMapMode={setMapMode}
-                            selectedDevice={selectedDevice}
-                        />
-                        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                            <DeviceList
-                                devices={filtered}
-                                selected={liveSelected}
-                                onSelect={selectDevice}
-                                search={search}
-                                setSearch={setSearch}
-                                loading={liveLoading}
-                                open={panelOpen}
-                                onToggle={() => setPanelOpen(o => !o)}
+                ) : page === 'Fleet' && fleetPage === 'Dashboard' ? (
+                    <FleetDashboard
+                        cockpit
+                        onNavigate={setFleetPage}
+                        mapContent={(
+                            <div className="mine-map-workspace">
+                            <TopBar
+                                onlineCount={onlineCount}
+                                total={liveDevices.length}
+                                mapMode={mapMode}
+                                setMapMode={setMapMode}
+                                selectedDevice={selectedDevice}
                             />
-
-                            {mapMode === 'Video' ? (
-                                <VideoMode selectedDevice={selectedDevice} />
-                            ) : (
-                                <MapCanvas
-                                    devices={liveDevices}
+                            <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+                                <DeviceList
+                                    devices={filtered}
                                     selected={liveSelected}
                                     onSelect={selectDevice}
-                                    selectedDevice={selectedDevice}
-                                    mapMode={mapMode}
-                                    mqttConnected={turboHiveEnabled ? mqttConnected : undefined}
-                                    nextRefreshIn={turboHiveEnabled ? nextRefreshIn : undefined}
+                                    search={search}
+                                    setSearch={setSearch}
+                                    loading={liveLoading}
+                                    open={panelOpen}
+                                    onToggle={() => setPanelOpen(o => !o)}
                                 />
-                            )}
 
-                            {detailPanelOpen && selectedDevice && (
-                                <DeviceDetailPanel device={selectedDevice} onClose={() => setDetailPanelOpen(false)} />
-                            )}
-                        </div>
-                    </>
+                                {mapMode === 'Video' ? (
+                                    <VideoMode selectedDevice={selectedDevice} />
+                                ) : (
+                                    <MapCanvas
+                                        devices={liveDevices}
+                                        selected={liveSelected}
+                                        onSelect={selectDevice}
+                                        selectedDevice={selectedDevice}
+                                        mapMode={mapMode}
+                                        mqttConnected={turboHiveEnabled ? mqttConnected : undefined}
+                                        nextRefreshIn={turboHiveEnabled ? nextRefreshIn : undefined}
+                                    />
+                                )}
+
+                                {detailPanelOpen && selectedDevice && (
+                                    <DeviceDetailPanel device={selectedDevice} onClose={() => setDetailPanelOpen(false)} />
+                                )}
+                            </div>
+                            </div>
+                        )}
+                    />
+                ) : (
+                    <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#829ab1', fontSize: 13 }}>
+                        Select a workspace from the sidebar.
+                    </div>
                 )}
             </div>
 

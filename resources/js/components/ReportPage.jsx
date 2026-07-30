@@ -249,7 +249,7 @@ function ExternalBattery() {
         setRows([]); setError('');
     };
 
-    const COLS = ['No.', 'Time', 'External Battery (V)', 'Vehicle Speed (km/h)', 'ACC', 'Odometer (km)'];
+    const COLS = ['Time', 'External Battery (V)'];
 
     return (
         <>
@@ -268,7 +268,7 @@ function ExternalBattery() {
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
             <Notice color="#dbeafe" icon="ℹ" text="External battery is the vehicle's power-supply voltage, read from the OBD port (max 30-day range per query)." />
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 420 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
@@ -279,12 +279,8 @@ function ExternalBattery() {
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
                         <tr key={i}>
-                            <td style={TD}>{i + 1}</td>
                             <td style={TD}>{fmtTime(r.gateTime ?? r.deviceTime)}</td>
                             <td style={TD}>{r.batteryVoltage != null ? (r.batteryVoltage / 1000).toFixed(2) : '—'}</td>
-                            <td style={TD}>{r.vehicleSpeed ?? '—'}</td>
-                            <td style={TD}>{r.accStatus === 1 ? 'ON' : r.accStatus === 0 ? 'OFF' : '—'}</td>
-                            <td style={TD}>{obdOdometer(r) ?? '—'}</td>
                         </tr>
                     ))}
                 </tbody>

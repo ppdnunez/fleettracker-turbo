@@ -9,14 +9,6 @@ const HamSVG = () => (
         <line x1="2" y1="14" x2="16" y2="14"/>
     </svg>
 );
-const DashSVG = () => (
-    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" strokeWidth="1.6">
-        <rect x="1" y="1" width="6" height="6" rx="1.5"/>
-        <rect x="10" y="1" width="6" height="6" rx="1.5"/>
-        <rect x="1" y="10" width="6" height="6" rx="1.5"/>
-        <rect x="10" y="10" width="6" height="6" rx="1.5"/>
-    </svg>
-);
 const ReportSVG = () => (
     <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
         <rect x="2" y="1" width="13" height="15" rx="2"/>
@@ -25,12 +17,10 @@ const ReportSVG = () => (
         <line x1="5" y1="12" x2="9"  y2="12"/>
     </svg>
 );
-const DeviceSVG = () => (
-    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <rect x="1.5" y="2" width="14" height="10" rx="2"/>
-        <line x1="5" y1="12" x2="5"  y2="15"/>
-        <line x1="12" y1="12" x2="12" y2="15"/>
-        <line x1="3" y1="15" x2="14" y2="15"/>
+const SettingsSVG = () => (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="8.5" cy="8.5" r="2.4"/>
+        <path d="M7 1.7h3l.45 1.75c.4.16.77.38 1.1.64l1.72-.5 1.5 2.6-1.28 1.25c.03.35.03.7 0 1.06l1.28 1.25-1.5 2.6-1.72-.5c-.33.27-.7.48-1.1.64L10 14.3H7l-.45-1.75a6 6 0 0 1-1.1-.64l-1.72.5-1.5-2.6 1.28-1.25a6 6 0 0 1 0-1.06L2.23 6.25l1.5-2.6 1.72.5c.33-.27.7-.48 1.1-.64L7 1.7Z"/>
     </svg>
 );
 const FleetSVG = () => (
@@ -78,17 +68,29 @@ const REPORT_LIVE = ['Current fuel Value', 'Temperature & Humidity', 'Driver Beh
 const EXPANDED_W = 220;
 const COLLAPSED_W = 62;
 
+function FleetMark() {
+    return (
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 17.5V9.8c0-.7.36-1.35.96-1.72l5.95-3.68a2.05 2.05 0 0 1 2.18 0l5.95 3.68c.6.37.96 1.02.96 1.72v7.7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M7.2 17.5h9.6M8.3 14.2h7.4M10 10.8h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+            <circle cx="7" cy="19" r="1.6" fill="currentColor"/>
+            <circle cx="17" cy="19" r="1.6" fill="currentColor"/>
+        </svg>
+    );
+}
+
 function NavItem({ icon, label, active, onClick, depth = 0, open, sidebarOpen }) {
-    const bg   = active ? '#eff6ff' : 'transparent';
-    const col  = active ? '#1e40af' : '#4b5563';
+    const bg   = active ? '#e6f4f3' : 'transparent';
+    const col  = active ? '#07565b' : '#486581';
     const left = 8 + depth * 14;
     return (
-        <button onClick={onClick} title={!sidebarOpen ? label : undefined} style={{
+        <button data-active={active ? 'true' : 'false'} onClick={onClick} title={!sidebarOpen ? label : undefined} style={{
             display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
             padding: sidebarOpen ? `8px ${8}px 8px ${left}px` : '8px 0',
             justifyContent: sidebarOpen ? 'flex-start' : 'center',
             borderRadius: 8, border: 'none', cursor: 'pointer', background: bg, color: col,
-            fontSize: 13, fontWeight: active ? 700 : 500, marginBottom: 1, flexShrink: 0,
+            fontSize: 12.5, fontWeight: active ? 800 : 600, marginBottom: 2, flexShrink: 0,
+            transition: 'background 0.16s, color 0.16s',
         }}>
             {icon && <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0, opacity: active ? 1 : 0.75 }}>{icon}</span>}
             {sidebarOpen && <span style={{ flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{label}</span>}
@@ -137,8 +139,8 @@ const FLEET_ITEMS = [
 
 export default function Sidebar({ user, page, setPage, onLogoutClick, open, onToggle, reportSection, setReportSection, fleetPage, setFleetPage }) {
     const [reportOpen,   setReportOpen]   = useState(false);
-    const [deviceOpen,   setDeviceOpen]   = useState(false);
-    const [fleetOpen,    setFleetOpen]    = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [fleetOpen,    setFleetOpen]    = useState(true);
     const [devStatOpen,  setDevStatOpen]  = useState(false);
     const [motStatOpen,  setMotStatOpen]  = useState(false);
     const [stateStatOpen,setStateStatOpen]= useState(false);
@@ -149,76 +151,69 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
 
     const navTo = (p) => { setPage(p); };
     const reportTo = (section) => { setReportSection(section); setPage('Report'); };
+    const toggleSection = (section) => {
+        if (section === 'fleet') {
+            const next = !fleetOpen;
+            setFleetOpen(next);
+            if (next) { setSettingsOpen(false); setReportOpen(false); }
+        } else if (section === 'settings') {
+            const next = !settingsOpen;
+            setSettingsOpen(next);
+            if (next) { setFleetOpen(false); setReportOpen(false); }
+        } else {
+            const next = !reportOpen;
+            setReportOpen(next);
+            if (next) { setFleetOpen(false); setSettingsOpen(false); }
+        }
+    };
 
     const isReportActive = page === 'Report';
-    const isDeviceActive = page === 'Device Management' || page === 'Sim Data Management' || page === 'Dashboard' || page === 'Geofence' || page === 'Alert Recipients' || page === 'Notification' || page === 'Calendars' || page === 'Computed Attributes' || page === 'Maintenance' || page === 'Saved Commands' || page === 'Groups' || page === 'Drivers' || page === 'Command';
+    const isSettingsActive = page === 'Device Management' || page === 'Sim Data Management' || page === 'Geofence' || page === 'Alert Recipients' || page === 'Notification' || page === 'Calendars' || page === 'Computed Attributes' || page === 'Maintenance' || page === 'Saved Commands' || page === 'Groups' || page === 'Drivers' || page === 'Command';
     const isFleetActive  = page === 'Fleet';
 
     return (
-        <aside style={{
-            width: W, minWidth: W, background: '#fff', borderRight: '1px solid #e2e8f0',
+        <aside className="mine-sidebar" style={{
+            width: W, minWidth: W, background: '#fff', borderRight: '1px solid #d9e2ec',
             display: 'flex', flexDirection: 'column', zIndex: 10, flexShrink: 0, overflow: 'hidden',
             transition: `width 0.22s ease, min-width 0.22s ease`,
+            boxShadow: '2px 0 16px rgba(16,42,67,.035)',
         }}>
             {/* Logo + hamburger */}
-            <div style={{ height: 58, display: 'flex', alignItems: 'center', borderBottom: '1px solid #f1f5f9', flexShrink: 0, paddingLeft: open ? 14 : 0, justifyContent: open ? 'flex-start' : 'center', gap: 10, overflow: 'hidden' }}>
+            <div style={{ height: 63, display: 'flex', alignItems: 'center', borderBottom: '1px solid #edf2f7', flexShrink: 0, paddingLeft: open ? 14 : 0, justifyContent: open ? 'flex-start' : 'center', gap: 10, overflow: 'hidden' }}>
                 {open && (
-                    <div style={{ width: 30, height: 30, borderRadius: 8, background: 'linear-gradient(135deg,#1e40af,#3b82f6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>📡</div>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg,#0b6e75,#168a83)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 7px 16px rgba(11,110,117,.2)' }}><FleetMark /></div>
                 )}
-                {open && <span style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', flex: 1 }}>FleetTrack</span>}
-                <button onClick={onToggle} title="Toggle sidebar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, borderRadius: 6, flexShrink: 0 }}>
+                {open && <span style={{ fontSize: 15, fontWeight: 850, color: '#102a43', letterSpacing: '-.025em', whiteSpace: 'nowrap', flex: 1 }}>FleetTrack</span>}
+                <button onClick={onToggle} title="Toggle sidebar" style={{ background: '#f5f8fa', border: '1px solid #e7edf3', cursor: 'pointer', color: '#627d98', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 7, borderRadius: 8, flexShrink: 0, marginRight: open ? 10 : 0 }}>
                     <HamSVG />
                 </button>
             </div>
 
             {/* Nav */}
-            <nav style={{ flex: 1, padding: open ? '10px 8px' : '10px 6px', overflowY: 'auto', overflowX: 'hidden' }}>
-                {/* Dashboard */}
-                <NavItem icon={<DashSVG />} label="Dashboard" active={page === 'Dashboard' && !isReportActive}
-                    onClick={() => navTo('Dashboard')} sidebarOpen={open} />
-
-                {/* Report */}
-                <NavItem icon={<ReportSVG />} label="Report" active={isReportActive}
-                    open={open ? reportOpen : undefined}
-                    onClick={() => { if (open) setReportOpen(o => !o); else { setPage('Report'); } }}
+            <nav className="scrollbar-thin" style={{ flex: 1, padding: open ? '14px 9px' : '12px 6px', overflowY: 'auto', overflowX: 'hidden' }}>
+                {/* Fleet is the primary operational interface. Its Dashboard owns map/video. */}
+                <NavItem icon={<FleetSVG />} label="Fleet" active={isFleetActive}
+                    open={open ? fleetOpen : undefined}
+                    onClick={() => { if (open) toggleSection('fleet'); else navTo('Fleet'); }}
                     sidebarOpen={open} />
 
-                {open && reportOpen && (
+                {open && fleetOpen && (
                     <div style={{ marginLeft: 4 }}>
-                        {/* Live Statistic */}
-                        <SubGroup label="Live Statistic" openKey={liveStatOpen} onToggle={() => setLiveStatOpen(o => !o)}
-                            items={REPORT_LIVE} activePage={isReportActive ? reportSection : null}
-                            onItemClick={reportTo} sidebarOpen={open} />
-
-                        {/* Device Statistics */}
-                        <SubGroup label="Device Statistics" openKey={devStatOpen} onToggle={() => setDevStatOpen(o => !o)}
-                            items={REPORT_DEVICE} activePage={isReportActive ? reportSection : null}
-                            onItemClick={reportTo} sidebarOpen={open} />
-
-                        {/* Motion Statistics */}
-                        <SubGroup label="Motion Statistics" openKey={motStatOpen} onToggle={() => setMotStatOpen(o => !o)}
-                            items={REPORT_MOTION} activePage={isReportActive ? reportSection : null}
-                            onItemClick={reportTo} sidebarOpen={open} />
-
-                        {/* State Statistics */}
-                        <SubGroup label="State Statistics" openKey={stateStatOpen} onToggle={() => setStateStatOpen(o => !o)}
-                            items={['Offline', 'Online']} activePage={isReportActive ? reportSection : null}
-                            onItemClick={reportTo} sidebarOpen={open} />
-
-                        {/* Alert Statistics */}
-                        <SubGroup label="Alert Statistics" openKey={alertOpen} onToggle={() => setAlertOpen(o => !o)}
-                            items={REPORT_ALERT} activePage={isReportActive ? reportSection : null}
-                            onItemClick={reportTo} sidebarOpen={open} />
+                        {FLEET_ITEMS.map(({ label, key }) => (
+                            <NavItem key={key} label={label} depth={1} sidebarOpen={open}
+                                active={isFleetActive && fleetPage === key}
+                                onClick={() => { navTo('Fleet'); setFleetPage(key); }} />
+                        ))}
                     </div>
                 )}
 
-                {/* Device */}
-                <NavItem icon={<DeviceSVG />} label="Device" active={isDeviceActive && !isReportActive}
-                    open={open ? deviceOpen : undefined}
-                    onClick={() => { if (open) setDeviceOpen(o => !o); else navTo('Dashboard'); }}
+                {/* Settings contains device and platform configuration. */}
+                <NavItem icon={<SettingsSVG />} label="Settings" active={isSettingsActive}
+                    open={open ? settingsOpen : undefined}
+                    onClick={() => { if (open) toggleSection('settings'); else navTo('Device Management'); }}
                     sidebarOpen={open} />
 
-                {open && deviceOpen && (
+                {open && settingsOpen && (
                     <div style={{ marginLeft: 4 }}>
                         <NavItem label="Device Management" depth={1} sidebarOpen={open}
                             active={page === 'Device Management'}
@@ -229,9 +224,6 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
                         <NavItem label="Command" depth={1} sidebarOpen={open}
                             active={page === 'Command'}
                             onClick={() => navTo('Command')} />
-                        <NavItem label="Device Map & Video" depth={1} sidebarOpen={open}
-                            active={page === 'Dashboard' && !isReportActive}
-                            onClick={() => navTo('Dashboard')} />
                         <NavItem label="Geofence" depth={1} sidebarOpen={open}
                             active={page === 'Geofence'}
                             onClick={() => navTo('Geofence')} />
@@ -263,19 +255,29 @@ export default function Sidebar({ user, page, setPage, onLogoutClick, open, onTo
                     </div>
                 )}
 
-                {/* Fleet */}
-                <NavItem icon={<FleetSVG />} label="Fleet" active={isFleetActive}
-                    open={open ? fleetOpen : undefined}
-                    onClick={() => { if (open) setFleetOpen(o => !o); else { navTo('Fleet'); } }}
+                {/* Reports follows Settings in the primary navigation. */}
+                <NavItem icon={<ReportSVG />} label="Reports" active={isReportActive}
+                    open={open ? reportOpen : undefined}
+                    onClick={() => { if (open) toggleSection('reports'); else setPage('Report'); }}
                     sidebarOpen={open} />
 
-                {open && fleetOpen && (
+                {open && reportOpen && (
                     <div style={{ marginLeft: 4 }}>
-                        {FLEET_ITEMS.map(({ label, key }) => (
-                            <NavItem key={key} label={label} depth={1} sidebarOpen={open}
-                                active={isFleetActive && fleetPage === key}
-                                onClick={() => { navTo('Fleet'); setFleetPage(key); }} />
-                        ))}
+                        <SubGroup label="Live Statistic" openKey={liveStatOpen} onToggle={() => setLiveStatOpen(o => !o)}
+                            items={REPORT_LIVE} activePage={isReportActive ? reportSection : null}
+                            onItemClick={reportTo} sidebarOpen={open} />
+                        <SubGroup label="Device Statistics" openKey={devStatOpen} onToggle={() => setDevStatOpen(o => !o)}
+                            items={REPORT_DEVICE} activePage={isReportActive ? reportSection : null}
+                            onItemClick={reportTo} sidebarOpen={open} />
+                        <SubGroup label="Motion Statistics" openKey={motStatOpen} onToggle={() => setMotStatOpen(o => !o)}
+                            items={REPORT_MOTION} activePage={isReportActive ? reportSection : null}
+                            onItemClick={reportTo} sidebarOpen={open} />
+                        <SubGroup label="State Statistics" openKey={stateStatOpen} onToggle={() => setStateStatOpen(o => !o)}
+                            items={['Offline', 'Online']} activePage={isReportActive ? reportSection : null}
+                            onItemClick={reportTo} sidebarOpen={open} />
+                        <SubGroup label="Alert Statistics" openKey={alertOpen} onToggle={() => setAlertOpen(o => !o)}
+                            items={REPORT_ALERT} activePage={isReportActive ? reportSection : null}
+                            onItemClick={reportTo} sidebarOpen={open} />
                     </div>
                 )}
 
