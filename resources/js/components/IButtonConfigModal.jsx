@@ -1,23 +1,31 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 
-const sectionStyle = { border: '1px solid #e5e7eb', borderRadius: 8, padding: 14, marginBottom: 14 };
-const sectionTitle = { margin: '0 0 10px', fontSize: 12.5, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 };
+const sectionStyleFor = (dark) => ({ border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, borderRadius: 8, padding: 14, marginBottom: 14 });
+const sectionTitleFor = (dark) => ({ margin: '0 0 10px', fontSize: 12.5, fontWeight: 700, color: dark ? '#94a3b8' : '#374151', textTransform: 'uppercase', letterSpacing: 0.4 });
 const rowStyle      = { display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' };
-const labelStyle     = { display: 'block', fontSize: 11.5, color: '#6b7280', fontWeight: 600, marginBottom: 5 };
-const inputStyle     = { padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' };
-const selectStyle    = { ...inputStyle, background: '#fff', cursor: 'pointer' };
-const btnStyle       = (disabled) => ({ padding: '7px 14px', borderRadius: 6, border: '1px solid #3b82f6', background: '#fff', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap' });
-const btnPrimary     = (disabled) => ({ ...btnStyle(disabled), background: '#3b82f6', color: '#fff' });
+const labelStyleFor  = (dark) => ({ display: 'block', fontSize: 11.5, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600, marginBottom: 5 });
+const inputStyleFor  = (dark) => ({ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#111827' });
+const selectStyleFor = (dark) => ({ ...inputStyleFor(dark), cursor: 'pointer' });
+const btnStyleFor    = (dark) => (disabled) => ({ padding: '7px 14px', borderRadius: 6, border: `1px solid ${dark ? '#60a5fa' : '#3b82f6'}`, background: dark ? '#111827' : '#fff', color: dark ? '#60a5fa' : '#3b82f6', fontSize: 12.5, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap' });
+const btnPrimaryFor  = (dark) => (disabled) => ({ ...btnStyleFor(dark)(disabled), background: '#3b82f6', color: '#fff' });
 
 /**
  * Card Reader (iButton) configuration — sends raw VL863P text commands over TurboHive's
  * POST /v3/command/send (api.sendTurboHiveCommand) and shows each reply. See the VL863P
  * Operational Commands Manual §8.6 for the command grammar this mirrors.
  */
-export default function IButtonConfigModal({ imei, deviceName, onClose }) {
+export default function IButtonConfigModal({ imei, deviceName, onClose, dark }) {
     const [sending, setSending] = useState(false);
     const [log, setLog]         = useState([]); // [{ command, reply, ok, time }]
+
+    const sectionStyle = sectionStyleFor(dark);
+    const sectionTitle = sectionTitleFor(dark);
+    const labelStyle   = labelStyleFor(dark);
+    const inputStyle   = inputStyleFor(dark);
+    const selectStyle  = selectStyleFor(dark);
+    const btnStyle     = btnStyleFor(dark);
+    const btnPrimary   = btnPrimaryFor(dark);
 
     const [swState, setSwState]           = useState('ON');
     const [authMode, setAuthMode]         = useState('0');
@@ -63,13 +71,13 @@ export default function IButtonConfigModal({ imei, deviceName, onClose }) {
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-            <div style={{ background: '#fff', borderRadius: 12, width: 560, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
+            <div style={{ background: dark ? '#111827' : '#fff', borderRadius: 12, width: 560, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, flexShrink: 0 }}>
                     <div>
-                        <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>iButton Configuration</h2>
-                        <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>{deviceName || imei} · {imei}</p>
+                        <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: dark ? '#f1f5f9' : '#0f172a' }}>iButton Configuration</h2>
+                        <p style={{ margin: '2px 0 0', fontSize: 12, color: dark ? '#94a3b8' : '#6b7280' }}>{deviceName || imei} · {imei}</p>
                     </div>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#64748b' : '#9ca3af', fontSize: 16 }}>✕</button>
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
@@ -181,7 +189,7 @@ export default function IButtonConfigModal({ imei, deviceName, onClose }) {
                             <button disabled={sending} onClick={() => send('IBUTTON_CTL#')} style={btnStyle(sending)}>Query</button>
                             <button disabled={sending} onClick={() => send(`IBUTTON_CTL,${relayMode}#`)} style={btnPrimary(sending)}>Apply</button>
                         </div>
-                        <p style={{ margin: '10px 0 0', fontSize: 11.5, color: '#9ca3af', lineHeight: 1.4 }}>
+                        <p style={{ margin: '10px 0 0', fontSize: 11.5, color: dark ? '#64748b' : '#9ca3af', lineHeight: 1.4 }}>
                             Modes 1–2 require the card reader enabled, authentication mode 0, and at least one whitelisted iButton — otherwise the device allows any iButton to operate the vehicle.
                         </p>
                     </div>
@@ -206,12 +214,12 @@ export default function IButtonConfigModal({ imei, deviceName, onClose }) {
                     {log.length > 0 && (
                         <div style={{ marginTop: 14 }}>
                             <p style={sectionTitle}>Command Log</p>
-                            <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: 8 }}>
+                            <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, borderRadius: 8 }}>
                                 {log.map((entry, i) => (
-                                    <div key={i} style={{ padding: '8px 12px', borderBottom: i < log.length - 1 ? '1px solid #f8fafc' : 'none', fontSize: 12 }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#374151' }}>
+                                    <div key={i} style={{ padding: '8px 12px', borderBottom: i < log.length - 1 ? `1px solid ${dark ? '#1e293b' : '#f8fafc'}` : 'none', fontSize: 12 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', color: dark ? '#e2e8f0' : '#374151' }}>
                                             <span style={{ fontFamily: 'monospace' }}>{entry.command}</span>
-                                            <span style={{ color: '#9ca3af' }}>{entry.time}</span>
+                                            <span style={{ color: dark ? '#64748b' : '#9ca3af' }}>{entry.time}</span>
                                         </div>
                                         <div style={{ color: entry.ok ? '#16a34a' : '#dc2626', marginTop: 2 }}>{entry.reply}</div>
                                     </div>
@@ -221,8 +229,8 @@ export default function IButtonConfigModal({ imei, deviceName, onClose }) {
                     )}
                 </div>
 
-                <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
-                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Close</button>
+                <div style={{ padding: '12px 20px', borderTop: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: `1.5px solid ${dark ? '#334155' : '#e2e8f0'}`, background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Close</button>
                 </div>
             </div>
         </div>

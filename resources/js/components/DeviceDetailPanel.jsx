@@ -42,13 +42,13 @@ function toDMS(deg, axis) {
 // value still displays as text — it just renders with an empty/neutral bar icon instead of guessing.
 const SIGNAL_LEVELS = { 'No signal': 0, 'Weak': 1, 'Fair': 2, 'Good': 3, 'Strong': 4 };
 
-function CellSignalBars({ level }) {
+function CellSignalBars({ level, dark }) {
     const n = SIGNAL_LEVELS[level] ?? 0;
     const color = n === 0 ? '#cbd5e1' : n === 1 ? '#ef4444' : n === 2 ? '#f59e0b' : '#22c55e';
     return (
         <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 2, height: 13 }}>
             {[1, 2, 3, 4].map(i => (
-                <span key={i} style={{ width: 3, height: 3 + i * 2.5, borderRadius: 1, background: i <= n ? color : '#e2e8f0', display: 'block' }} />
+                <span key={i} style={{ width: 3, height: 3 + i * 2.5, borderRadius: 1, background: i <= n ? color : (dark ? '#334155' : '#e2e8f0'), display: 'block' }} />
             ))}
         </span>
     );
@@ -66,11 +66,11 @@ function Toggle({ on, onChange }) {
     );
 }
 
-const cardStyle = { border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 12 };
+const cardStyle = (dark) => ({ border: `1px solid ${dark ? '#1e293b' : '#e2e8f0'}`, borderRadius: 10, padding: '12px 14px', marginBottom: 12, background: dark ? '#111827' : 'transparent' });
 const labelStyle = { fontSize: 11.5, color: '#94a3b8', fontWeight: 600, marginBottom: 6 };
 const rowStyle = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0' };
 
-export default function DeviceDetailPanel({ device, onClose }) {
+export default function DeviceDetailPanel({ device, onClose, dark }) {
     const [address, setAddress] = useState(null);       // null = not loaded, '' = load failed
     const [addressLoading, setAddressLoading] = useState(false);
     const [signalLevel, setSignalLevel] = useState(null); // null = not loaded, '' = load failed
@@ -114,31 +114,35 @@ export default function DeviceDetailPanel({ device, onClose }) {
         ? (lat != null && lng != null ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : '—')
         : `${toDMS(lat, 'lat')}, ${toDMS(lng, 'lng')}`;
 
+    const card = cardStyle(dark);
+    const valueColor = dark ? '#e2e8f0' : '#0f172a';
+    const strongValueColor = dark ? '#f1f5f9' : '#1e293b';
+
     return (
         <div style={{
-            width: 300, flexShrink: 0, background: '#fff', borderLeft: '1px solid #e2e8f0',
+            width: 300, flexShrink: 0, background: dark ? '#0f172a' : '#fff', borderLeft: `1px solid ${dark ? '#1e293b' : '#e2e8f0'}`,
             overflowY: 'auto', padding: 16,
         }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
                 <div>
-                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a' }}>{device.name}</h3>
+                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: dark ? '#f1f5f9' : '#0f172a' }}>{device.name}</h3>
                     <p style={{ margin: '2px 0 0', fontSize: 11.5, color: '#94a3b8' }}>{device.imei}</p>
                 </div>
-                <button onClick={onClose} title="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3af', fontSize: 16, lineHeight: 1 }}>✕</button>
+                <button onClick={onClose} title="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#64748b' : '#94a3af', fontSize: 16, lineHeight: 1 }}>✕</button>
             </div>
 
-            <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <CellSignalBars level={online ? (signalLevel || '') : ''} />
+                    <CellSignalBars level={online ? (signalLevel || '') : ''} dark={dark} />
                     <span style={{ fontSize: 14, fontWeight: 800, color: online ? '#16a34a' : '#64748b' }}>{online ? 'Online' : 'Offline'}</span>
                     <span style={{ fontSize: 12, color: '#94a3b8' }}>(ACC: {device.acc ? 'ON' : 'OFF'})</span>
                 </div>
-                <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>{formatElapsed(device.lastUpdate)}</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: valueColor }}>{formatElapsed(device.lastUpdate)}</span>
             </div>
 
-            <div style={cardStyle}>
+            <div style={card}>
                 <div style={labelStyle}>Address</div>
-                <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 700, color: '#1e293b', lineHeight: 1.4 }}>
+                <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 700, color: strongValueColor, lineHeight: 1.4 }}>
                     {addressLoading ? 'Looking up address…' : (address || 'Address unavailable')}
                 </p>
 
@@ -149,33 +153,33 @@ export default function DeviceDetailPanel({ device, onClose }) {
                         <Toggle on={useDecimal} onChange={() => setUseDecimal(v => !v)} />
                     </div>
                 </div>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{coordText}</p>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: strongValueColor }}>{coordText}</p>
             </div>
 
-            <div style={cardStyle}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>Device</div>
+            <div style={card}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: dark ? '#f1f5f9' : '#0f172a', marginBottom: 8 }}>Device</div>
                 <div style={rowStyle}>
                     <span style={{ fontSize: 12.5, color: '#64748b' }}>GNSS</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>GPS</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: valueColor }}>GPS</span>
                 </div>
                 <div style={rowStyle}>
                     <span style={{ fontSize: 12.5, color: '#64748b' }}>Visible satellites</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{device.satellites ?? '—'}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: valueColor }}>{device.satellites ?? '—'}</span>
                 </div>
                 <div style={rowStyle}>
                     <span style={{ fontSize: 12.5, color: '#64748b' }}>Cellular signal strength</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: valueColor, display: 'flex', alignItems: 'center', gap: 6 }}>
                         {signalLevel === null ? 'Loading…' : (signalLevel || '—')}
-                        {signalLevel && <CellSignalBars level={signalLevel} />}
+                        {signalLevel && <CellSignalBars level={signalLevel} dark={dark} />}
                     </span>
                 </div>
                 <div style={rowStyle}>
                     <span style={{ fontSize: 12.5, color: '#64748b' }}>Last online</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{fmtDateTime(device.lastUpdate)}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: valueColor }}>{fmtDateTime(device.lastUpdate)}</span>
                 </div>
                 <div style={rowStyle}>
                     <span style={{ fontSize: 12.5, color: '#64748b' }}>Last fix</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{fmtDateTime(device.fixTime)}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: valueColor }}>{fmtDateTime(device.fixTime)}</span>
                 </div>
             </div>
         </div>

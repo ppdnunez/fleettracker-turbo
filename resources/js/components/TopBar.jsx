@@ -10,11 +10,11 @@ const LocationSVG = () => (
     </svg>
 );
 
-export default function TopBar({ onlineCount, total, mapMode, setMapMode, selectedDevice }) {
+export default function TopBar({ onlineCount, total, mapMode, setMapMode, selectedDevice, dark }) {
     const isVideo = mapMode === 'Video';
 
     return (
-        <header style={{ height: 52, background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', flexShrink: 0, gap: 12 }}>
+        <header style={{ height: 52, background: dark ? '#0f172a' : '#fff', borderBottom: `1px solid ${dark ? '#1e293b' : '#e2e8f0'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', flexShrink: 0, gap: 12 }}>
 
             {/* Mode tabs */}
             <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
@@ -25,7 +25,7 @@ export default function TopBar({ onlineCount, total, mapMode, setMapMode, select
                             height: '100%', padding: '0 14px', border: 'none',
                             borderBottom: active ? '2.5px solid #3b82f6' : '2.5px solid transparent',
                             background: 'none', cursor: 'pointer',
-                            color: active ? '#3b82f6' : '#64748b',
+                            color: active ? (dark ? '#60a5fa' : '#3b82f6') : (dark ? '#64748b' : '#64748b'),
                             fontSize: 12, fontWeight: active ? 700 : 500,
                             display: 'flex', alignItems: 'center', gap: 5,
                             transition: 'color 0.15s, border-color 0.15s',
@@ -42,8 +42,8 @@ export default function TopBar({ onlineCount, total, mapMode, setMapMode, select
                 <div style={{ flex: 1, textAlign: 'center', fontSize: 13 }}>
                     {selectedDevice ? (
                         <>
-                            <span style={{ fontWeight: 800, color: '#0f172a' }}>{selectedDevice.name}</span>
-                            <span style={{ color: '#475569' }}>({selectedDevice.tracker})</span>
+                            <span style={{ fontWeight: 800, color: dark ? '#f1f5f9' : '#0f172a' }}>{selectedDevice.name}</span>
+                            <span style={{ color: dark ? '#94a3b8' : '#475569' }}>({selectedDevice.tracker})</span>
                             <span style={{ color: selectedDevice.status === 'ONLINE' ? '#16a34a' : '#94a3b8', marginLeft: 2 }}>
                                 [{selectedDevice.status === 'ONLINE' ? 'Online' : 'Offline'}]
                             </span>
@@ -60,13 +60,13 @@ export default function TopBar({ onlineCount, total, mapMode, setMapMode, select
                     <button style={{ padding: '6px 16px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                         Start All
                     </button>
-                    <button style={{ padding: '6px 14px', background: '#fff', color: '#475569', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    <button style={{ padding: '6px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#475569', border: `1.5px solid ${dark ? '#334155' : '#e2e8f0'}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                         Stop All
                     </button>
-                    <button style={{ padding: '6px 12px', background: '#fff', color: '#475569', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <button style={{ padding: '6px 12px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#475569', border: `1.5px solid ${dark ? '#334155' : '#e2e8f0'}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                         <TalkSVG /> Talk
                     </button>
-                    <button style={{ padding: '6px 12px', background: '#fff', color: '#475569', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <button style={{ padding: '6px 12px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#475569', border: `1.5px solid ${dark ? '#334155' : '#e2e8f0'}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                         <LocationSVG /> Location
                     </button>
                 </div>
@@ -74,7 +74,7 @@ export default function TopBar({ onlineCount, total, mapMode, setMapMode, select
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', letterSpacing: 1 }}>DEVICE LIST</span>
-                        <span style={{ background: '#eff6ff', color: '#1e40af', fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 20, border: '1px solid #bfdbfe' }}>{onlineCount}/{total}</span>
+                        <span style={{ background: dark ? 'rgba(59,130,246,0.15)' : '#eff6ff', color: dark ? '#60a5fa' : '#1e40af', fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 20, border: `1px solid ${dark ? 'rgba(96,165,250,0.35)' : '#bfdbfe'}` }}>{onlineCount}/{total}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />

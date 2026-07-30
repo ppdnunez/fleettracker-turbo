@@ -12,7 +12,7 @@ const GRID_LAYOUTS = [
     { cols: 4, rows: 4 },
 ];
 
-function GridIcon({ cols, rows, active, onClick }) {
+function GridIcon({ cols, rows, active, onClick, dark }) {
     const S = 16, gap = 1;
     const cw = (S - (cols - 1) * gap) / cols;
     const ch = (S - (rows - 1) * gap) / rows;
@@ -21,7 +21,7 @@ function GridIcon({ cols, rows, active, onClick }) {
         for (let c = 0; c < cols; c++)
             cells.push(<rect key={`${r}-${c}`} x={c * (cw + gap)} y={r * (ch + gap)} width={cw} height={ch} fill={active ? '#3b82f6' : '#94a3b8'} rx={0.5} />);
     return (
-        <button onClick={onClick} style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', border: active ? '1.5px solid #3b82f6' : '1.5px solid #e2e8f0', borderRadius: 6, background: active ? '#eff6ff' : '#fff', cursor: 'pointer', padding: 0 }}>
+        <button onClick={onClick} style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', border: active ? '1.5px solid #3b82f6' : `1.5px solid ${dark ? '#1e293b' : '#e2e8f0'}`, borderRadius: 6, background: active ? (dark ? 'rgba(59,130,246,0.16)' : '#eff6ff') : (dark ? '#111827' : '#fff'), cursor: 'pointer', padding: 0 }}>
             <svg width={S} height={S} viewBox={`0 0 ${S} ${S}`}>{cells}</svg>
         </button>
     );
@@ -88,14 +88,14 @@ const CornerSVG = () => (
     </svg>
 );
 
-const iconBtn = (active, disabled) => ({
+const iconBtn = (active, disabled, dark) => ({
     background: 'none', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
-    color: active ? '#3b82f6' : disabled ? '#cbd5e1' : '#94a3b8',
+    color: active ? '#3b82f6' : disabled ? (dark ? '#334155' : '#cbd5e1') : '#94a3b8',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     padding: 4, borderRadius: 4, transition: 'color 0.15s',
 });
 
-function VideoPanel({ index, device, onExpand }) {
+function VideoPanel({ index, device, onExpand, dark }) {
     const channel = index + 1;
     const [playing,       setPlaying]       = useState(false);
     const [muted,         setMuted]         = useState(false);
@@ -203,8 +203,8 @@ function VideoPanel({ index, device, onExpand }) {
     const showVideo = playing && streamUrls?.hls;
 
     return (
-        <div style={{ position: 'relative', background: 'linear-gradient(135deg,#bfdbfe 0%,#dbeafe 45%,#eff6ff 100%)', display: 'flex', flexDirection: 'column', border: '1px solid #e2e8f0', overflow: 'hidden', minHeight: 0 }}>
-            <button onClick={onExpand} style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, background: 'rgba(255,255,255,0.65)', border: '1px solid rgba(255,255,255,0.9)', borderRadius: 4, padding: 3, cursor: 'pointer', color: '#64748b', display: 'flex', lineHeight: 0 }}>
+        <div style={{ position: 'relative', background: dark ? 'linear-gradient(135deg,#1e293b 0%,#0f172a 45%,#0b1220 100%)' : 'linear-gradient(135deg,#bfdbfe 0%,#dbeafe 45%,#eff6ff 100%)', display: 'flex', flexDirection: 'column', border: `1px solid ${dark ? '#1e293b' : '#e2e8f0'}`, overflow: 'hidden', minHeight: 0 }}>
+            <button onClick={onExpand} style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, background: dark ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.65)', border: `1px solid ${dark ? 'rgba(148,163,184,0.35)' : 'rgba(255,255,255,0.9)'}`, borderRadius: 4, padding: 3, cursor: 'pointer', color: dark ? '#94a3b8' : '#64748b', display: 'flex', lineHeight: 0 }}>
                 <CornerSVG />
             </button>
 
@@ -219,23 +219,23 @@ function VideoPanel({ index, device, onExpand }) {
                 />
                 {!showVideo && <CameraPlaceholder />}
                 {streamLoading && (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(239,246,255,0.75)' }}>
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: dark ? 'rgba(15,23,42,0.75)' : 'rgba(239,246,255,0.75)' }}>
                         <span style={{ fontSize: 12, color: '#3b82f6', fontWeight: 600 }}>Connecting…</span>
                     </div>
                 )}
                 {streamError && !streamLoading && (
                     <div style={{ position: 'absolute', bottom: 8, left: 0, right: 0, display: 'flex', justifyContent: 'center' }}>
-                        <span style={{ fontSize: 10, color: '#ef4444', background: 'rgba(255,255,255,0.9)', padding: '2px 8px', borderRadius: 4 }}>{streamError}</span>
+                        <span style={{ fontSize: 10, color: '#ef4444', background: dark ? 'rgba(15,23,42,0.9)' : 'rgba(255,255,255,0.9)', padding: '2px 8px', borderRadius: 4 }}>{streamError}</span>
                     </div>
                 )}
             </div>
 
             {/* Toolbar */}
-            <div style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', background: '#fff', borderTop: '1px solid #e2e8f0', gap: 2, flexShrink: 0 }}>
-                <button onClick={handlePlayToggle} disabled={streamLoading} style={iconBtn(playing, streamLoading)}><PlaySVG /></button>
-                <button style={iconBtn(false)}><RecordSVG /></button>
-                <button onClick={() => setMuted(m => !m)} style={iconBtn(muted)}><MuteSVG on={muted} /></button>
-                <button style={iconBtn(false)}><SnapSVG /></button>
+            <div style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', background: dark ? '#111827' : '#fff', borderTop: `1px solid ${dark ? '#1e293b' : '#e2e8f0'}`, gap: 2, flexShrink: 0 }}>
+                <button onClick={handlePlayToggle} disabled={streamLoading} style={iconBtn(playing, streamLoading, dark)}><PlaySVG /></button>
+                <button style={iconBtn(false, false, dark)}><RecordSVG /></button>
+                <button onClick={() => setMuted(m => !m)} style={iconBtn(muted, false, dark)}><MuteSVG on={muted} /></button>
+                <button style={iconBtn(false, false, dark)}><SnapSVG /></button>
 
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
                     {editing ? (
@@ -245,16 +245,16 @@ function VideoPanel({ index, device, onExpand }) {
                     ) : (
                         <span style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6', whiteSpace: 'nowrap' }}>{chName}</span>
                     )}
-                    <button onClick={() => setEditing(true)} style={{ ...iconBtn(false), padding: 2 }}><EditSVG /></button>
+                    <button onClick={() => setEditing(true)} style={{ ...iconBtn(false, false, dark), padding: 2 }}><EditSVG /></button>
                 </div>
 
-                <button onClick={onExpand} style={iconBtn(false)}><ExpandSVG /></button>
+                <button onClick={onExpand} style={iconBtn(false, false, dark)}><ExpandSVG /></button>
             </div>
         </div>
     );
 }
 
-export default function VideoMode({ selectedDevice }) {
+export default function VideoMode({ selectedDevice, dark }) {
     const [gridIdx,  setGridIdx]  = useState(2);
     const [expanded, setExpanded] = useState(null);
     const { cols, rows } = GRID_LAYOUTS[gridIdx];
@@ -264,15 +264,15 @@ export default function VideoMode({ selectedDevice }) {
         : 'No device selected';
 
     return (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f8fafc' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: dark ? '#0b1220' : '#f8fafc' }}>
             {/* Grid selector bar */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '7px 16px', borderBottom: '1px solid #e2e8f0', background: '#fff', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '7px 16px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e2e8f0'}`, background: dark ? '#0f172a' : '#fff', flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {GRID_LAYOUTS.map((g, i) => (
-                        <GridIcon key={i} cols={g.cols} rows={g.rows} active={i === gridIdx} onClick={() => { setGridIdx(i); setExpanded(null); }} />
+                        <GridIcon key={i} cols={g.cols} rows={g.rows} active={i === gridIdx} onClick={() => { setGridIdx(i); setExpanded(null); }} dark={dark} />
                     ))}
                 </div>
-                <div style={{ color: '#475569', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                <div style={{ color: dark ? '#94a3b8' : '#475569', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
                     {selectedLabel}
                 </div>
             </div>
@@ -283,6 +283,7 @@ export default function VideoMode({ selectedDevice }) {
                 gridTemplateColumns: expanded !== null ? '1fr' : `repeat(${cols}, 1fr)`,
                 gridTemplateRows:    expanded !== null ? '1fr' : `repeat(${rows}, 1fr)`,
                 gap: 2, padding: 2,
+                background: dark ? '#0b1220' : undefined,
             }}>
                 {expanded !== null ? (
                     <VideoPanel
@@ -290,6 +291,7 @@ export default function VideoMode({ selectedDevice }) {
                         index={expanded}
                         device={selectedDevice}
                         onExpand={() => setExpanded(null)}
+                        dark={dark}
                     />
                 ) : (
                     Array.from({ length: count }, (_, i) => (
@@ -298,6 +300,7 @@ export default function VideoMode({ selectedDevice }) {
                             index={i}
                             device={selectedDevice}
                             onExpand={() => setExpanded(i)}
+                            dark={dark}
                         />
                     ))
                 )}

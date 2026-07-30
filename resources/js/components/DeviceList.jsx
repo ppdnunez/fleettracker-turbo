@@ -45,7 +45,7 @@ function SearchIcon() {
     );
 }
 
-export default function DeviceList({ devices, selected, onSelect, search, setSearch, loading, open, onToggle }) {
+export default function DeviceList({ devices, selected, onSelect, search, setSearch, loading, open, onToggle, dark }) {
     return (
         <div style={{ display: 'flex', flexShrink: 0 }}>
             {/* Panel — width collapses to 0, content stays 260 and clips */}
@@ -53,15 +53,15 @@ export default function DeviceList({ devices, selected, onSelect, search, setSea
                 width: open ? 260 : 0,
                 minWidth: open ? 260 : 0,
                 overflow: 'hidden',
-                background: '#fff',
-                borderRight: open ? '1px solid #e2e8f0' : 'none',
-                transition: 'width 0.22s ease, min-width 0.22s ease',
+                background: dark ? '#0f172a' : '#fff',
+                borderRight: open ? `1px solid ${dark ? '#1e293b' : '#e2e8f0'}` : 'none',
+                transition: 'width 0.22s ease, min-width 0.22s ease, background 0.15s ease, border-color 0.15s ease',
                 display: 'flex',
                 flexDirection: 'column',
             }}>
                 <div style={{ width: 260, display: 'flex', flexDirection: 'column', height: '100%' }}>
                     {/* Header — no hamburger */}
-                    <div style={{ height: 44, display: 'flex', alignItems: 'center', padding: '0 14px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
+                    <div style={{ height: 44, display: 'flex', alignItems: 'center', padding: '0 14px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, flexShrink: 0 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', letterSpacing: 1.2 }}>DEVICES</span>
                     </div>
 
@@ -70,7 +70,7 @@ export default function DeviceList({ devices, selected, onSelect, search, setSea
                         <div style={{ position: 'relative' }}>
                             <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}><SearchIcon /></span>
                             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search device..."
-                                style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px 8px 32px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none', background: '#f8fafc', color: '#0f172a' }} />
+                                style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px 8px 32px', border: `1.5px solid ${dark ? '#334155' : '#e2e8f0'}`, borderRadius: 8, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#f8fafc', color: dark ? '#e2e8f0' : '#0f172a' }} />
                         </div>
                     </div>
 
@@ -80,35 +80,43 @@ export default function DeviceList({ devices, selected, onSelect, search, setSea
                             <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, paddingTop: 32 }}>Loading devices…</p>
                         ) : devices.length === 0 ? (
                             <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, paddingTop: 32 }}>No devices found.</p>
-                        ) : devices.map(d => (
-                            <div key={d.id} onClick={() => onSelect(d.id)} style={{ padding: '12px 14px', cursor: 'pointer', borderBottom: '1px solid #f8fafc', background: selected === d.id ? '#eff6ff' : 'transparent', borderLeft: `3px solid ${selected === d.id ? '#3b82f6' : 'transparent'}` }}>
+                        ) : devices.map(d => {
+                            const isSelected = selected === d.id;
+                            return (
+                            <div key={d.id} onClick={() => onSelect(d.id)} style={{
+                                padding: '12px 14px', cursor: 'pointer',
+                                borderBottom: `1px solid ${dark ? '#1e293b' : '#f8fafc'}`,
+                                background: isSelected ? (dark ? 'rgba(59,130,246,0.15)' : '#eff6ff') : 'transparent',
+                                borderLeft: `3px solid ${isSelected ? '#60a5fa' : 'transparent'}`,
+                            }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <div style={{ width: 28, height: 28, borderRadius: 7, background: selected === d.id ? '#dbeafe' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
+                                        <div style={{ width: 28, height: 28, borderRadius: 7, background: isSelected ? (dark ? 'rgba(59,130,246,0.25)' : '#dbeafe') : (dark ? '#1e293b' : '#f1f5f9'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
                                             {vehicleTypeEmoji(d.vehicleType) ?? <DeviceHardwareIcon />}
                                         </div>
-                                        <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{d.name}</span>
+                                        <span style={{ fontSize: 13, fontWeight: 700, color: dark ? '#f1f5f9' : '#0f172a' }}>{d.name}</span>
                                     </div>
                                     <span style={{ fontSize: 10, color: '#94a3b8' }}>···</span>
                                 </div>
                                 <div style={{ paddingLeft: 36 }}>
-                                    <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 600 }}>{d.tracker}</span>
+                                    <span style={{ fontSize: 11, color: dark ? '#60a5fa' : '#3b82f6', fontWeight: 600 }}>{d.tracker}</span>
                                 </div>
                                 <div style={{ paddingLeft: 36, marginTop: 4 }}>
                                     <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, color: d.status === 'ONLINE' ? '#22c55e' : '#94a3b8' }}>● {d.status}</span>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             </div>
 
             {/* Right-side collapse strip */}
             <button onClick={onToggle} title={open ? 'Collapse' : 'Expand'} style={{
-                width: 13, background: '#e5e7eb', border: 'none', cursor: 'pointer',
+                width: 13, background: dark ? '#1e293b' : '#e5e7eb', border: 'none', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#6b7280', flexShrink: 0, transition: 'background 0.15s',
-                borderRight: '1px solid #d1d5db',
+                color: dark ? '#94a3b8' : '#6b7280', flexShrink: 0, transition: 'background 0.15s',
+                borderRight: `1px solid ${dark ? '#334155' : '#d1d5db'}`,
             }}>
                 <CollapseArrow open={open} />
             </button>

@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { api } from '../api.js';
 import { PRICEABLE_FUEL_TYPES } from '../fuelTypes.js';
 
-const TH = { padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: 13, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', background: '#f9fafb' };
-const TD = { padding: '11px 14px', verticalAlign: 'middle', fontSize: 13, borderBottom: '1px solid #f1f5f9', color: '#374151' };
+const THStyle = (dark) => ({ padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: 13, color: dark ? '#94a3b8' : '#374151', borderBottom: `2px solid ${dark ? '#1e293b' : '#e5e7eb'}`, whiteSpace: 'nowrap', background: dark ? '#0f172a' : '#f9fafb' });
+const TDStyle = (dark) => ({ padding: '11px 14px', verticalAlign: 'middle', fontSize: 13, borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, color: dark ? '#e2e8f0' : '#374151' });
 
 const FUEL_LABEL = Object.fromEntries(PRICEABLE_FUEL_TYPES.map(f => [f.value, f.label]));
 const FUEL_COLOR = { petrol: '#16a34a', diesel: '#f59e0b' };
@@ -12,16 +12,16 @@ const FUEL_COLOR = { petrol: '#16a34a', diesel: '#f59e0b' };
 // even though only the calendar date is meaningful here) — trim to YYYY-MM-DD for display.
 function fmtDate(d) { return d ? String(d).slice(0, 10) : '—'; }
 
-function CurrentPriceCard({ fuelType, entry }) {
-    const color = FUEL_COLOR[fuelType] || '#111827';
+function CurrentPriceCard({ fuelType, entry, dark }) {
+    const color = FUEL_COLOR[fuelType] || (dark ? '#f1f5f9' : '#111827');
     return (
-        <div style={{ flex: 1, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '14px 16px' }}>
-            <div style={{ fontSize: 12.5, color: '#6b7280', marginBottom: 8 }}>{FUEL_LABEL[fuelType]} — Current Price</div>
+        <div style={{ flex: 1, background: dark ? '#111827' : '#fff', borderRadius: 10, border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, padding: '14px 16px' }}>
+            <div style={{ fontSize: 12.5, color: dark ? '#94a3b8' : '#6b7280', marginBottom: 8 }}>{FUEL_LABEL[fuelType]} — Current Price</div>
             <div style={{ fontSize: 26, fontWeight: 800, color }}>
                 {entry ? Number(entry.price_per_liter).toFixed(2) : '—'}
-                <span style={{ fontSize: 13, fontWeight: 500, color: '#9ca3af' }}> /L</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: dark ? '#64748b' : '#9ca3af' }}> /L</span>
             </div>
-            <div style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 4 }}>
+            <div style={{ fontSize: 11.5, color: dark ? '#64748b' : '#9ca3af', marginTop: 4 }}>
                 {entry ? `Effective ${fmtDate(entry.effective_date)}` : 'No price set yet'}
             </div>
         </div>
@@ -34,7 +34,9 @@ function CurrentPriceCard({ fuelType, entry }) {
  * derives that from the same list rather than a separate endpoint. Lives under Fleet > Fuel
  * Management > Fuel Price. See VehicleSetting.fuel_type for how a vehicle is matched to a fuel type.
  */
-export default function FuelPricePage() {
+export default function FuelPricePage({ dark }) {
+    const TH = THStyle(dark);
+    const TD = TDStyle(dark);
     const [entries, setEntries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError]     = useState('');
@@ -94,35 +96,35 @@ export default function FuelPricePage() {
     };
 
     return (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff' }}>
-            <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#111827' }}>Fuel Price</h2>
-                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#6b7280' }}>Set the current petrol/diesel price and keep a history of changes over time.</p>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: dark ? '#0b1220' : '#fff' }}>
+            <div style={{ padding: '14px 20px 12px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, flexShrink: 0 }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: dark ? '#f1f5f9' : '#111827' }}>Fuel Price</h2>
+                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: dark ? '#94a3b8' : '#6b7280' }}>Set the current petrol/diesel price and keep a history of changes over time.</p>
             </div>
 
             <div style={{ display: 'flex', gap: 12, padding: '14px 20px 0', flexShrink: 0 }}>
                 {PRICEABLE_FUEL_TYPES.map(t => (
-                    <CurrentPriceCard key={t.value} fuelType={t.value} entry={currentByType[t.value]} />
+                    <CurrentPriceCard key={t.value} fuelType={t.value} entry={currentByType[t.value]} dark={dark} />
                 ))}
             </div>
 
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', padding: '14px 20px', borderBottom: '1px solid #f1f5f9', flexShrink: 0, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', padding: '14px 20px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, flexShrink: 0, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Fuel Type</label>
+                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Fuel Type</label>
                     <select value={fuelType} onChange={e => setFuelType(e.target.value)}
-                        style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
+                        style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer' }}>
                         {PRICEABLE_FUEL_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Price per Liter</label>
+                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Price per Liter</label>
                     <input type="number" min="0" step="0.01" placeholder="e.g. 4.35" value={price} onChange={e => setPrice(e.target.value)}
-                        style={{ width: 140, boxSizing: 'border-box', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                        style={{ width: 140, boxSizing: 'border-box', padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Effective Date</label>
+                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Effective Date</label>
                     <input type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)}
-                        style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                        style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
                 </div>
                 <button onClick={handleAdd} disabled={saving}
                     style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer' }}>
@@ -132,7 +134,7 @@ export default function FuelPricePage() {
             </div>
 
             {error && (
-                <div style={{ margin: '12px 20px 0', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>
+                <div style={{ margin: '12px 20px 0', padding: '8px 12px', background: dark ? 'rgba(239,68,68,0.15)' : '#fef2f2', border: `1px solid ${dark ? '#7f1d1d' : '#fecaca'}`, borderRadius: 6, fontSize: 12, color: dark ? '#fca5a5' : '#991b1b' }}>
                     {error}
                 </div>
             )}
@@ -158,7 +160,7 @@ export default function FuelPricePage() {
                                 <td style={TD}>{FUEL_LABEL[e.fuel_type] || e.fuel_type}</td>
                                 <td style={TD}>{Number(e.price_per_liter).toFixed(2)}</td>
                                 <td style={TD}>{fmtDate(e.effective_date)}</td>
-                                <td style={{ ...TD, color: '#6b7280' }}>{new Date(e.created_at).toLocaleString()}</td>
+                                <td style={{ ...TD, color: dark ? '#94a3b8' : '#6b7280' }}>{new Date(e.created_at).toLocaleString()}</td>
                                 <td style={TD}>
                                     <button onClick={() => handleDelete(e.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 12, fontWeight: 600 }}>Delete</button>
                                 </td>

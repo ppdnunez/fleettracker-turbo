@@ -19,14 +19,17 @@ function simStatus(dateStr, notifyDays) {
 }
 const STATUS_COLOR = { Expired: '#ef4444', 'Expiring soon': '#f59e0b', Normal: '#16a34a', 'Not set': '#9ca3af' };
 
-function Badge({ text }) {
+function Badge({ text, dark }) {
     const color = STATUS_COLOR[text] || '#9ca3af';
-    return <span style={{ fontSize: 11.5, fontWeight: 700, color, background: `${color}1a`, padding: '3px 9px', borderRadius: 999 }}>{text}</span>;
+    // '1a' ≈ 10% alpha (light pastel container), '26' ≈ 15% alpha (dark translucent container) —
+    // matches the app-wide dark palette's rgba(...,0.15) convention for semantic status colors.
+    const bg = dark ? `${color}26` : `${color}1a`;
+    return <span style={{ fontSize: 11.5, fontWeight: 700, color, background: bg, padding: '3px 9px', borderRadius: 999 }}>{text}</span>;
 }
 
 const fieldStyle = { display: 'flex', flexDirection: 'column', gap: 4 };
-const labelStyle = { fontSize: 11.5, color: '#6b7280', fontWeight: 600 };
-const inputStyle = { padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box', width: '100%' };
+const labelStyle = (dark) => ({ fontSize: 11.5, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 });
+const inputStyle = (dark) => ({ padding: '8px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box', width: '100%', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' });
 
 // Edits only the SIM fields, but loads and re-submits the vehicle's full settings row — the
 // backend's PUT /vehicle-settings/{imei} replaces relay/fuel/sticker fields too (see
@@ -37,7 +40,7 @@ const inputStyle = { padding: '8px 10px', border: '1px solid #d1d5db', borderRad
 // Device Management, whether or not it already has SIM data, since this is just a shortcut into
 // the same notification settings (Email Alert Recipients) the row-level edit icon opens. There's
 // no separate insert endpoint; saving upserts the vehicle_settings row (updateOrCreate).
-function SimSettingsModal({ device, pickableDevices, onClose, onSaved }) {
+function SimSettingsModal({ device, pickableDevices, onClose, onSaved, dark }) {
     const [selectedImei, setSelectedImei] = useState(device?.imei || '');
     const [loaded, setLoaded] = useState(null);
     const [simNumber, setSimNumber] = useState('');
@@ -99,21 +102,21 @@ function SimSettingsModal({ device, pickableDevices, onClose, onSaved }) {
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-            <div style={{ background: '#fff', borderRadius: 12, width: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
-                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+            <div style={{ background: dark ? '#111827' : '#fff', borderRadius: 12, width: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}` }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: dark ? '#f1f5f9' : '#0f172a' }}>
                         {device ? `SIM Data — ${device.name || device.imei}` : 'Add SIM Data'}
                     </h2>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#64748b' : '#9ca3af', fontSize: 16 }}>✕</button>
                 </div>
 
                 <div style={{ padding: 20 }}>
-                    {error && <div style={{ marginBottom: 14, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+                    {error && <div style={{ marginBottom: 14, padding: '8px 12px', background: dark ? 'rgba(239,68,68,0.15)' : '#fef2f2', border: `1px solid ${dark ? '#7f1d1d' : '#fecaca'}`, borderRadius: 6, fontSize: 12, color: dark ? '#fca5a5' : '#991b1b' }}>{error}</div>}
 
                     {!device && (
                         <div style={{ ...fieldStyle, marginBottom: 14 }}>
-                            <label style={labelStyle}>Device</label>
-                            <select value={selectedImei} onChange={e => setSelectedImei(e.target.value)} style={{ ...inputStyle, background: '#fff', cursor: 'pointer' }}>
+                            <label style={labelStyle(dark)}>Device</label>
+                            <select value={selectedImei} onChange={e => setSelectedImei(e.target.value)} style={{ ...inputStyle(dark), cursor: 'pointer' }}>
                                 <option value="">Select a device…</option>
                                 {(pickableDevices || []).map(d => (
                                     <option key={d.imei} value={d.imei}>{d.name} — {d.imei}</option>
@@ -130,29 +133,29 @@ function SimSettingsModal({ device, pickableDevices, onClose, onSaved }) {
                     ) : (
                         <>
                             <div style={{ ...fieldStyle, marginBottom: 14 }}>
-                                <label style={labelStyle}>SIM Number / ICCID</label>
-                                <input value={simNumber} onChange={e => setSimNumber(e.target.value)} disabled={fieldsDisabled} placeholder="e.g. 8991000123456789" style={inputStyle} />
+                                <label style={labelStyle(dark)}>SIM Number / ICCID</label>
+                                <input value={simNumber} onChange={e => setSimNumber(e.target.value)} disabled={fieldsDisabled} placeholder="e.g. 8991000123456789" style={inputStyle(dark)} />
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                                 <div style={fieldStyle}>
-                                    <label style={labelStyle}>Data/Load Expiry</label>
-                                    <input type="date" value={simExpiry} onChange={e => setSimExpiry(e.target.value)} disabled={fieldsDisabled} style={inputStyle} />
+                                    <label style={labelStyle(dark)}>Data/Load Expiry</label>
+                                    <input type="date" value={simExpiry} onChange={e => setSimExpiry(e.target.value)} disabled={fieldsDisabled} style={inputStyle(dark)} />
                                 </div>
                                 <div style={fieldStyle}>
-                                    <label style={labelStyle}>Notify before expiry (days)</label>
-                                    <input type="number" min="1" max="365" placeholder="Default 14" value={simNotifyDays} onChange={e => setSimNotifyDays(e.target.value)} disabled={fieldsDisabled} style={inputStyle} />
+                                    <label style={labelStyle(dark)}>Notify before expiry (days)</label>
+                                    <input type="number" min="1" max="365" placeholder="Default 14" value={simNotifyDays} onChange={e => setSimNotifyDays(e.target.value)} disabled={fieldsDisabled} style={inputStyle(dark)} />
                                 </div>
                             </div>
-                            <p style={{ margin: '10px 0 0', fontSize: 11.5, color: '#9ca3af' }}>
+                            <p style={{ margin: '10px 0 0', fontSize: 11.5, color: dark ? '#64748b' : '#9ca3af' }}>
                                 Subscribers to the "SIM Card Data/Load Expiry" alert (Alert Recipients) are emailed once the expiry falls within this window.
                             </p>
                         </>
                     )}
                 </div>
 
-                <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                <div style={{ padding: '12px 20px', borderTop: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: `1.5px solid ${dark ? '#334155' : '#e2e8f0'}`, background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
                     <button onClick={handleSave} disabled={saving || fieldsDisabled} style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: (saving || fieldsDisabled) ? 'not-allowed' : 'pointer' }}>
                         {saving ? 'Saving…' : 'Save'}
                     </button>
@@ -162,11 +165,11 @@ function SimSettingsModal({ device, pickableDevices, onClose, onSaved }) {
     );
 }
 
-const TH = { padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: 13, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', background: '#f9fafb' };
-const TD = { padding: '11px 14px', verticalAlign: 'middle', fontSize: 13, borderBottom: '1px solid #f1f5f9' };
-const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', padding: 5, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' };
+const THStyle = (dark) => ({ padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: 13, color: dark ? '#94a3b8' : '#374151', borderBottom: `2px solid ${dark ? '#1e293b' : '#e5e7eb'}`, whiteSpace: 'nowrap', background: dark ? '#0f172a' : '#f9fafb' });
+const TDStyle = (dark) => ({ padding: '11px 14px', verticalAlign: 'middle', fontSize: 13, borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, color: dark ? '#e2e8f0' : '#0f172a' });
+const iconBtnStyle = (dark) => ({ background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#60a5fa' : '#3b82f6', padding: 5, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' });
 
-export default function SimDataManagementPage() {
+export default function SimDataManagementPage({ dark }) {
     const [devices, setDevices]   = useState([]); // TurboHive trackable devices — every tracker, regardless of Vehicle registration
     const [vehicles, setVehicles] = useState([]); // local registry, for friendly name/plate
     const [settings, setSettings] = useState([]); // SIM fields by imei
@@ -224,22 +227,26 @@ export default function SimDataManagementPage() {
         r.simNumber.toLowerCase().includes(search.toLowerCase())
     );
 
+    const TH = THStyle(dark);
+    const TD = TDStyle(dark);
+    const iconBtn = iconBtnStyle(dark);
+
     return (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff' }}>
-            <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#111827' }}>Sim Data Management</h2>
-                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#6b7280' }}>Track each tracker's SIM card data/load expiry and get emailed before it runs out.</p>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: dark ? '#0b1220' : '#fff' }}>
+            <div style={{ padding: '14px 20px 12px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, flexShrink: 0 }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: dark ? '#f1f5f9' : '#111827' }}>Sim Data Management</h2>
+                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: dark ? '#94a3b8' : '#6b7280' }}>Track each tracker's SIM card data/load expiry and get emailed before it runs out.</p>
             </div>
 
-            <div style={{ padding: '12px 20px', borderBottom: '1px solid #f1f5f9', flexShrink: 0, display: 'flex', gap: 8 }}>
+            <div style={{ padding: '12px 20px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, flexShrink: 0, display: 'flex', gap: 8 }}>
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, plate no., IMEI, or SIM number"
-                    style={{ width: '100%', maxWidth: 420, boxSizing: 'border-box', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
-                <button onClick={load} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh</button>
+                    style={{ width: '100%', maxWidth: 420, boxSizing: 'border-box', padding: '8px 12px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
+                <button onClick={load} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh</button>
                 <button onClick={() => setEditing('new')} style={{ marginLeft: 'auto', padding: '7px 14px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Add SIM Data</button>
             </div>
 
             {error && (
-                <div style={{ margin: '12px 20px 0', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>
+                <div style={{ margin: '12px 20px 0', padding: '8px 12px', background: dark ? 'rgba(239,68,68,0.15)' : '#fef2f2', border: `1px solid ${dark ? '#7f1d1d' : '#fecaca'}`, borderRadius: 6, fontSize: 12, color: dark ? '#fca5a5' : '#991b1b' }}>
                     {error}
                 </div>
             )}
@@ -263,13 +270,13 @@ export default function SimDataManagementPage() {
                         ) : filtered.length === 0 ? (
                             <tr><td colSpan={7} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No devices found.</td></tr>
                         ) : filtered.map(r => (
-                            <tr key={r.imei}>
+                            <tr key={r.imei} style={{ transition: 'background 0.1s' }} onMouseEnter={e => e.currentTarget.style.background = dark ? 'rgba(255,255,255,0.04)' : 'transparent'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                                 <td style={{ ...TD, fontWeight: 500 }}>{r.name}</td>
                                 <td style={TD}>{r.plateNumber || '—'}</td>
                                 <td style={{ ...TD, fontFamily: 'monospace' }}>{r.imei}</td>
                                 <td style={TD}>{r.simNumber || '—'}</td>
                                 <td style={TD}>{r.simExpiry ? r.simExpiry.slice(0, 10) : '—'}</td>
-                                <td style={TD}><Badge text={simStatus(r.simExpiry, r.simNotifyDays)} /></td>
+                                <td style={TD}><Badge text={simStatus(r.simExpiry, r.simNotifyDays)} dark={dark} /></td>
                                 <td style={{ ...TD, textAlign: 'center' }}>
                                     <button style={iconBtn} title="Edit SIM data" onClick={() => setEditing(r)}>✏</button>
                                 </td>
@@ -285,6 +292,7 @@ export default function SimDataManagementPage() {
                     pickableDevices={editing === 'new' ? rows : undefined}
                     onClose={() => setEditing(null)}
                     onSaved={() => { setEditing(null); load(); }}
+                    dark={dark}
                 />
             )}
         </div>

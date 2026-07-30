@@ -138,6 +138,8 @@ export default function Dashboard({ user, onLogout }) {
     const [reportSection,  setReportSection]  = useState('Internal Battery');
     const [fleetPage,      setFleetPage]      = useState('Dashboard');
     const [geofenceAlerts, setGeofenceAlerts] = useState([]); // live enter/exit toasts
+    const [dark, setDark] = useState(() => localStorage.getItem('fleet_dark') === '1');
+    useEffect(() => { localStorage.setItem('fleet_dark', dark ? '1' : '0'); }, [dark]);
 
     // Live device data — initial load via REST, then kept live via WebSocket (Traccar) or MQTT (TurboHive)
     const [liveDevices,   setLiveDevices]   = useState([]);
@@ -313,7 +315,7 @@ export default function Dashboard({ user, onLogout }) {
     const selectDevice = (id) => { setLiveSelected(id); setDetailPanelOpen(true); };
 
     return (
-        <div style={{ display: 'flex', height: '100vh', fontFamily: 'Inter,system-ui,sans-serif', background: '#f1f5f9', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', height: '100vh', fontFamily: 'Inter,system-ui,sans-serif', background: dark ? '#0b1220' : '#f1f5f9', overflow: 'hidden' }}>
             {geofenceAlerts.length > 0 && (
                 <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 2000, display: 'flex', flexDirection: 'column', gap: 8, width: 300 }}>
                     {geofenceAlerts.map(a => {
@@ -343,49 +345,51 @@ export default function Dashboard({ user, onLogout }) {
                 setReportSection={setReportSection}
                 fleetPage={fleetPage}
                 setFleetPage={setFleetPage}
+                dark={dark}
+                onToggleDark={() => setDark(d => !d)}
             />
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ height: 46, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9, padding: '0 18px', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
+                <div style={{ height: 46, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9, padding: '0 18px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e2e8f0'}`, background: dark ? '#0f172a' : '#fff' }}>
                     <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                         {user.name[0]}
                     </div>
                     <div style={{ overflow: 'hidden' }}>
-                        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{user.name}</p>
+                        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: dark ? '#f1f5f9' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{user.name}</p>
                         <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', textTransform: 'capitalize' }}>{user.role || 'Administrator'}</p>
                     </div>
                 </div>
 
                 {page === 'Device Management' ? (
-                    <DeviceManagement />
+                    <DeviceManagement dark={dark} />
                 ) : page === 'Sim Data Management' ? (
-                    <SimDataManagementPage />
+                    <SimDataManagementPage dark={dark} />
                 ) : page === 'Command' ? (
-                    <CommandPage />
+                    <CommandPage dark={dark} />
                 ) : page === 'Geofence' ? (
-                    <GeofencePage onBack={() => setPage('Dashboard')} />
+                    <GeofencePage onBack={() => setPage('Dashboard')} dark={dark} />
                 ) : page === 'Alert Recipients' ? (
-                    <AlertRecipientsPage />
+                    <AlertRecipientsPage dark={dark} />
                 ) : page === 'Notification' ? (
-                    <NotificationPage />
+                    <NotificationPage dark={dark} />
                 ) : page === 'Calendars' ? (
-                    <CalendarPage />
+                    <CalendarPage dark={dark} />
                 ) : page === 'Computed Attributes' ? (
-                    <ComputedAttributePage />
+                    <ComputedAttributePage dark={dark} />
                 ) : page === 'Maintenance' ? (
-                    <MaintenancePage />
+                    <MaintenancePage dark={dark} />
                 ) : page === 'Saved Commands' ? (
-                    <SavedCommandPage />
+                    <SavedCommandPage dark={dark} />
                 ) : page === 'Groups' ? (
-                    <GroupPage />
+                    <GroupPage dark={dark} />
                 ) : page === 'Drivers' ? (
-                    <DriverPage />
+                    <DriverPage dark={dark} />
                 ) : page === 'Clients' ? (
-                    <ClientsPage />
+                    <ClientsPage dark={dark} />
                 ) : page === 'Report' ? (
-                    <ReportPage reportSection={reportSection} setReportSection={setReportSection} />
+                    <ReportPage reportSection={reportSection} setReportSection={setReportSection} dark={dark} />
                 ) : page === 'Fleet' ? (
-                    <FleetPage fleetPage={fleetPage} setFleetPage={setFleetPage} />
+                    <FleetPage fleetPage={fleetPage} setFleetPage={setFleetPage} dark={dark} />
                 ) : (
                     <>
                         <TopBar
@@ -394,6 +398,7 @@ export default function Dashboard({ user, onLogout }) {
                             mapMode={mapMode}
                             setMapMode={setMapMode}
                             selectedDevice={selectedDevice}
+                            dark={dark}
                         />
                         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                             <DeviceList
@@ -405,10 +410,11 @@ export default function Dashboard({ user, onLogout }) {
                                 loading={liveLoading}
                                 open={panelOpen}
                                 onToggle={() => setPanelOpen(o => !o)}
+                                dark={dark}
                             />
 
                             {mapMode === 'Video' ? (
-                                <VideoMode selectedDevice={selectedDevice} />
+                                <VideoMode selectedDevice={selectedDevice} dark={dark} />
                             ) : (
                                 <MapCanvas
                                     devices={liveDevices}
@@ -418,18 +424,19 @@ export default function Dashboard({ user, onLogout }) {
                                     mapMode={mapMode}
                                     mqttConnected={turboHiveEnabled ? mqttConnected : undefined}
                                     nextRefreshIn={turboHiveEnabled ? nextRefreshIn : undefined}
+                                    dark={dark}
                                 />
                             )}
 
                             {detailPanelOpen && selectedDevice && (
-                                <DeviceDetailPanel device={selectedDevice} onClose={() => setDetailPanelOpen(false)} />
+                                <DeviceDetailPanel device={selectedDevice} onClose={() => setDetailPanelOpen(false)} dark={dark} />
                             )}
                         </div>
                     </>
                 )}
             </div>
 
-            {showLogout && <LogoutModal onCancel={() => setShowLogout(false)} onConfirm={onLogout} />}
+            {showLogout && <LogoutModal onCancel={() => setShowLogout(false)} onConfirm={onLogout} dark={dark} />}
         </div>
     );
 }

@@ -163,8 +163,6 @@ function googleLayer(lyrs) {
     return { url: `https://{s}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`, subdomains: GOOGLE_SUBDOMAINS, attribution: GOOGLE_ATTRIBUTION };
 }
 
-const ARCGIS_ATTRIBUTION = '&copy; Esri';
-
 // Base-map catalog for the layer-picker control — "Mixing" entries stack two TileLayers (imagery
 // + a labels/roads reference layer) to read as a hybrid map, same as the Google hybrid option.
 const MAP_LAYERS = {
@@ -177,24 +175,9 @@ const MAP_LAYERS = {
     googleSatellite: { label: 'Google Map(Satellite)', tiles: [googleLayer('s')] },
     googleMixing:    { label: 'Google Map(Mixing)',    tiles: [googleLayer('y')] },
     googleTraffic:   { label: 'Google Map(Traffic)',   tiles: [googleLayer('m,traffic')] },
-    arcgisStreet: {
-        label: 'Arcgis(Street)',
-        tiles: [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', attribution: ARCGIS_ATTRIBUTION }],
-    },
-    arcgisSatellite: {
-        label: 'Arcgis(Satellite)',
-        tiles: [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: ARCGIS_ATTRIBUTION }],
-    },
-    arcgisMixing: {
-        label: 'Arcgis(Mixing)',
-        tiles: [
-            { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: ARCGIS_ATTRIBUTION },
-            { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}' },
-        ],
-    },
 };
 
-function MapLayerPicker({ layerKey, onChange }) {
+function MapLayerPicker({ layerKey, onChange, dark }) {
     const [open, setOpen] = useState(false);
     const ref = useRef(null);
 
@@ -211,8 +194,8 @@ function MapLayerPicker({ layerKey, onChange }) {
                 title="Change map layer"
                 style={{
                     width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: open ? '#3b82f6' : '#fff', color: open ? '#fff' : '#374151',
-                    border: '2px solid rgba(0,0,0,0.2)', borderRadius: 4,
+                    background: open ? '#3b82f6' : (dark ? '#111827' : '#fff'), color: open ? '#fff' : (dark ? '#94a3b8' : '#374151'),
+                    border: `2px solid ${dark ? '#1e293b' : 'rgba(0,0,0,0.2)'}`, borderRadius: 4,
                     cursor: 'pointer', boxShadow: '0 1px 5px rgba(0,0,0,0.4)', padding: 0,
                 }}
             >
@@ -222,11 +205,11 @@ function MapLayerPicker({ layerKey, onChange }) {
             {open && (
                 <div style={{
                     position: 'absolute', top: 0, right: 38,
-                    background: '#fff', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+                    background: dark ? '#111827' : '#fff', border: dark ? '1px solid #1e293b' : 'none', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
                     padding: '6px 0', width: 190,
                 }}>
                     {Object.entries(MAP_LAYERS).map(([key, def]) => (
-                        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', fontSize: 13, color: '#374151', cursor: 'pointer' }}>
+                        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', fontSize: 13, color: dark ? '#94a3b8' : '#374151', cursor: 'pointer' }}>
                             <input
                                 type="radio"
                                 name="mapLayer"
@@ -243,7 +226,7 @@ function MapLayerPicker({ layerKey, onChange }) {
     );
 }
 
-export default function MapCanvas({ devices, selected, onSelect, selectedDevice, mqttConnected, nextRefreshIn }) {
+export default function MapCanvas({ devices, selected, onSelect, selectedDevice, mqttConnected, nextRefreshIn, dark }) {
     const [geofences, setGeofences] = useState([]);
     const [showGeofences, setShowGeofences] = useState(false);
     const [layerKey, setLayerKey] = useState('osm');
@@ -284,7 +267,7 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                 zoomControl={false}
             >
                 {MAP_LAYERS[layerKey].tiles.map((t, i) => (
-                    <TileLayer key={`${layerKey}-${i}`} url={t.url} subdomains={t.subdomains} attribution={t.attribution} />
+                    <TileLayer key={`${layerKey}-${i}`} url={t.url} subdomains={t.subdomains || 'abc'} attribution={t.attribution} />
                 ))}
                 <ZoomControl position="topright" />
                 <FlyToSelected device={selectedDevice} />
@@ -362,16 +345,16 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                 style={{
                     position: 'absolute', top: 78, right: 10, zIndex: 1000,
                     width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: showGeofences ? '#3b82f6' : '#fff',
-                    color: showGeofences ? '#fff' : '#374151',
-                    border: '2px solid rgba(0,0,0,0.2)', borderRadius: 4,
+                    background: showGeofences ? '#3b82f6' : (dark ? '#111827' : '#fff'),
+                    color: showGeofences ? '#fff' : (dark ? '#94a3b8' : '#374151'),
+                    border: `2px solid ${dark ? '#1e293b' : 'rgba(0,0,0,0.2)'}`, borderRadius: 4,
                     cursor: 'pointer', boxShadow: '0 1px 5px rgba(0,0,0,0.4)', padding: 0,
                 }}
             >
                 <GeofenceToggleIcon />
             </button>
 
-            <MapLayerPicker layerKey={layerKey} onChange={setLayerKey} />
+            <MapLayerPicker layerKey={layerKey} onChange={setLayerKey} dark={dark} />
 
             {/* MQTT live status badge — only shown when TurboHive provider is active */}
             {mqttConnected !== undefined && (

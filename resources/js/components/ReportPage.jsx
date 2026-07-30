@@ -14,8 +14,8 @@ L.Icon.Default.mergeOptions({
 });
 
 /* ── shared sub-components ──────────────────────────────────── */
-const TH = { padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: 13, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', background: '#f9fafb' };
-const TD = { padding: '11px 14px', fontSize: 13, borderBottom: '1px solid #f1f5f9', color: '#374151' };
+const TH = (dark) => ({ padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: 13, color: dark ? '#94a3b8' : '#374151', borderBottom: `2px solid ${dark ? '#1e293b' : '#e5e7eb'}`, whiteSpace: 'nowrap', background: dark ? '#0f172a' : '#f9fafb' });
+const TD = (dark) => ({ padding: '11px 14px', fontSize: 13, borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, color: dark ? '#e2e8f0' : '#374151' });
 
 const fmtTime = (iso) => iso ? new Date(iso).toLocaleString() : '—';
 const toLocalInput = (d) => {
@@ -23,77 +23,79 @@ const toLocalInput = (d) => {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-function Notice({ color = '#fef3c7', icon = '⚠', text }) {
+const NOTICE_DARK_BG = { '#fef3c7': 'rgba(245,158,11,0.15)', '#fee2e2': 'rgba(239,68,68,0.15)', '#dcfce7': 'rgba(34,197,94,0.15)', '#dbeafe': 'rgba(59,130,246,0.15)', '#eff6ff': 'rgba(59,130,246,0.15)' };
+function Notice({ color = '#fef3c7', icon = '⚠', text, dark }) {
+    const bg = dark ? (NOTICE_DARK_BG[color] || 'rgba(148,163,184,0.15)') : color;
     return (
-        <div style={{ background: color, border: `1px solid ${color === '#fef3c7' ? '#f59e0b' : '#3b82f6'}`, borderRadius: 8, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#374151' }}>
+        <div style={{ background: bg, border: `1px solid ${color === '#fef3c7' ? '#f59e0b' : '#3b82f6'}`, borderRadius: 8, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: dark ? '#e2e8f0' : '#374151' }}>
             <span>{icon}</span><span>{text}</span>
         </div>
     );
 }
 
-function EmptyTable({ cols, rows }) {
+function EmptyTable({ cols, rows, dark }) {
     return (
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
             <thead>
-                <tr>{cols.map(c => <th key={c} style={TH}>{c}</th>)}</tr>
+                <tr>{cols.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr>
             </thead>
             <tbody>
                 {rows && rows.length ? rows.map((r, i) => (
-                    <tr key={i}>{r.map((cell, j) => <td key={j} style={TD}>{cell}</td>)}</tr>
+                    <tr key={i}>{r.map((cell, j) => <td key={j} style={TD(dark)}>{cell}</td>)}</tr>
                 )) : (
-                    <tr><td colSpan={cols.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                    <tr><td colSpan={cols.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                 )}
             </tbody>
         </table>
     );
 }
 
-function SelInput({ label, type = 'select', options = [], placeholder }) {
+function SelInput({ label, type = 'select', options = [], placeholder, dark }) {
     const [v, setV] = useState('');
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>{label}</label>
+            <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>{label}</label>
             {type === 'select' ? (
-                <select value={v} onChange={e => setV(e.target.value)} style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', minWidth: 150 }}>
+                <select value={v} onChange={e => setV(e.target.value)} style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', minWidth: 150 }}>
                     <option value="">{placeholder || 'Please select'}</option>
                     {options.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
             ) : (
                 <input type={type} value={v} onChange={e => setV(e.target.value)} placeholder={placeholder}
-                    style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                    style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
             )}
         </div>
     );
 }
 
-function FilterBar({ children, onSearch }) {
+function FilterBar({ children, onSearch, dark }) {
     return (
-        <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 18px', marginBottom: 18, display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ background: dark ? '#0f172a' : '#f9fafb', border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, borderRadius: 10, padding: '14px 18px', marginBottom: 18, display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
             {children}
             <button onClick={onSearch} style={{ padding: '7px 22px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-            <button style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
-            <button style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Export</button>
+            <button style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+            <button style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Export</button>
         </div>
     );
 }
 
-function ChartPlaceholder({ label }) {
+function ChartPlaceholder({ label, dark }) {
     return (
-        <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 10, height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 14, marginBottom: 18 }}>
+        <div style={{ background: dark ? '#111827' : '#f8fafc', border: `1px dashed ${dark ? '#334155' : '#cbd5e1'}`, borderRadius: 10, height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 14, marginBottom: 18 }}>
             📈 {label} chart — no data
         </div>
     );
 }
 
 /* ── date range preset ────────────────────────────────────────── */
-function DateDeviceFilter({ showModel, showSub }) {
+function DateDeviceFilter({ showModel, showSub, dark }) {
     return (
         <>
-            <SelInput label="Device" type="select" placeholder="Select device" />
-            <SelInput label="Start date" type="date" />
-            <SelInput label="End date" type="date" />
-            {showModel && <SelInput label="Device Model" type="select" placeholder="All models" />}
-            {showSub   && <SelInput label="Sub-account" type="select" placeholder="All accounts" />}
+            <SelInput label="Device" type="select" placeholder="Select device" dark={dark} />
+            <SelInput label="Start date" type="date" dark={dark} />
+            <SelInput label="End date" type="date" dark={dark} />
+            {showModel && <SelInput label="Device Model" type="select" placeholder="All models" dark={dark} />}
+            {showSub   && <SelInput label="Sub-account" type="select" placeholder="All accounts" dark={dark} />}
         </>
     );
 }
@@ -115,7 +117,7 @@ const BATTERY_STATUS_COLOR = { NORMAL: '#16a34a', LOW: '#f59e0b', CRITICAL: '#ef
 // sending the "status#" query command to a device (see TurboHiveService::getBatteryStatus,
 // GET /api/turbohive/device/{imei}/battery). This queries devices on demand rather than
 // showing a date-range history.
-function InternalBattery() {
+function InternalBattery({ dark }) {
     const [devices, setDevices]     = useState([]);
     const [readings, setReadings]   = useState({}); // imei -> { voltage, status, raw, checkedAt, loading, error }
     const [loadingList, setLoadingList] = useState(false);
@@ -158,30 +160,30 @@ function InternalBattery() {
                     style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: checkingAll ? 'default' : 'pointer', opacity: checkingAll ? 0.6 : 1 }}>
                     {checkingAll ? 'Checking…' : 'Check All'}
                 </button>
-                <button onClick={loadDevices} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh devices</button>
+                <button onClick={loadDevices} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh devices</button>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loadingList ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : devices.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No devices</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No devices</td></tr>
                     ) : devices.map((d, i) => {
                         const r = readings[d.imei] || {};
                         return (
                             <tr key={d.imei}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{d.deviceName ?? '—'}</td>
-                                <td style={TD}>{d.imei}</td>
-                                <td style={TD}>{r.voltage != null ? `${r.voltage}V` : '—'}</td>
-                                <td style={{ ...TD, color: BATTERY_STATUS_COLOR[r.status] || '#374151', fontWeight: 600 }}>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{d.deviceName ?? '—'}</td>
+                                <td style={TD(dark)}>{d.imei}</td>
+                                <td style={TD(dark)}>{r.voltage != null ? `${r.voltage}V` : '—'}</td>
+                                <td style={{ ...TD(dark), color: BATTERY_STATUS_COLOR[r.status] || (dark ? '#e2e8f0' : '#374151'), fontWeight: 600 }}>
                                     {r.error ? <span style={{ color: '#ef4444', fontWeight: 400 }}>{r.error}</span> : (r.status ?? '—')}
                                 </td>
-                                <td style={TD}>{fmtTime(r.checkedAt)}</td>
-                                <td style={TD}>
+                                <td style={TD(dark)}>{fmtTime(r.checkedAt)}</td>
+                                <td style={TD(dark)}>
                                     <button onClick={() => checkDevice(d.imei)} disabled={r.loading}
-                                        style={{ padding: '5px 12px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, cursor: r.loading ? 'default' : 'pointer', opacity: r.loading ? 0.6 : 1 }}>
+                                        style={{ padding: '5px 12px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 12, cursor: r.loading ? 'default' : 'pointer', opacity: r.loading ? 0.6 : 1 }}>
                                         {r.loading ? 'Checking…' : 'Check'}
                                     </button>
                                 </td>
@@ -198,7 +200,7 @@ function InternalBattery() {
 // query). `batteryVoltage` (mV) is the vehicle's external power-supply voltage, as opposed to the
 // internal device battery reported via the Internal Battery report (status# command).
 // See TurboHiveService::getObdData.
-function ExternalBattery() {
+function ExternalBattery({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -255,36 +257,36 @@ function ExternalBattery() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     {devices.length === 0 && <option value="">No devices</option>}
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="External battery is the vehicle's power-supply voltage, read from the OBD port (max 30-day range per query)." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="External battery is the vehicle's power-supply voltage, read from the OBD port (max 30-day range per query)." />
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
                         <tr key={i}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{fmtTime(r.gateTime ?? r.deviceTime)}</td>
-                            <td style={TD}>{r.batteryVoltage != null ? (r.batteryVoltage / 1000).toFixed(2) : '—'}</td>
-                            <td style={TD}>{r.vehicleSpeed ?? '—'}</td>
-                            <td style={TD}>{r.accStatus === 1 ? 'ON' : r.accStatus === 0 ? 'OFF' : '—'}</td>
-                            <td style={TD}>{obdOdometer(r) ?? '—'}</td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{fmtTime(r.gateTime ?? r.deviceTime)}</td>
+                            <td style={TD(dark)}>{r.batteryVoltage != null ? (r.batteryVoltage / 1000).toFixed(2) : '—'}</td>
+                            <td style={TD(dark)}>{r.vehicleSpeed ?? '—'}</td>
+                            <td style={TD(dark)}>{r.accStatus === 1 ? 'ON' : r.accStatus === 0 ? 'OFF' : '—'}</td>
+                            <td style={TD(dark)}>{obdOdometer(r) ?? '—'}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -333,7 +335,7 @@ function fuelEconomy(distanceKm, fuelUsedL) {
     return { kmPerL, lPer100km, mpg };
 }
 
-function FuelConsumption() {
+function FuelConsumption({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [method, setMethod]     = useState('totalizer');
@@ -437,9 +439,9 @@ function FuelConsumption() {
                     <button key={m.id} onClick={() => { setMethod(m.id); setRows([]); }}
                         style={{
                             padding: '6px 14px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-                            border: method === m.id ? '1.5px solid #3b82f6' : '1px solid #d1d5db',
-                            background: method === m.id ? '#eff6ff' : '#fff',
-                            color: method === m.id ? '#1d4ed8' : '#374151',
+                            border: method === m.id ? `1.5px solid ${dark ? '#60a5fa' : '#3b82f6'}` : (dark ? '1px solid #334155' : '1px solid #d1d5db'),
+                            background: method === m.id ? (dark ? 'rgba(59,130,246,0.15)' : '#eff6ff') : (dark ? '#1e293b' : '#fff'),
+                            color: method === m.id ? (dark ? '#60a5fa' : '#1d4ed8') : (dark ? '#e2e8f0' : '#374151'),
                         }}>
                         {m.label}
                     </button>
@@ -448,59 +450,59 @@ function FuelConsumption() {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text={notice} />
-            <Notice color="#dbeafe" icon="ℹ" text="Fuel Economy: km/L = Distance ÷ Fuel Used, L/100km = Fuel Used × 100 ÷ Distance, MPG = Distance ÷ Fuel Used converted to miles/US gallons. Shown once Distance and Fuel Used are both available, whichever method computed them." />
-            {missingSetting && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Fuel Rate configured yet — Est. Fuel Used will show as “—” until one is set." />}
-            {missingTank && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Tank Capacity configured yet — Est. Fuel Used will show as “—” until one is set." />}
-            {missingDistance && <Notice color="#fef3c7" icon="⚠" text="This device didn't report an odometer reading for the selected range, so Distance (and anything calculated from it) shows as “—” — this is a device/data limitation, not a missing setting." />}
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text={notice} />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Fuel Economy: km/L = Distance ÷ Fuel Used, L/100km = Fuel Used × 100 ÷ Distance, MPG = Distance ÷ Fuel Used converted to miles/US gallons. Shown once Distance and Fuel Used are both available, whichever method computed them." />
+            {missingSetting && <Notice dark={dark} color="#fef3c7" icon="⚠" text="This vehicle has no Fuel Rate configured yet — Est. Fuel Used will show as “—” until one is set." />}
+            {missingTank && <Notice dark={dark} color="#fef3c7" icon="⚠" text="This vehicle has no Tank Capacity configured yet — Est. Fuel Used will show as “—” until one is set." />}
+            {missingDistance && <Notice dark={dark} color="#fef3c7" icon="⚠" text="This device didn't report an odometer reading for the selected range, so Distance (and anything calculated from it) shows as “—” — this is a device/data limitation, not a missing setting." />}
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
                         <tr key={i}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                            <td style={TD}>{deviceId}</td>
-                            <td style={TD}>{fmtTime(r.startTime)}</td>
-                            <td style={TD}>{fmtTime(r.endTime)}</td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                            <td style={TD(dark)}>{deviceId}</td>
+                            <td style={TD(dark)}>{fmtTime(r.startTime)}</td>
+                            <td style={TD(dark)}>{fmtTime(r.endTime)}</td>
                             {method === 'totalizer' && <>
-                                <td style={TD}>{r.distanceKm ?? '—'}</td>
-                                <td style={TD}>{r.fuelUsed ?? '—'}</td>
+                                <td style={TD(dark)}>{r.distanceKm ?? '—'}</td>
+                                <td style={TD(dark)}>{r.fuelUsed ?? '—'}</td>
                             </>}
                             {method === 'rate' && <>
-                                <td style={TD}>{r.distanceKm ?? '—'}</td>
-                                <td style={TD}>{r.fuelRate ?? '—'}</td>
-                                <td style={TD}>{r.fuelUsed ?? '—'}</td>
+                                <td style={TD(dark)}>{r.distanceKm ?? '—'}</td>
+                                <td style={TD(dark)}>{r.fuelRate ?? '—'}</td>
+                                <td style={TD(dark)}>{r.fuelUsed ?? '—'}</td>
                             </>}
                             {method === 'sensor' && <>
-                                <td style={TD}>{r.distanceKm ?? '—'}</td>
-                                <td style={TD}>{r.startPct ?? '—'}</td>
-                                <td style={TD}>{r.endPct ?? '—'}</td>
-                                <td style={TD}>{r.tankCapacity ?? '—'}</td>
-                                <td style={TD}>{r.fuelUsed ?? '—'}</td>
+                                <td style={TD(dark)}>{r.distanceKm ?? '—'}</td>
+                                <td style={TD(dark)}>{r.startPct ?? '—'}</td>
+                                <td style={TD(dark)}>{r.endPct ?? '—'}</td>
+                                <td style={TD(dark)}>{r.tankCapacity ?? '—'}</td>
+                                <td style={TD(dark)}>{r.fuelUsed ?? '—'}</td>
                             </>}
-                            <td style={TD}>{r.kmPerL ?? '—'}</td>
-                            <td style={TD}>{r.lPer100km ?? '—'}</td>
-                            <td style={TD}>{r.mpg ?? '—'}</td>
-                            <td style={TD}>{r.points}</td>
+                            <td style={TD(dark)}>{r.kmPerL ?? '—'}</td>
+                            <td style={TD(dark)}>{r.lPer100km ?? '—'}</td>
+                            <td style={TD(dark)}>{r.mpg ?? '—'}</td>
+                            <td style={TD(dark)}>{r.points}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -517,7 +519,7 @@ function FuelConsumption() {
 // one thing every trackable device reports regardless of OBD support, so this works even for
 // devices Fuel Consumption's "Fuel Rate"/"OBD Totalizer"/"Fuel Sensor" methods can't (no OBD harness
 // at all).
-function MileageFuelConsumption() {
+function MileageFuelConsumption({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [vehicleSetting, setVehicleSetting] = useState(null);
@@ -588,43 +590,43 @@ function MileageFuelConsumption() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Estimated purely from distance travelled (GNSS position, not OBD) × this vehicle's configured Fuel Rate — set it under Vehicle > Vehicle Settings. Works for any trackable device, with or without an OBD harness." />
-            {missingSetting && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Fuel Rate configured yet — Est. Fuel Used will show as “—” until one is set." />}
-            {error && <Notice color="#fee2e2" icon="⚠" text={error} />}
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Estimated purely from distance travelled (GNSS position, not OBD) × this vehicle's configured Fuel Rate — set it under Vehicle > Vehicle Settings. Works for any trackable device, with or without an OBD harness." />
+            {missingSetting && <Notice dark={dark} color="#fef3c7" icon="⚠" text="This vehicle has no Fuel Rate configured yet — Est. Fuel Used will show as “—” until one is set." />}
+            {error && <Notice dark={dark} color="#fee2e2" icon="⚠" text={error} />}
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
-                    <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : !row ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : (
                             <tr>
-                                <td style={TD}>1</td>
-                                <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                                <td style={TD}>{deviceId}</td>
-                                <td style={TD}>{fmtTime(row.startTime)}</td>
-                                <td style={TD}>{fmtTime(row.endTime)}</td>
-                                <td style={TD}>{row.distanceKm}</td>
-                                <td style={TD}>{row.fuelRate ?? '—'}</td>
-                                <td style={TD}>{row.fuelUsed ?? '—'}</td>
-                                <td style={TD}>{row.kmPerL ?? '—'}</td>
-                                <td style={TD}>{row.lPer100km ?? '—'}</td>
-                                <td style={TD}>{row.mpg ?? '—'}</td>
-                                <td style={TD}>{row.points}</td>
+                                <td style={TD(dark)}>1</td>
+                                <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                                <td style={TD(dark)}>{deviceId}</td>
+                                <td style={TD(dark)}>{fmtTime(row.startTime)}</td>
+                                <td style={TD(dark)}>{fmtTime(row.endTime)}</td>
+                                <td style={TD(dark)}>{row.distanceKm}</td>
+                                <td style={TD(dark)}>{row.fuelRate ?? '—'}</td>
+                                <td style={TD(dark)}>{row.fuelUsed ?? '—'}</td>
+                                <td style={TD(dark)}>{row.kmPerL ?? '—'}</td>
+                                <td style={TD(dark)}>{row.lPer100km ?? '—'}</td>
+                                <td style={TD(dark)}>{row.mpg ?? '—'}</td>
+                                <td style={TD(dark)}>{row.points}</td>
                             </tr>
                         )}
                     </tbody>
@@ -641,7 +643,7 @@ function MileageFuelConsumption() {
 // aren't documented by TurboHive, so extraction is best-effort (fuelLevel/fuel_level/fuel and a
 // couple of nested/dotted variants) — a device shows "Waiting for live reading…" until its first
 // sensor.updated message arrives after this page loads; there's no historical/REST fallback here.
-function CurrentFuelValue() {
+function CurrentFuelValue({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [readings, setReadings] = useState({}); // imei -> { fuelLevel, voltage, timestamp, raw }
     const [loading, setLoading]   = useState(true);
@@ -690,24 +692,24 @@ function CurrentFuelValue() {
                     MQTT {mqttConnected ? 'Live' : 'Connecting…'}
                 </span>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Live only — pushed from TurboHive's MQTT sensor topic. A device shows a reading only after it reports at least once while this page is open." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Live only — pushed from TurboHive's MQTT sensor topic. A device shows a reading only after it reports at least once while this page is open." />
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : devices.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No devices</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No devices</td></tr>
                     ) : devices.map((d, i) => {
                         const r = readings[d.imei];
                         return (
                             <tr key={d.imei}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{d.deviceName ?? '—'}</td>
-                                <td style={TD}>{d.imei}</td>
-                                <td style={TD}>{r?.fuelLevel != null ? `${r.fuelLevel}%` : <span style={{ color: '#94a3b8' }}>Waiting for live reading…</span>}</td>
-                                <td style={TD}>{r?.voltage != null ? `${r.voltage}V` : '—'}</td>
-                                <td style={TD}>{r ? fmtTime(r.timestamp) : '—'}</td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{d.deviceName ?? '—'}</td>
+                                <td style={TD(dark)}>{d.imei}</td>
+                                <td style={TD(dark)}>{r?.fuelLevel != null ? `${r.fuelLevel}%` : <span style={{ color: '#94a3b8' }}>Waiting for live reading…</span>}</td>
+                                <td style={TD(dark)}>{r?.voltage != null ? `${r.voltage}V` : '—'}</td>
+                                <td style={TD(dark)}>{r ? fmtTime(r.timestamp) : '—'}</td>
                             </tr>
                         );
                     })}
@@ -750,11 +752,11 @@ function obdOdometer(p) {
 
 // Single-line sparkline, same hand-rolled approach as TempHumidityChart below (no chart dependency
 // in this project), plotted from the same rows the table renders.
-function FuelCurveChart({ rows }) {
+function FuelCurveChart({ rows, dark }) {
     const pts = rows.filter(r => r.percent != null);
     if (pts.length < 2) {
         return (
-            <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 10, height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13, marginBottom: 14 }}>
+            <div style={{ background: dark ? '#111827' : '#f8fafc', border: dark ? '1px dashed #334155' : '1px dashed #cbd5e1', borderRadius: 10, height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13, marginBottom: 14 }}>
                 ⛽ Fuel Curve — not enough data
             </div>
         );
@@ -770,7 +772,7 @@ function FuelCurveChart({ rows }) {
     });
 
     return (
-        <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <div style={{ background: dark ? '#111827' : '#f8fafc', border: dark ? '1px solid #1e293b' : '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 14 }}>
             <div style={{ marginBottom: 6, fontSize: 12, color: '#16a34a', fontWeight: 600 }}>● Fuel level (%)</div>
             <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
                 <path d={d} fill="none" stroke="#16a34a" strokeWidth="2" />
@@ -782,7 +784,7 @@ function FuelCurveChart({ rows }) {
 // Built from TurboHive's GET /v3/obd (see loadObdPoints above), plotting each reading's fuel-level
 // percentage chronologically. Distinct from Fuel Consumption, which only returns one summary total
 // per device for the whole period.
-function FuelCurve() {
+function FuelCurve({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -825,36 +827,36 @@ function FuelCurve() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Only OBD-capable devices reporting a fuel-level reading show data here (max 30-day range, up to 100 readings per query)." />
-            <FuelCurveChart rows={rows} />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Only OBD-capable devices reporting a fuel-level reading show data here (max 30-day range, up to 100 readings per query)." />
+            <FuelCurveChart rows={rows} dark={dark} />
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : [...rows].reverse().map((r, i) => (
                         <tr key={i}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                            <td style={TD}>{deviceId}</td>
-                            <td style={TD}>{r.percent != null ? `${r.percent}%` : '—'}</td>
-                            <td style={TD}>{fmtTime(r.time)}</td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                            <td style={TD(dark)}>{deviceId}</td>
+                            <td style={TD(dark)}>{r.percent != null ? `${r.percent}%` : '—'}</td>
+                            <td style={TD(dark)}>{fmtTime(r.time)}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -866,7 +868,7 @@ function FuelCurve() {
 // Shared by Refuelling and Abnormal Loss — both scan consecutive OBD readings (see loadObdPoints)
 // for a level jump past a threshold, differing only in direction/threshold/labels. Amount in liters
 // can't be shown (TurboHive doesn't expose tank capacity), so only the percentage change is reported.
-function FuelEventReport({ detect, eventLabel, noticeText }) {
+function FuelEventReport({ detect, eventLabel, noticeText, dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -914,37 +916,37 @@ function FuelEventReport({ detect, eventLabel, noticeText }) {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            {noticeText && <Notice color="#dbeafe" icon="ℹ" text={noticeText} />}
+            {noticeText && <Notice dark={dark} color="#dbeafe" icon="ℹ" text={noticeText} />}
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
                         <tr key={i}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                            <td style={TD}>{deviceId}</td>
-                            <td style={TD}>{r.fromPercent}%</td>
-                            <td style={TD}>{r.toPercent}%</td>
-                            <td style={TD}>{r.changePercent > 0 ? '+' : ''}{r.changePercent}%</td>
-                            <td style={TD}>{fmtTime(r.time)}</td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                            <td style={TD(dark)}>{deviceId}</td>
+                            <td style={TD(dark)}>{r.fromPercent}%</td>
+                            <td style={TD(dark)}>{r.toPercent}%</td>
+                            <td style={TD(dark)}>{r.changePercent > 0 ? '+' : ''}{r.changePercent}%</td>
+                            <td style={TD(dark)}>{fmtTime(r.time)}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -957,7 +959,7 @@ const REFUEL_RISE_THRESHOLD = 5;   // percentage points between two consecutive 
 const ABNORMAL_DROP_THRESHOLD = 8; // percentage points
 const ABNORMAL_DROP_MAX_KM = 1;    // "almost no distance travelled" cutoff
 
-function Refuelling() {
+function Refuelling({ dark }) {
     const detect = (prev, curr) => {
         const from = obdFuelLevel(prev), to = obdFuelLevel(curr);
         if (from == null || to == null) return null;
@@ -966,11 +968,11 @@ function Refuelling() {
             ? { fromPercent: from, toPercent: to, changePercent: change, time: curr.gateTime }
             : null;
     };
-    return <FuelEventReport detect={detect} eventLabel="Refuelling"
+    return <FuelEventReport detect={detect} eventLabel="Refuelling" dark={dark}
         noticeText={`A level rise of at least ${REFUEL_RISE_THRESHOLD}% between two consecutive OBD readings is treated as a refuel.`} />;
 }
 
-function AbnormalFuelLoss() {
+function AbnormalFuelLoss({ dark }) {
     const detect = (prev, curr) => {
         const from = obdFuelLevel(prev), to = obdFuelLevel(curr);
         if (from == null || to == null) return null;
@@ -981,14 +983,14 @@ function AbnormalFuelLoss() {
             ? { fromPercent: from, toPercent: to, changePercent: change, time: curr.gateTime }
             : null;
     };
-    return <FuelEventReport detect={detect} eventLabel="Abnormal Loss"
+    return <FuelEventReport detect={detect} eventLabel="Abnormal Loss" dark={dark}
         noticeText={`A level drop of at least ${ABNORMAL_DROP_THRESHOLD}% with under ${ABNORMAL_DROP_MAX_KM}km travelled between two consecutive OBD readings is flagged as an abnormal loss (leak/siphon), distinct from normal consumption while driving.`} />;
 }
 
 // Sums fuel burned (via the confirmed totalFuelConsumption totalizer) across contiguous runs of
 // near-zero-speed OBD readings — same IDLE_SPEED_KMH threshold Parking/Idling/Ignition use on the
 // GNSS track, applied here to OBD's vehicleSpeed field instead.
-function IdleFuel() {
+function IdleFuel({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -1047,36 +1049,36 @@ function IdleFuel() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
                         <tr key={i}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                            <td style={TD}>{deviceId}</td>
-                            <td style={TD}>{fmtTime(r.startTime)}</td>
-                            <td style={TD}>{fmtTime(r.endTime)}</td>
-                            <td style={TD}>{formatHMS(r.idleDurationMs)}</td>
-                            <td style={TD}>{r.fuelUsed ?? '—'}</td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                            <td style={TD(dark)}>{deviceId}</td>
+                            <td style={TD(dark)}>{fmtTime(r.startTime)}</td>
+                            <td style={TD(dark)}>{fmtTime(r.endTime)}</td>
+                            <td style={TD(dark)}>{formatHMS(r.idleDurationMs)}</td>
+                            <td style={TD(dark)}>{r.fuelUsed ?? '—'}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -1113,7 +1115,7 @@ async function computeFuelEfficiencyRows(devices, from, to) {
 // Ranks vehicles best (lowest L/100km) to worst. TurboHive has no driver/route assignment data
 // (unlike Traccar, which this report used to also rank by), so this dimension is vehicle-only now
 // — see Tonne-Kilometre Fuel Analytics below for the cargo-weighted efficiency view.
-function FuelRanking() {
+function FuelRanking({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
     const [to, setTo]             = useState(() => toLocalInput(new Date()));
@@ -1156,33 +1158,33 @@ function FuelRanking() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Ranked best (lowest L/100km) to worst, across every OBD-capable device. TurboHive has no driver/route assignment data, so ranking is vehicle-only." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Ranked best (lowest L/100km) to worst, across every OBD-capable device. TurboHive has no driver/route assignment data, so ranking is vehicle-only." />
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
                         <tr key={r.imei}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{r.deviceName ?? '—'}</td>
-                            <td style={TD}>{r.imei}</td>
-                            <td style={TD}>{r.distanceKm}</td>
-                            <td style={TD}>{r.fuelUsed}</td>
-                            <td style={TD}>{r.fuelPer100km}</td>
-                            <td style={TD}>{r.tonneKm}</td>
-                            <td style={TD}>{r.fuelPerTonneKm}</td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{r.deviceName ?? '—'}</td>
+                            <td style={TD(dark)}>{r.imei}</td>
+                            <td style={TD(dark)}>{r.distanceKm}</td>
+                            <td style={TD(dark)}>{r.fuelUsed}</td>
+                            <td style={TD(dark)}>{r.fuelPer100km}</td>
+                            <td style={TD(dark)}>{r.tonneKm}</td>
+                            <td style={TD(dark)}>{r.fuelPerTonneKm}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -1195,7 +1197,7 @@ function FuelRanking() {
 // Management spec (alongside fuel curve/refuelling/idle fuel/abnormal loss/ranking) but previously
 // only surfaced as extra columns on Ranking. Same underlying per-device computation, but ranked and
 // framed around L/Tonne-km specifically — the fuel cost of moving a tonne of cargo one kilometre.
-function TonneKmAnalytics() {
+function TonneKmAnalytics({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
     const [to, setTo]             = useState(() => toLocalInput(new Date()));
@@ -1240,38 +1242,38 @@ function TonneKmAnalytics() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="TurboHive exposes no cargo-weight attribute, so Tonne-km assumes a uniform 1 tonne per vehicle — treat L/Tonne-km as relative between vehicles here, not an absolute figure. Ranked best (lowest L/Tonne-km) to worst." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="TurboHive exposes no cargo-weight attribute, so Tonne-km assumes a uniform 1 tonne per vehicle — treat L/Tonne-km as relative between vehicles here, not an absolute figure. Ranked best (lowest L/Tonne-km) to worst." />
             {rows.length > 0 && (
-                <p style={{ fontSize: 13, color: '#374151', margin: '0 0 10px' }}>
+                <p style={{ fontSize: 13, color: dark ? '#e2e8f0' : '#374151', margin: '0 0 10px' }}>
                     <strong>Fleet total:</strong> {totalTonneKm.toFixed(2)} tonne-km &nbsp;·&nbsp; {totalFuel.toFixed(2)} L used
                     &nbsp;·&nbsp; {totalTonneKm > 0 ? (totalFuel / totalTonneKm).toFixed(3) : '—'} L/Tonne-km overall
                 </p>
             )}
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
                         <tr key={r.imei}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{r.deviceName ?? '—'}</td>
-                            <td style={TD}>{r.imei}</td>
-                            <td style={TD}>{r.distanceKm}</td>
-                            <td style={TD}>{r.tonneKm}</td>
-                            <td style={TD}>{r.fuelUsed}</td>
-                            <td style={TD}>{r.fuelPerTonneKm}</td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{r.deviceName ?? '—'}</td>
+                            <td style={TD(dark)}>{r.imei}</td>
+                            <td style={TD(dark)}>{r.distanceKm}</td>
+                            <td style={TD(dark)}>{r.tonneKm}</td>
+                            <td style={TD(dark)}>{r.fuelUsed}</td>
+                            <td style={TD(dark)}>{r.fuelPerTonneKm}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -1282,11 +1284,11 @@ function TonneKmAnalytics() {
 
 // Lightweight hand-rolled dual-line sparkline (no chart dependency in this project) replacing the
 // old static placeholder, plotted from the same rows the table below renders.
-function TempHumidityChart({ rows }) {
+function TempHumidityChart({ rows, dark }) {
     const ordered = [...rows].reverse(); // table is newest-first; chart reads chronologically
     if (ordered.length < 2) {
         return (
-            <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 10, height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13, marginBottom: 14 }}>
+            <div style={{ background: dark ? '#111827' : '#f8fafc', border: dark ? '1px dashed #334155' : '1px dashed #cbd5e1', borderRadius: 10, height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13, marginBottom: 14 }}>
                 📈 Temperature & Humidity (dual axis) — not enough data
             </div>
         );
@@ -1310,7 +1312,7 @@ function TempHumidityChart({ rows }) {
     };
 
     return (
-        <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <div style={{ background: dark ? '#111827' : '#f8fafc', border: dark ? '1px solid #1e293b' : '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 14 }}>
             <div style={{ display: 'flex', gap: 16, marginBottom: 6, fontSize: 12 }}>
                 <span style={{ color: '#ef4444', fontWeight: 600 }}>● Temperature (°C)</span>
                 <span style={{ color: '#3b82f6', fontWeight: 600 }}>● Humidity (%)</span>
@@ -1393,7 +1395,7 @@ function groupTripsByDay(trips) {
 // grouped per day with a Summary section below, mirroring TurboHive's own trip-based fuel report.
 // Only OBD-capable devices report a fuel totalizer; a trip with no totalizer delta shows "—" for
 // Fuel Used and Fuel/100km rather than a misleading 0.
-function TripFuelConsumption() {
+function TripFuelConsumption({ dark }) {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
     const [from, setFrom]           = useState(() => { const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -1447,20 +1449,20 @@ function TripFuelConsumption() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="A trip is a run of ACC-on OBD points (max 30-day range per query); Distance and Fuel Used are the device's own odometer/fuel-totalizer deltas across each trip, not estimates." />
-            {error && <Notice color="#fee2e2" icon="⚠" text={error} />}
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="A trip is a run of ACC-on OBD points (max 30-day range per query); Distance and Fuel Used are the device's own odometer/fuel-totalizer deltas across each trip, not estimates." />
+            {error && <Notice dark={dark} color="#fee2e2" icon="⚠" text={error} />}
 
             {loading ? (
                 <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</div>
@@ -1471,28 +1473,28 @@ function TripFuelConsumption() {
                     {days.map(({ date, trips }) => {
                         const isCollapsed = !!collapsed[date];
                         return (
-                            <div key={date} style={{ marginBottom: 10, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                            <div key={date} style={{ marginBottom: 10, border: dark ? '1px solid #1e293b' : '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
                                 <button onClick={() => setCollapsed(c => ({ ...c, [date]: !c[date] }))}
-                                    style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                                    style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: dark ? '#111827' : '#f8fafc', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: dark ? '#e2e8f0' : '#374151' }}>
                                     <span>{date}: {trips.length} trip{trips.length !== 1 ? 's' : ''}</span>
                                     <span style={{ color: '#9ca3af' }}>{isCollapsed ? '▸' : '▾'}</span>
                                 </button>
                                 {!isCollapsed && (
                                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
-                                        <thead><tr>{TRIP_COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                                        <thead><tr>{TRIP_COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                                         <tbody>
                                             {trips.map((t, i) => (
                                                 <tr key={i}>
-                                                    <td style={TD}>{fmtTime(t.startTime)}</td>
-                                                    <td style={TD}><LocationLink lat={t.startLat} lon={t.startLon} /></td>
-                                                    <td style={TD}>{fmtTime(t.endTime)}</td>
-                                                    <td style={TD}><LocationLink lat={t.endLat} lon={t.endLon} /></td>
-                                                    <td style={TD}>{formatHMS(t.durationMs)}</td>
-                                                    <td style={TD}>{t.distanceKm ?? '—'}</td>
-                                                    <td style={TD}>{t.fuelUsed ?? '—'}</td>
-                                                    <td style={TD}>{t.fuelPer100km ?? '—'}</td>
-                                                    <td style={TD}>{t.avgSpeedKmh.toFixed(2)}</td>
-                                                    <td style={TD}>{t.maxSpeedKmh}</td>
+                                                    <td style={TD(dark)}>{fmtTime(t.startTime)}</td>
+                                                    <td style={TD(dark)}><LocationLink lat={t.startLat} lon={t.startLon} /></td>
+                                                    <td style={TD(dark)}>{fmtTime(t.endTime)}</td>
+                                                    <td style={TD(dark)}><LocationLink lat={t.endLat} lon={t.endLon} /></td>
+                                                    <td style={TD(dark)}>{formatHMS(t.durationMs)}</td>
+                                                    <td style={TD(dark)}>{t.distanceKm ?? '—'}</td>
+                                                    <td style={TD(dark)}>{t.fuelUsed ?? '—'}</td>
+                                                    <td style={TD(dark)}>{t.fuelPer100km ?? '—'}</td>
+                                                    <td style={TD(dark)}>{t.avgSpeedKmh.toFixed(2)}</td>
+                                                    <td style={TD(dark)}>{t.maxSpeedKmh}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -1502,36 +1504,36 @@ function TripFuelConsumption() {
                         );
                     })}
 
-                    <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-                        <div style={{ padding: '10px 14px', background: '#f8fafc', fontSize: 13, fontWeight: 600, color: '#374151' }}>Summary</div>
+                    <div style={{ marginTop: 18, border: dark ? '1px solid #1e293b' : '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                        <div style={{ padding: '10px 14px', background: dark ? '#111827' : '#f8fafc', fontSize: 13, fontWeight: 600, color: dark ? '#e2e8f0' : '#374151' }}>Summary</div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
-                            <thead><tr>{['No.', 'Device Name', 'IMEI', 'Model', 'Duration', 'Total Mileage(km)', 'Total Fuel Consumption (L)', 'Fuel/100KM(L)', 'Average Speed (km/h)', 'Max. speed(km/h)'].map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                            <thead><tr>{['No.', 'Device Name', 'IMEI', 'Model', 'Duration', 'Total Mileage(km)', 'Total Fuel Consumption (L)', 'Fuel/100KM(L)', 'Average Speed (km/h)', 'Max. speed(km/h)'].map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                             <tbody>
                                 <tr>
-                                    <td style={TD}>1</td>
-                                    <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                                    <td style={TD}>{deviceId}</td>
-                                    <td style={TD}>{selectedDevice?.model ?? '—'}</td>
-                                    <td style={TD}>{formatHMS(totalDurationMs)}</td>
-                                    <td style={TD}>{totalMileage.toFixed(2)}</td>
-                                    <td style={TD}>{totalFuel.toFixed(2)}</td>
-                                    <td style={TD}>{fuelPer100km ?? '—'}</td>
-                                    <td style={TD}>{avgSpeed.toFixed(2)}</td>
-                                    <td style={TD}>{maxSpeed}</td>
+                                    <td style={TD(dark)}>1</td>
+                                    <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                                    <td style={TD(dark)}>{deviceId}</td>
+                                    <td style={TD(dark)}>{selectedDevice?.model ?? '—'}</td>
+                                    <td style={TD(dark)}>{formatHMS(totalDurationMs)}</td>
+                                    <td style={TD(dark)}>{totalMileage.toFixed(2)}</td>
+                                    <td style={TD(dark)}>{totalFuel.toFixed(2)}</td>
+                                    <td style={TD(dark)}>{fuelPer100km ?? '—'}</td>
+                                    <td style={TD(dark)}>{avgSpeed.toFixed(2)}</td>
+                                    <td style={TD(dark)}>{maxSpeed}</td>
                                 </tr>
                             </tbody>
                         </table>
-                        <div style={{ padding: '8px 14px', background: '#f8fafc', fontSize: 13, fontWeight: 600, color: '#374151', borderTop: '1px solid #e5e7eb' }}>Total</div>
+                        <div style={{ padding: '8px 14px', background: dark ? '#111827' : '#f8fafc', fontSize: 13, fontWeight: 600, color: dark ? '#e2e8f0' : '#374151', borderTop: dark ? '1px solid #1e293b' : '1px solid #e5e7eb' }}>Total</div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
-                            <thead><tr>{['Trips', 'Total Mileage(km)', 'Duration', 'Average Speed (km/h)', 'Max. speed(km/h)', 'Total Fuel Consumption (L)'].map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                            <thead><tr>{['Trips', 'Total Mileage(km)', 'Duration', 'Average Speed (km/h)', 'Max. speed(km/h)', 'Total Fuel Consumption (L)'].map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                             <tbody>
                                 <tr>
-                                    <td style={TD}>{allTrips.length}</td>
-                                    <td style={TD}>{totalMileage.toFixed(2)}</td>
-                                    <td style={TD}>{formatHMS(totalDurationMs)}</td>
-                                    <td style={TD}>{avgSpeed.toFixed(2)}</td>
-                                    <td style={TD}>{maxSpeed}</td>
-                                    <td style={TD}>{totalFuel.toFixed(2)}</td>
+                                    <td style={TD(dark)}>{allTrips.length}</td>
+                                    <td style={TD(dark)}>{totalMileage.toFixed(2)}</td>
+                                    <td style={TD(dark)}>{formatHMS(totalDurationMs)}</td>
+                                    <td style={TD(dark)}>{avgSpeed.toFixed(2)}</td>
+                                    <td style={TD(dark)}>{maxSpeed}</td>
+                                    <td style={TD(dark)}>{totalFuel.toFixed(2)}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1548,7 +1550,7 @@ function TripFuelConsumption() {
 // historical REST endpoint for this, so — same as Current Fuel Value — this is live-only; a
 // device shows a reading only after it reports at least once while this page is open. Selecting
 // a single device charts its readings as they arrive (rolling 50-point buffer, resets on switch).
-function TemperatureHumidity() {
+function TemperatureHumidity({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [readings, setReadings] = useState({}); // imei -> { temperature, humidity, timestamp, raw }
@@ -1600,7 +1602,7 @@ function TemperatureHumidity() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">All devices</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
@@ -1609,25 +1611,25 @@ function TemperatureHumidity() {
                     MQTT {mqttConnected ? 'Live' : 'Connecting…'}
                 </span>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Live only — pushed from TurboHive's MQTT sensor topic. A device shows a reading only after it reports at least once while this page is open. Select a single device to see its live chart." />
-            {deviceId && <TempHumidityChart rows={history} />}
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Live only — pushed from TurboHive's MQTT sensor topic. A device shows a reading only after it reports at least once while this page is open. Select a single device to see its live chart." />
+            {deviceId && <TempHumidityChart rows={history} dark={dark} />}
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No devices</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No devices</td></tr>
                     ) : rows.map((d, i) => {
                         const r = readings[d.imei];
                         return (
                             <tr key={d.imei}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{d.deviceName ?? '—'}</td>
-                                <td style={TD}>{d.imei}</td>
-                                <td style={TD}>{r?.temperature != null ? `${r.temperature}°C` : <span style={{ color: '#94a3b8' }}>Waiting for live reading…</span>}</td>
-                                <td style={TD}>{r?.humidity != null ? `${r.humidity}%` : '—'}</td>
-                                <td style={TD}>{r ? fmtTime(r.timestamp) : '—'}</td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{d.deviceName ?? '—'}</td>
+                                <td style={TD(dark)}>{d.imei}</td>
+                                <td style={TD(dark)}>{r?.temperature != null ? `${r.temperature}°C` : <span style={{ color: '#94a3b8' }}>Waiting for live reading…</span>}</td>
+                                <td style={TD(dark)}>{r?.humidity != null ? `${r.humidity}%` : '—'}</td>
+                                <td style={TD(dark)}>{r ? fmtTime(r.timestamp) : '—'}</td>
                             </tr>
                         );
                     })}
@@ -1714,7 +1716,7 @@ function alertLabel(r) {
 
 // Lightweight searchable combobox (label above, click-to-open panel with a search box) — used for
 // both the Alert Type and Devices filters so long option lists (200+ alert names) stay usable.
-function SearchSelect({ label, placeholder, value, onChange, options }) {
+function SearchSelect({ label, placeholder, value, onChange, options, dark }) {
     const [open, setOpen]   = useState(false);
     const [query, setQuery] = useState('');
     const ref = useRef(null);
@@ -1730,24 +1732,24 @@ function SearchSelect({ label, placeholder, value, onChange, options }) {
 
     return (
         <div ref={ref} style={{ position: 'relative', minWidth: 220 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 6 }}>{label}</label>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dark ? '#f1f5f9' : '#111827', marginBottom: 6 }}>{label}</label>
             <div onClick={() => setOpen(o => !o)}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', border: `1px solid ${open ? '#6366f1' : '#d1d5db'}`, borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, color: selected ? '#111827' : '#9ca3af' }}>
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', border: `1px solid ${open ? (dark ? '#60a5fa' : '#6366f1') : (dark ? '#334155' : '#d1d5db')}`, borderRadius: 8, background: dark ? '#1e293b' : '#fff', cursor: 'pointer', fontSize: 13, color: selected ? (dark ? '#f1f5f9' : '#111827') : '#9ca3af' }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected ? selected.label : placeholder}</span>
                 <span style={{ color: '#9ca3af', marginLeft: 8 }}>▾</span>
             </div>
             {open && (
-                <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, marginTop: 4, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.15)', maxHeight: 320, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, marginTop: 4, background: dark ? '#1e293b' : '#fff', border: `1px solid ${dark ? '#334155' : '#e5e7eb'}`, borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.15)', maxHeight: 320, display: 'flex', flexDirection: 'column' }}>
                     <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search…"
-                        style={{ margin: 8, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                        style={{ margin: 8, padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#0f172a' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
                     <div style={{ overflowY: 'auto', flex: 1 }}>
                         <div onClick={() => { onChange(''); setOpen(false); setQuery(''); }}
-                            style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: !value ? '#4f46e5' : '#374151', fontWeight: !value ? 600 : 400 }}>
+                            style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: !value ? (dark ? '#60a5fa' : '#4f46e5') : (dark ? '#e2e8f0' : '#374151'), fontWeight: !value ? 600 : 400 }}>
                             {placeholder}
                         </div>
                         {filtered.map(o => (
                             <div key={o.value} onClick={() => { onChange(o.value); setOpen(false); setQuery(''); }}
-                                style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: o.value === value ? '#4f46e5' : '#374151', fontWeight: o.value === value ? 600 : 400, background: o.value === value ? '#eef2ff' : 'transparent' }}>
+                                style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: o.value === value ? (dark ? '#60a5fa' : '#4f46e5') : (dark ? '#e2e8f0' : '#374151'), fontWeight: o.value === value ? 600 : 400, background: o.value === value ? (dark ? 'rgba(96,165,250,0.15)' : '#eef2ff') : 'transparent' }}>
                                 {o.label}
                             </div>
                         ))}
@@ -1762,7 +1764,7 @@ function SearchSelect({ label, placeholder, value, onChange, options }) {
 // TurboHive attaches dashcam/ADAS evidence (photos/videos, e.g. for Camera Fault or harsh-driving
 // alerts) to some historical alerts via GET /v3/alerts/page's `attachment` array — see
 // TurboHiveService::getAlerts. Not observed on the live MQTT alert feed, so historical-only.
-function AttachmentLinks({ attachments }) {
+function AttachmentLinks({ attachments, dark }) {
     if (!attachments || attachments.length === 0) return <span style={{ color: '#94a3b8' }}>—</span>;
     return (
         <span style={{ display: 'inline-flex', gap: 6 }}>
@@ -1778,7 +1780,7 @@ function AttachmentLinks({ attachments }) {
     );
 }
 
-function MqttBadge({ connected }) {
+function MqttBadge({ connected, dark }) {
     return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, color: '#fff', background: connected ? '#16a34a' : '#94a3b8' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />
@@ -1804,41 +1806,41 @@ function alertFileNames(r) {
 // (gnss.satellites, alert.type, alert.code, alert.file, device.imei, gnss.lng, alert.time,
 // gnss.speed, alert.value, gnss.lat, device.time, alert.msgClass). Shown as-is rather than
 // re-labeled, so it reads the same as the vendor's own example payloads.
-function AlertRawDetailsModal({ event, onClose, onRequestUpload, requesting, message }) {
+function AlertRawDetailsModal({ event, onClose, onRequestUpload, requesting, message, dark }) {
     const raw = event.raw || {};
     const files = alertFileNames(event);
     const rows = Object.entries(raw).filter(([k]) => k !== 'alert.file');
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-            <div style={{ background: '#fff', borderRadius: 12, width: 460, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
-                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Alert Details</h2>
+            <div style={{ background: dark ? '#111827' : '#fff', borderRadius: 12, width: 460, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: dark ? '1px solid #1e293b' : '1px solid #f1f5f9' }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: dark ? '#f1f5f9' : '#0f172a' }}>Alert Details</h2>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
                 </div>
 
                 <div style={{ padding: 20 }}>
-                    {message && <div style={{ marginBottom: 14, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534' }}>{message}</div>}
+                    {message && <div style={{ marginBottom: 14, padding: '8px 12px', background: dark ? 'rgba(34,197,94,0.15)' : '#f0fdf4', border: `1px solid ${dark ? '#166534' : '#bbf7d0'}`, borderRadius: 6, fontSize: 12, color: dark ? '#86efac' : '#166534' }}>{message}</div>}
 
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, marginBottom: 16 }}>
                         <tbody>
                             {rows.map(([k, v]) => (
                                 <tr key={k}>
-                                    <td style={{ padding: '5px 8px 5px 0', color: '#6b7280', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{k}</td>
-                                    <td style={{ padding: '5px 0', color: '#111827', fontWeight: 500, wordBreak: 'break-word' }}>{String(v)}</td>
+                                    <td style={{ padding: '5px 8px 5px 0', color: dark ? '#94a3b8' : '#6b7280', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{k}</td>
+                                    <td style={{ padding: '5px 0', color: dark ? '#f1f5f9' : '#111827', fontWeight: 500, wordBreak: 'break-word' }}>{String(v)}</td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
 
-                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: dark ? '#e2e8f0' : '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>
                         Evidence Files ({files.length})
                     </p>
                     {files.length === 0 ? (
                         <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8' }}>No evidence files on this alert.</p>
                     ) : (
                         <>
-                            <ul style={{ margin: '0 0 14px', paddingLeft: 18, fontSize: 12, color: '#374151' }}>
+                            <ul style={{ margin: '0 0 14px', paddingLeft: 18, fontSize: 12, color: dark ? '#e2e8f0' : '#374151' }}>
                                 {files.map(f => <li key={f} style={{ wordBreak: 'break-all' }}>{f}</li>)}
                             </ul>
                             <button onClick={onRequestUpload} disabled={requesting}
@@ -1857,7 +1859,7 @@ function AlertRawDetailsModal({ event, onClose, onRequestUpload, requesting, mes
     );
 }
 
-function DriverBehaviorLive() {
+function DriverBehaviorLive({ dark }) {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
     const [alertType, setAlertType] = useState('');
@@ -1937,35 +1939,35 @@ function DriverBehaviorLive() {
 
     return (
         <>
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 18 }}>
+            <div style={{ background: dark ? '#111827' : '#fff', border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, borderRadius: 10, padding: 16, marginBottom: 18 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
-                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
-                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
+                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} dark={dark} />
+                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} dark={dark} />
                 </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <h4 style={{ margin: 0, fontSize: 14, color: '#374151' }}>Live Feed</h4>
-                <MqttBadge connected={mqttConnected} />
+                <h4 style={{ margin: 0, fontSize: 14, color: dark ? '#e2e8f0' : '#374151' }}>Live Feed</h4>
+                <MqttBadge connected={mqttConnected} dark={dark} />
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Pushed live from TurboHive's MQTT alert topic as devices report them while this page is open — not a full history." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Pushed live from TurboHive's MQTT alert topic as devices report them while this page is open — not a full history." />
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {filteredLive.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 32, color: '#94a3b8' }}>Waiting for live events…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 32, color: '#94a3b8' }}>Waiting for live events…</td></tr>
                     ) : filteredLive.map((r, i) => {
                         const fileCount = alertFileNames(r).length;
                         return (
                             <tr key={r._key}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{resolveDeviceName(r)}</td>
-                                <td style={TD}>{r.imei ?? '—'}</td>
-                                <td style={TD}>{alertLabel(r)}</td>
-                                <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
-                                <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
-                                <td style={TD}>{fmtTime(r.timestamp)}</td>
-                                <td style={TD}>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{resolveDeviceName(r)}</td>
+                                <td style={TD(dark)}>{r.imei ?? '—'}</td>
+                                <td style={TD(dark)}>{alertLabel(r)}</td>
+                                <td style={TD(dark)}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={TD(dark)}>{fmtTime(r.timestamp)}</td>
+                                <td style={TD(dark)}>
                                     <button onClick={() => { setDetailsFor(r); setUploadMessage(''); }}
                                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600 }}>
                                         {fileCount > 0 ? `View (${fileCount})` : 'Details'}
@@ -1984,6 +1986,7 @@ function DriverBehaviorLive() {
                     onRequestUpload={requestUpload}
                     requesting={requesting}
                     message={uploadMessage}
+                    dark={dark}
                 />
             )}
         </>
@@ -1996,7 +1999,7 @@ function DriverBehaviorLive() {
 // TurboHive's internal alert.type code (e.g. "256-6"), not the human alert.name, so the Alert Type
 // filter here matches client-side against `name` instead, using the exact catalog of names
 // TurboHive documents (ALERT_TYPE_NAMES).
-function DriverBehavior() {
+function DriverBehavior({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [alertType, setAlertType] = useState('');
@@ -2059,47 +2062,47 @@ function DriverBehavior() {
 
     return (
         <>
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 18 }}>
+            <div style={{ background: dark ? '#111827' : '#fff', border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, borderRadius: 10, padding: 16, marginBottom: 18 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
-                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
-                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
+                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} dark={dark} />
+                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} dark={dark} />
                     <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 6 }}>Time Range</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff' }}>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dark ? '#f1f5f9' : '#111827', marginBottom: 6 }}>Time Range</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 8, background: dark ? '#1e293b' : '#fff' }}>
                             <span style={{ color: '#9ca3af' }}>🕐</span>
                             <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                                style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                                style={{ border: 'none', outline: 'none', fontSize: 13, color: dark ? '#e2e8f0' : '#374151' }} />
                             <span style={{ color: '#9ca3af' }}>-</span>
                             <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                                style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                                style={{ border: 'none', outline: 'none', fontSize: 13, color: dark ? '#e2e8f0' : '#374151' }} />
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={clear} style={{ padding: '9px 18px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Clear</button>
+                        <button onClick={clear} style={{ padding: '9px 18px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Clear</button>
                         <button onClick={() => search()} style={{ padding: '9px 22px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
                     </div>
                 </div>
             </div>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
-                <thead><tr>{HIST_COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{HIST_COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : filteredHistorical.length === 0 ? (
-                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : filteredHistorical.map((r, i) => (
                         <tr key={r.id ?? i}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{resolveDeviceName(r)}</td>
-                            <td style={TD}>{r.imei ?? '—'}</td>
-                            <td style={TD}>{alertLabel(r)}</td>
-                            <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
-                            <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
-                            <td style={TD}>{fmtTime(r.time)}</td>
-                            <td style={TD}><AttachmentLinks attachments={r.attachments} /></td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{resolveDeviceName(r)}</td>
+                            <td style={TD(dark)}>{r.imei ?? '—'}</td>
+                            <td style={TD(dark)}>{alertLabel(r)}</td>
+                            <td style={TD(dark)}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                            <td style={TD(dark)}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                            <td style={TD(dark)}>{fmtTime(r.time)}</td>
+                            <td style={TD(dark)}><AttachmentLinks attachments={r.attachments} dark={dark} /></td>
                         </tr>
                     ))}
                 </tbody>
@@ -2112,7 +2115,7 @@ function DriverBehavior() {
 // pattern as DriverBehaviorLive/DriverBehavior, just scoped to DMS_ALERT_NAMES (category 18)
 // instead of DRIVING_BEHAVIOR_ALERT_NAMES (category 13) — see those two for the shared plumbing
 // (alertFileNames, AlertRawDetailsModal, the 'fleet' Reverb channel) this reuses as-is.
-function DsmLive() {
+function DsmLive({ dark }) {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
     const [alertType, setAlertType] = useState('');
@@ -2189,35 +2192,35 @@ function DsmLive() {
 
     return (
         <>
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 18 }}>
+            <div style={{ background: dark ? '#111827' : '#fff', border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, borderRadius: 10, padding: 16, marginBottom: 18 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
-                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
-                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
+                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} dark={dark} />
+                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} dark={dark} />
                 </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <h4 style={{ margin: 0, fontSize: 14, color: '#374151' }}>Live Feed</h4>
-                <MqttBadge connected={mqttConnected} />
+                <h4 style={{ margin: 0, fontSize: 14, color: dark ? '#e2e8f0' : '#374151' }}>Live Feed</h4>
+                <MqttBadge connected={mqttConnected} dark={dark} />
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Pushed live from TurboHive's MQTT alert topic as devices report them while this page is open — not a full history." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Pushed live from TurboHive's MQTT alert topic as devices report them while this page is open — not a full history." />
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {filteredLive.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 32, color: '#94a3b8' }}>Waiting for live events…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 32, color: '#94a3b8' }}>Waiting for live events…</td></tr>
                     ) : filteredLive.map((r, i) => {
                         const fileCount = alertFileNames(r).length;
                         return (
                             <tr key={r._key}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{resolveDeviceName(r)}</td>
-                                <td style={TD}>{r.imei ?? '—'}</td>
-                                <td style={TD}>{alertLabel(r)}</td>
-                                <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
-                                <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
-                                <td style={TD}>{fmtTime(r.timestamp)}</td>
-                                <td style={TD}>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{resolveDeviceName(r)}</td>
+                                <td style={TD(dark)}>{r.imei ?? '—'}</td>
+                                <td style={TD(dark)}>{alertLabel(r)}</td>
+                                <td style={TD(dark)}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={TD(dark)}>{fmtTime(r.timestamp)}</td>
+                                <td style={TD(dark)}>
                                     <button onClick={() => { setDetailsFor(r); setUploadMessage(''); }}
                                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600 }}>
                                         {fileCount > 0 ? `View (${fileCount})` : 'Details'}
@@ -2236,6 +2239,7 @@ function DsmLive() {
                     onRequestUpload={requestUpload}
                     requesting={requesting}
                     message={uploadMessage}
+                    dark={dark}
                 />
             )}
         </>
@@ -2246,7 +2250,7 @@ function DsmLive() {
 // from GET /v3/alerts/page (see TurboHiveService::getAlerts), same endpoint Driver Behavior's
 // historical feed uses, filtered client-side to DMS_ALERT_NAMES for the same reason documented on
 // DriverBehavior() above (alertType is TurboHive's internal code, not the human alert.name).
-function Dsm() {
+function Dsm({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [alertType, setAlertType] = useState('');
@@ -2307,47 +2311,47 @@ function Dsm() {
 
     return (
         <>
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 18 }}>
+            <div style={{ background: dark ? '#111827' : '#fff', border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, borderRadius: 10, padding: 16, marginBottom: 18 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
-                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
-                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
+                    <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} dark={dark} />
+                    <SearchSelect label="Devices" placeholder="Search and select devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} dark={dark} />
                     <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 6 }}>Time Range</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff' }}>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dark ? '#f1f5f9' : '#111827', marginBottom: 6 }}>Time Range</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 8, background: dark ? '#1e293b' : '#fff' }}>
                             <span style={{ color: '#9ca3af' }}>🕐</span>
                             <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                                style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                                style={{ border: 'none', outline: 'none', fontSize: 13, color: dark ? '#e2e8f0' : '#374151' }} />
                             <span style={{ color: '#9ca3af' }}>-</span>
                             <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                                style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                                style={{ border: 'none', outline: 'none', fontSize: 13, color: dark ? '#e2e8f0' : '#374151' }} />
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={clear} style={{ padding: '9px 18px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Clear</button>
+                        <button onClick={clear} style={{ padding: '9px 18px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Clear</button>
                         <button onClick={() => search()} style={{ padding: '9px 22px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Apply</button>
                     </div>
                 </div>
             </div>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
-                <thead><tr>{HIST_COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{HIST_COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : filteredHistorical.length === 0 ? (
-                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : filteredHistorical.map((r, i) => (
                         <tr key={r.id ?? i}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{resolveDeviceName(r)}</td>
-                            <td style={TD}>{r.imei ?? '—'}</td>
-                            <td style={TD}>{alertLabel(r)}</td>
-                            <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
-                            <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
-                            <td style={TD}>{fmtTime(r.time)}</td>
-                            <td style={TD}><AttachmentLinks attachments={r.attachments} /></td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{resolveDeviceName(r)}</td>
+                            <td style={TD(dark)}>{r.imei ?? '—'}</td>
+                            <td style={TD(dark)}>{alertLabel(r)}</td>
+                            <td style={TD(dark)}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                            <td style={TD(dark)}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                            <td style={TD(dark)}>{fmtTime(r.time)}</td>
+                            <td style={TD(dark)}><AttachmentLinks attachments={r.attachments} dark={dark} /></td>
                         </tr>
                     ))}
                 </tbody>
@@ -2359,7 +2363,7 @@ function Dsm() {
 // Built from TurboHive's POST /v3/track/location (live position cache in Redis, no history) —
 // one row per device with its latest coordinates, battery voltage, ACC state, course and GPS fix
 // quality. See TurboHiveService::getPositioningBattery.
-function PositioningBattery() {
+function PositioningBattery({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [rows, setRows]         = useState([]);
@@ -2406,36 +2410,36 @@ function PositioningBattery() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">All devices</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Refresh</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Live positions only (from TurboHive's Redis cache) — no historical range, always the latest reading per device." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Live positions only (from TurboHive's Redis cache) — no historical range, always the latest reading per device." />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
-                    <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : rows.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : rows.map((r, i) => (
                             <tr key={r.imei}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{deviceName(r.imei)}</td>
-                                <td style={TD}>{r.imei ?? '—'}</td>
-                                <td style={TD}>{fmtCoords(r.latitude, r.longitude)}</td>
-                                <td style={TD}>{r.battery ?? '—'}</td>
-                                <td style={TD}>{r.acc === 1 ? 'ON' : r.acc === 0 ? 'OFF' : '—'}</td>
-                                <td style={TD}>{r.course ?? '—'}</td>
-                                <td style={TD}>{r.satellites ?? '—'}</td>
-                                <td style={TD}>{r.fixType ?? '—'}</td>
-                                <td style={TD}>{fmtTime(r.serverTime)}</td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{deviceName(r.imei)}</td>
+                                <td style={TD(dark)}>{r.imei ?? '—'}</td>
+                                <td style={TD(dark)}>{fmtCoords(r.latitude, r.longitude)}</td>
+                                <td style={TD(dark)}>{r.battery ?? '—'}</td>
+                                <td style={TD(dark)}>{r.acc === 1 ? 'ON' : r.acc === 0 ? 'OFF' : '—'}</td>
+                                <td style={TD(dark)}>{r.course ?? '—'}</td>
+                                <td style={TD(dark)}>{r.satellites ?? '—'}</td>
+                                <td style={TD(dark)}>{r.fixType ?? '—'}</td>
+                                <td style={TD(dark)}>{fmtTime(r.serverTime)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -2484,7 +2488,7 @@ function groupObdByDay(points) {
     }).sort((a, b) => b.date.localeCompare(a.date));
 }
 
-function TravelStatisticsOBD() {
+function TravelStatisticsOBD({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -2533,41 +2537,41 @@ function TravelStatisticsOBD() {
 
     return (
         <>
-            <Notice color="#dbeafe" icon="ℹ" text="Built from TurboHive's OBD odometer readings, grouped per day — only OBD-capable devices report this data (max 30-day range per query)." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Built from TurboHive's OBD odometer readings, grouped per day — only OBD-capable devices report this data (max 30-day range per query)." />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
                         <tr key={r.date}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                            <td style={TD}>{deviceId}</td>
-                            <td style={TD}>{r.distanceKm ?? '—'}</td>
-                            <td style={TD}>{formatMinutesDuration(r.durationMinutes)}</td>
-                            <td style={TD}>{r.avgSpeedKmh ?? '—'}</td>
-                            <td style={TD}>{r.maxSpeedKmh ?? '—'}</td>
-                            <td style={TD}>{r.trips}</td>
-                            <td style={TD}>{r.date}</td>
+                            <td style={TD(dark)}>{i + 1}</td>
+                            <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                            <td style={TD(dark)}>{deviceId}</td>
+                            <td style={TD(dark)}>{r.distanceKm ?? '—'}</td>
+                            <td style={TD(dark)}>{formatMinutesDuration(r.durationMinutes)}</td>
+                            <td style={TD(dark)}>{r.avgSpeedKmh ?? '—'}</td>
+                            <td style={TD(dark)}>{r.maxSpeedKmh ?? '—'}</td>
+                            <td style={TD(dark)}>{r.trips}</td>
+                            <td style={TD(dark)}>{r.date}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -2629,7 +2633,7 @@ function exportTrackDetailsCsv(rows) {
 // Built from TurboHive's GET /v3/track (historical GNSS points, max 30-day range per query) —
 // one row per reported position: speed, heading/azimuth, satellite count, GPS fix type, ACC state,
 // and coordinates. See TurboHiveService::getTrack.
-function TrackDetails() {
+function TrackDetails({ dark }) {
     const [devices,  setDevices]  = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from,      setFrom]    = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -2677,56 +2681,56 @@ function TrackDetails() {
 
     return (
         <>
-            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 18px', marginBottom: 18, display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ background: dark ? '#0f172a' : '#f9fafb', border: dark ? '1px solid #1e293b' : '1px solid #e5e7eb', borderRadius: 10, padding: '14px 18px', marginBottom: 18, display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Device</label>
+                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Device</label>
                     <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                        style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', minWidth: 180 }}>
+                        style={{ padding: '7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', minWidth: 180 }}>
                         <option value="">Select device</option>
                         {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                     </select>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>From</label>
+                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>From</label>
                     <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                        style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                        style={{ padding: '7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>To</label>
+                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>To</label>
                     <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                        style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                        style={{ padding: '7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none' }} />
                 </div>
                 <button onClick={search} disabled={loading} style={{ padding: '7px 22px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
                     {loading ? 'Loading…' : 'Search'}
                 </button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
                 <button onClick={() => exportTrackDetailsCsv(rows)} disabled={!rows.length}
-                    style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: rows.length ? '#374151' : '#cbd5e1', fontSize: 13, cursor: rows.length ? 'pointer' : 'not-allowed' }}>Export</button>
+                    style={{ padding: '7px 14px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, background: dark ? '#1e293b' : '#fff', color: rows.length ? (dark ? '#e2e8f0' : '#374151') : '#cbd5e1', fontSize: 13, cursor: rows.length ? 'pointer' : 'not-allowed' }}>Export</button>
             </div>
 
-            <Notice color="#dbeafe" icon="ℹ" text="Track precision depends on GPS signal quality and reporting interval settings (max 30-day range per query)." />
-            {error && <Notice text={error} />}
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Track precision depends on GPS signal quality and reporting interval settings (max 30-day range per query)." />
+            {error && <Notice dark={dark} text={error} />}
 
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                     <thead>
-                        <tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr>
+                        <tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : rows.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : rows.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{fmtTime(r.deviceTime)}</td>
-                                <td style={TD}>{r.speed ?? '—'}</td>
-                                <td style={TD}>{azimuthLabel(r.course)}</td>
-                                <td style={TD}>{r.satellites ?? '—'}</td>
-                                <td style={TD}>{r.fixType ?? '—'}</td>
-                                <td style={TD}>{r.acc === 1 ? 'ON' : r.acc === 0 ? 'OFF' : '—'}</td>
-                                <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{fmtTime(r.deviceTime)}</td>
+                                <td style={TD(dark)}>{r.speed ?? '—'}</td>
+                                <td style={TD(dark)}>{azimuthLabel(r.course)}</td>
+                                <td style={TD(dark)}>{r.satellites ?? '—'}</td>
+                                <td style={TD(dark)}>{r.fixType ?? '—'}</td>
+                                <td style={TD(dark)}>{r.acc === 1 ? 'ON' : r.acc === 0 ? 'OFF' : '—'}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
                             </tr>
                         ))}
                     </tbody>
@@ -2855,7 +2859,7 @@ function FitToTrack({ points }) {
 // Driver Behavior report's historical feed; "Geofence" overlay reuses the account's saved
 // geofences; "Parking time" marks runs of near-zero speed lasting at least the chosen threshold,
 // computed locally from the already-loaded track (no extra API call). See TurboHiveService::getTrackList.
-function Replay() {
+function Replay({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -2957,24 +2961,24 @@ function Replay() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 180 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 180 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} disabled={loading} style={{ padding: '7px 22px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
                     {loading ? 'Loading…' : 'Search'}
                 </button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
 
-            {error && <Notice text={error} />}
+            {error && <Notice dark={dark} text={error} />}
 
-            <div style={{ position: 'relative', height: 560, borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e7eb' }}>
+            <div style={{ position: 'relative', height: 560, borderRadius: 10, overflow: 'hidden', border: dark ? '1px solid #1e293b' : '1px solid #e5e7eb' }}>
                 <MapContainer center={center} zoom={14} style={{ width: '100%', height: '100%' }} scrollWheelZoom>
                     <TileLayer
                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -3017,12 +3021,12 @@ function Replay() {
                     {current && <Marker position={[current.latitude, current.longitude]} icon={replayIcon(current.course)} />}
                 </MapContainer>
 
-                <div style={{ position: 'absolute', top: 12, left: 12, width: 300, background: '#fff', borderRadius: 8, boxShadow: '0 2px 10px rgba(0,0,0,0.15)', padding: 14, fontSize: 13, zIndex: 1000 }}>
+                <div style={{ position: 'absolute', top: 12, left: 12, width: 300, background: dark ? '#111827' : '#fff', borderRadius: 8, boxShadow: '0 2px 10px rgba(0,0,0,0.15)', padding: 14, fontSize: 13, zIndex: 1000 }}>
                     {points.length === 0 ? (
                         <div style={{ color: '#94a3b8', textAlign: 'center', padding: 8 }}>Select a device and search to load a track.</div>
                     ) : (
                         <>
-                            <div style={{ textAlign: 'right', marginBottom: 6, color: '#374151', fontWeight: 600 }}>
+                            <div style={{ textAlign: 'right', marginBottom: 6, color: dark ? '#e2e8f0' : '#374151', fontWeight: 600 }}>
                                 Speed: {current?.speed ?? 0} km/h
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -3033,46 +3037,46 @@ function Replay() {
                                     onChange={e => { setPlaying(false); setIndex(Number(e.target.value)); }}
                                     style={{ flex: 1 }} />
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, color: '#6b7280', fontSize: 12 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, color: dark ? '#94a3b8' : '#6b7280', fontSize: 12 }}>
                                 <button onClick={replay} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 4, padding: 0, fontSize: 12 }}>↻ Replay</button>
                                 <select value={rateMs} onChange={e => setRateMs(Number(e.target.value))}
-                                    style={{ border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '2px 6px' }}>
+                                    style={{ border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '2px 6px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }}>
                                     {PLAYBACK_RATES.map(r => <option key={r.label} value={r.ms}>{r.label}</option>)}
                                 </select>
                             </div>
-                            <div style={{ textAlign: 'center', marginTop: 4, color: '#374151', fontSize: 12 }}>{fmtTime(current?.deviceTime)}</div>
+                            <div style={{ textAlign: 'center', marginTop: 4, color: dark ? '#e2e8f0' : '#374151', fontSize: 12 }}>{fmtTime(current?.deviceTime)}</div>
 
                             <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <label style={{ color: '#6b7280', fontSize: 12, whiteSpace: 'nowrap' }}>Parking time</label>
+                                <label style={{ color: dark ? '#94a3b8' : '#6b7280', fontSize: 12, whiteSpace: 'nowrap' }}>Parking time</label>
                                 <select value={parkingTime} onChange={e => setParkingTime(Number(e.target.value))}
-                                    style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '4px 6px' }}>
+                                    style={{ flex: 1, border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '4px 6px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }}>
                                     {PARKING_TIME_OPTIONS.map(m => <option key={m} value={m}>{m}Minute{m === 1 ? '' : 's'}</option>)}
                                 </select>
                             </div>
 
                             <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <label style={{ color: '#6b7280', fontSize: 12, whiteSpace: 'nowrap' }}>Alert Type</label>
+                                <label style={{ color: dark ? '#94a3b8' : '#6b7280', fontSize: 12, whiteSpace: 'nowrap' }}>Alert Type</label>
                                 {/* minWidth: 0 stops a flex item from refusing to shrink below its content's
                                     intrinsic width — without it, a <select> sizes itself to its widest <option>
                                     (some of the 200+ ALERT_TYPE_NAMES are long), overflowing this fixed-width panel. */}
                                 <select value={alertType} onChange={e => setAlertType(e.target.value)}
-                                    style={{ flex: 1, minWidth: 0, maxWidth: '100%', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '4px 6px' }}>
+                                    style={{ flex: 1, minWidth: 0, maxWidth: '100%', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '4px 6px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }}>
                                     <option value="">Select Alert Type</option>
                                     {ALERT_TYPE_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
                                 </select>
                             </div>
 
                             <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: dark ? '#e2e8f0' : '#374151', cursor: 'pointer' }}>
                                     <input type="checkbox" checked={showTrack} onChange={e => setShowTrack(e.target.checked)} /> Display track
                                 </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: dark ? '#e2e8f0' : '#374151', cursor: 'pointer' }}>
                                     <input type="checkbox" checked={showByFix} onChange={e => setShowByFix(e.target.checked)} /> Display by fix
                                 </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: dark ? '#e2e8f0' : '#374151', cursor: 'pointer' }}>
                                     <input type="checkbox" checked={showBehavior} onChange={e => setShowBehavior(e.target.checked)} /> Driving behavior
                                 </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: dark ? '#e2e8f0' : '#374151', cursor: 'pointer' }}>
                                     <input type="checkbox" checked={showGeofence} onChange={e => setShowGeofence(e.target.checked)} /> Geofence
                                 </label>
                             </div>
@@ -3088,7 +3092,7 @@ function Replay() {
 // live total/today/subtotal mileage, current ACC and speed, and online status. Not a date-range
 // report; only devices with mileage calculation enabled on TurboHive appear here.
 // See TurboHiveService::getRealtimeMileage.
-function Mileage() {
+function Mileage({ dark }) {
     const [keywordInput, setKeywordInput] = useState('');
     const [keyword, setKeyword]   = useState('');
     const [page, setPage]         = useState(1);
@@ -3140,45 +3144,45 @@ function Mileage() {
                 <input value={keywordInput} onChange={e => setKeywordInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && applyKeyword()}
                     placeholder="Search device name or IMEI"
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none', minWidth: 220 }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none', minWidth: 220 }} />
                 <button onClick={applyKeyword} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <p style={{ fontSize: 13, color: '#374151', margin: '0 0 10px' }}>
+            <p style={{ fontSize: 13, color: dark ? '#e2e8f0' : '#374151', margin: '0 0 10px' }}>
                 <strong>Page total:</strong> {totalMileage.toFixed(2)} km &nbsp;·&nbsp; {total} device{total !== 1 ? 's' : ''}
             </p>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                     ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                     ) : rows.map((r, i) => (
                         <tr key={r.imei}>
-                            <td style={TD}>{(page - 1) * size + i + 1}</td>
-                            <td style={TD}>{r.deviceName ?? '—'}</td>
-                            <td style={TD}>{r.imei ?? '—'}</td>
-                            <td style={TD}>{r.totalMileage ?? '—'}</td>
-                            <td style={TD}>{r.todayMileage ?? '—'}</td>
-                            <td style={TD}>{r.subtotal ?? '—'}</td>
-                            <td style={TD}>{r.acc ?? '—'}</td>
-                            <td style={TD}>{r.speed ?? '—'}</td>
-                            <td style={TD}>{r.onlineStatus ?? '—'}</td>
+                            <td style={TD(dark)}>{(page - 1) * size + i + 1}</td>
+                            <td style={TD(dark)}>{r.deviceName ?? '—'}</td>
+                            <td style={TD(dark)}>{r.imei ?? '—'}</td>
+                            <td style={TD(dark)}>{r.totalMileage ?? '—'}</td>
+                            <td style={TD(dark)}>{r.todayMileage ?? '—'}</td>
+                            <td style={TD(dark)}>{r.subtotal ?? '—'}</td>
+                            <td style={TD(dark)}>{r.acc ?? '—'}</td>
+                            <td style={TD(dark)}>{r.speed ?? '—'}</td>
+                            <td style={TD(dark)}>{r.onlineStatus ?? '—'}</td>
                         </tr>
                     ))}
                 </tbody>
             </table>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>Page {page} of {totalPages || 1}</span>
+                <span style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280' }}>Page {page} of {totalPages || 1}</span>
                 <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-                    style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page <= 1 ? 'default' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}>‹ Prev</button>
+                    style={{ padding: '5px 12px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, background: dark ? '#1e293b' : '#fff', fontSize: 12, cursor: page <= 1 ? 'default' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}>‹ Prev</button>
                 <button onClick={() => setPage(p => Math.min(totalPages || 1, p + 1))} disabled={page >= totalPages}
-                    style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page >= totalPages ? 'default' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}>Next ›</button>
+                    style={{ padding: '5px 12px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, background: dark ? '#1e293b' : '#fff', fontSize: 12, cursor: page >= totalPages ? 'default' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}>Next ›</button>
                 <select value={size} onChange={e => { setSize(+e.target.value); setPage(1); }}
-                    style={{ padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }}>
+                    style={{ padding: '5px 8px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 12, background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }}>
                     {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} / page</option>)}
                 </select>
             </div>
@@ -3301,7 +3305,7 @@ async function loadSortedTrack(imei, fromLocal, toLocal) {
 // are derived client-side via segmentTrips() rather than a dedicated trips field, since TurboHive's
 // track data has no fuel-consumption figures, those columns from the old Traccar-based report are
 // dropped. See TurboHiveService::getTrackList.
-function Trips() {
+function Trips({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -3351,40 +3355,40 @@ function Trips() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 180 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 180 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="A trip is a run of ACC-on GNSS points (max 30-day range per query); distance is summed via haversine between consecutive points." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="A trip is a run of ACC-on GNSS points (max 30-day range per query); distance is summed via haversine between consecutive points." />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
-                    <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : rows.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : rows.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{fmtTime(r.startTime)}</td>
-                                <td style={TD}><LocationLink lat={r.startLat} lon={r.startLon} /></td>
-                                <td style={TD}>{fmtTime(r.endTime)}</td>
-                                <td style={TD}><LocationLink lat={r.endLat} lon={r.endLon} /></td>
-                                <td style={TD}>{formatHMS(r.durationMs)}</td>
-                                <td style={TD}>{r.distanceKm.toFixed(2)}</td>
-                                <td style={TD}>{r.avgSpeedKmh.toFixed(1)}</td>
-                                <td style={TD}>{r.maxSpeedKmh.toFixed(1)}</td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{fmtTime(r.startTime)}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.startLat} lon={r.startLon} /></td>
+                                <td style={TD(dark)}>{fmtTime(r.endTime)}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.endLat} lon={r.endLon} /></td>
+                                <td style={TD(dark)}>{formatHMS(r.durationMs)}</td>
+                                <td style={TD(dark)}>{r.distanceKm.toFixed(2)}</td>
+                                <td style={TD(dark)}>{r.avgSpeedKmh.toFixed(1)}</td>
+                                <td style={TD(dark)}>{r.maxSpeedKmh.toFixed(1)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -3403,7 +3407,7 @@ function Trips() {
 // row is a discrete alert the device itself fired (not a continuous over-limit period recomputed
 // from raw positions, since that's what the old Traccar-based report did and TurboHive already
 // does the detection device-side). See TurboHiveService::getAlerts.
-function Overspeed() {
+function Overspeed({ dark }) {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
     const [from, setFrom]           = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -3460,39 +3464,39 @@ function Overspeed() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">All devices</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <button onClick={() => search()} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Filtered to Event Type = 'Speeding' (alert code 1301) — same alerts and columns as Driver Behavior's Speeding filter, thresholds are configured on TurboHive/device side." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Filtered to Event Type = 'Speeding' (alert code 1301) — same alerts and columns as Driver Behavior's Speeding filter, thresholds are configured on TurboHive/device side." />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
-                    <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <thead><tr>{COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}</tr></thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : filtered.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : filtered.map((r, i) => (
                             <tr key={r.id ?? i}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{resolveDeviceName(r)}</td>
-                                <td style={TD}>{r.imei ?? '—'}</td>
-                                <td style={TD}>{alertLabel(r)}</td>
-                                <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
-                                <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
-                                <td style={TD}>{fmtTime(r.time)}</td>
-                                <td style={TD}><AttachmentLinks attachments={r.attachments} /></td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{resolveDeviceName(r)}</td>
+                                <td style={TD(dark)}>{r.imei ?? '—'}</td>
+                                <td style={TD(dark)}>{alertLabel(r)}</td>
+                                <td style={TD(dark)}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={TD(dark)}>{fmtTime(r.time)}</td>
+                                <td style={TD(dark)}><AttachmentLinks attachments={r.attachments} dark={dark} /></td>
                             </tr>
                         ))}
                     </tbody>
@@ -3505,7 +3509,7 @@ function Overspeed() {
 // Built from TurboHive's GET /v3/track/list — a "parking" period is an ACC-off run derived via
 // segmentByAcc() (vehicle powered down; presumed stationary since it has no ignition to move).
 // See loadSortedTrack()/segmentByAcc() above.
-function Parking() {
+function Parking({ dark }) {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
     const [minDuration, setMinDuration] = useState('');
@@ -3553,27 +3557,27 @@ function Parking() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <input type="number" value={minDuration} onChange={e => setMinDuration(e.target.value)} placeholder="Min. duration (min)"
-                    style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', width: 150 }} />
+                    style={{ padding: '7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', width: 150 }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="A parking period is a run of ACC-off GNSS points (max 30-day range per query)." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="A parking period is a run of ACC-off GNSS points (max 30-day range per query)." />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                     <thead>
                         <tr>
                             {COLS.map(c => (
-                                <th key={c} style={TH}>
+                                <th key={c} style={TH(dark)}>
                                     {c === 'Start time' ? (
                                         <button onClick={() => setSortAsc(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, font: 'inherit', color: 'inherit' }}>
                                             {c}<span style={{ fontSize: 11, color: '#94a3b8' }}>{sortAsc ? '▲' : '▼'}</span>
@@ -3585,22 +3589,22 @@ function Parking() {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : filtered.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : filtered.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                                <td style={TD}>{deviceId}</td>
-                                <td style={TD}>{selectedDevice?.model ?? '—'}</td>
-                                <td style={TD}>Parking</td>
-                                <td style={TD}>{fmtTime(r.startTime)}</td>
-                                <td style={TD}>{fmtTime(r.endTime)}</td>
-                                <td style={TD}><LocationLink lat={r.startLat} lon={r.startLon} /></td>
-                                <td style={TD}>{formatHMS(r.durationMs)}</td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                                <td style={TD(dark)}>{deviceId}</td>
+                                <td style={TD(dark)}>{selectedDevice?.model ?? '—'}</td>
+                                <td style={TD(dark)}>Parking</td>
+                                <td style={TD(dark)}>{fmtTime(r.startTime)}</td>
+                                <td style={TD(dark)}>{fmtTime(r.endTime)}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.startLat} lon={r.startLon} /></td>
+                                <td style={TD(dark)}>{formatHMS(r.durationMs)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -3613,7 +3617,7 @@ function Parking() {
 // Built from TurboHive's GET /v3/track/list — an "idling" period is an ACC-on run (engine running)
 // derived via segmentByAcc() whose average speed never exceeds IDLE_SPEED_KMH (vehicle not really
 // moving). See loadSortedTrack()/segmentByAcc() above.
-function Idling() {
+function Idling({ dark }) {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
     const [minDuration, setMinDuration] = useState('');
@@ -3661,27 +3665,27 @@ function Idling() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <input type="number" value={minDuration} onChange={e => setMinDuration(e.target.value)} placeholder="Min. idle (min)"
-                    style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', width: 140 }} />
+                    style={{ padding: '7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', width: 140 }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text={`An idling period is a run of ACC-on GNSS points averaging under ${IDLE_SPEED_KMH} km/h (max 30-day range per query).`} />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text={`An idling period is a run of ACC-on GNSS points averaging under ${IDLE_SPEED_KMH} km/h (max 30-day range per query).`} />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                     <thead>
                         <tr>
                             {COLS.map(c => (
-                                <th key={c} style={TH}>
+                                <th key={c} style={TH(dark)}>
                                     {c === 'Start time' ? (
                                         <button onClick={() => setSortAsc(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, font: 'inherit', color: 'inherit' }}>
                                             {c}<span style={{ fontSize: 11, color: '#94a3b8' }}>{sortAsc ? '▲' : '▼'}</span>
@@ -3693,22 +3697,22 @@ function Idling() {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : filtered.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : filtered.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                                <td style={TD}>{deviceId}</td>
-                                <td style={TD}>{selectedDevice?.model ?? '—'}</td>
-                                <td style={TD}>Idling</td>
-                                <td style={TD}>{fmtTime(r.startTime)}</td>
-                                <td style={TD}>{fmtTime(r.endTime)}</td>
-                                <td style={TD}><LocationLink lat={r.startLat} lon={r.startLon} /></td>
-                                <td style={TD}>{formatHMS(r.durationMs)}</td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                                <td style={TD(dark)}>{deviceId}</td>
+                                <td style={TD(dark)}>{selectedDevice?.model ?? '—'}</td>
+                                <td style={TD(dark)}>Idling</td>
+                                <td style={TD(dark)}>{fmtTime(r.startTime)}</td>
+                                <td style={TD(dark)}>{fmtTime(r.endTime)}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.startLat} lon={r.startLon} /></td>
+                                <td style={TD(dark)}>{formatHMS(r.durationMs)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -3722,7 +3726,7 @@ function Idling() {
 // becomes one ON or OFF period; unlike the old Traccar-based report this shows real coordinates
 // for each transition, since we already have them from the track data.
 // See loadSortedTrack()/segmentByAcc() above.
-function Ignition() {
+function Ignition({ dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
@@ -3767,25 +3771,25 @@ function Ignition() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Each row is a contiguous ACC-on or ACC-off run (max 30-day range per query)." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Each row is a contiguous ACC-on or ACC-off run (max 30-day range per query)." />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                     <thead>
                         <tr>
                             {COLS.map(c => (
-                                <th key={c} style={TH}>
+                                <th key={c} style={TH(dark)}>
                                     {c === 'Start time' ? (
                                         <button onClick={() => setSortAsc(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, font: 'inherit', color: 'inherit' }}>
                                             {c}<span style={{ fontSize: 11, color: '#94a3b8' }}>{sortAsc ? '▲' : '▼'}</span>
@@ -3797,22 +3801,22 @@ function Ignition() {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : sorted.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : sorted.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                                <td style={TD}>{deviceId}</td>
-                                <td style={TD}>{selectedDevice?.model ?? '—'}</td>
-                                <td style={{ ...TD, color: r.acc === 1 ? '#16a34a' : '#6b7280', fontWeight: 600 }}>{r.acc === 1 ? 'ON' : 'OFF'}</td>
-                                <td style={TD}>{fmtTime(r.startTime)}</td>
-                                <td style={TD}>{fmtTime(r.endTime)}</td>
-                                <td style={TD}>{formatHMS(r.durationMs)}</td>
-                                <td style={TD}><LocationLink lat={r.startLat} lon={r.startLon} /></td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                                <td style={TD(dark)}>{deviceId}</td>
+                                <td style={TD(dark)}>{selectedDevice?.model ?? '—'}</td>
+                                <td style={{ ...TD(dark), color: r.acc === 1 ? '#16a34a' : '#6b7280', fontWeight: 600 }}>{r.acc === 1 ? 'ON' : 'OFF'}</td>
+                                <td style={TD(dark)}>{fmtTime(r.startTime)}</td>
+                                <td style={TD(dark)}>{fmtTime(r.endTime)}</td>
+                                <td style={TD(dark)}>{formatHMS(r.durationMs)}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.startLat} lon={r.startLon} /></td>
                             </tr>
                         ))}
                     </tbody>
@@ -3826,7 +3830,7 @@ function Ignition() {
 // GeofenceController, a real DB-backed CRUD) and this report tests each point of a TurboHive
 // GET /v3/track/list track against those saved shapes via segmentGeofenceVisits() to derive
 // enter/exit periods. See loadSortedTrack()/segmentGeofenceVisits() above.
-function GeoFence() {
+function GeoFence({ dark }) {
     const [devices, setDevices]     = useState([]);
     const [geofences, setGeofences] = useState([]);
     const [deviceId, setDeviceId]   = useState('');
@@ -3880,33 +3884,33 @@ function GeoFence() {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => { setDeviceId(e.target.value); setGeofenceId(''); }}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 170 }}>
                     <option value="">Select device</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                    style={{ padding: '6px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: dark ? '#e2e8f0' : '#374151', outline: 'none' }} />
                 <select value={geofenceId} onChange={e => setGeofenceId(e.target.value)} disabled={!deviceId}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: deviceId ? 'pointer' : 'not-allowed', minWidth: 170 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: deviceId ? 'pointer' : 'not-allowed', minWidth: 170 }}>
                     <option value="">All linked geofences</option>
                     {linkedGeofences.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                 </select>
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
             {deviceId && linkedGeofences.length === 0 && (
-                <Notice text="This device has no geofences linked yet — link one from the Geofences page's Linked Devices panel." />
+                <Notice dark={dark} text="This device has no geofences linked yet — link one from the Geofences page's Linked Devices panel." />
             )}
-            <Notice color="#dbeafe" icon="ℹ" text="Enter/exit is computed by testing the device's GNSS track against its linked geofence shapes (max 30-day range per query)." />
+            <Notice dark={dark} color="#dbeafe" icon="ℹ" text="Enter/exit is computed by testing the device's GNSS track against its linked geofence shapes (max 30-day range per query)." />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                     <thead>
                         <tr>
                             {COLS.map(c => (
-                                <th key={c} style={TH}>
+                                <th key={c} style={TH(dark)}>
                                     {c === 'Enter Time' ? (
                                         <button onClick={() => setSortAsc(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, font: 'inherit', color: 'inherit' }}>
                                             {c}<span style={{ fontSize: 11, color: '#94a3b8' }}>{sortAsc ? '▲' : '▼'}</span>
@@ -3918,21 +3922,21 @@ function GeoFence() {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : sorted.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : sorted.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                                <td style={TD}>{deviceId}</td>
-                                <td style={TD}>{selectedDevice?.model ?? '—'}</td>
-                                <td style={TD}>{r.geofenceName ?? '—'}</td>
-                                <td style={TD}>{fmtTime(r.enterTime)}</td>
-                                <td style={TD}>{r.exitTime ? fmtTime(r.exitTime) : 'Still inside'}</td>
-                                <td style={TD}>{formatHMS(r.durationMs)}</td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{selectedDevice?.deviceName ?? deviceId}</td>
+                                <td style={TD(dark)}>{deviceId}</td>
+                                <td style={TD(dark)}>{selectedDevice?.model ?? '—'}</td>
+                                <td style={TD(dark)}>{r.geofenceName ?? '—'}</td>
+                                <td style={TD(dark)}>{fmtTime(r.enterTime)}</td>
+                                <td style={TD(dark)}>{r.exitTime ? fmtTime(r.exitTime) : 'Still inside'}</td>
+                                <td style={TD(dark)}>{formatHMS(r.durationMs)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -3945,19 +3949,19 @@ function GeoFence() {
 /* ══════════════════════════════════════════════════════════════ */
 /*  STATE STATISTICS                                              */
 /* ══════════════════════════════════════════════════════════════ */
-function StateStatistics() {
+function StateStatistics({ dark }) {
     return (
         <>
-            <FilterBar>
-                <DateDeviceFilter showModel showSub />
-                <SelInput label="State" type="select" options={['Online','Offline','Moving','Parked','No GPS']} />
+            <FilterBar dark={dark}>
+                <DateDeviceFilter showModel showSub dark={dark} />
+                <SelInput label="State" type="select" options={['Online','Offline','Moving','Parked','No GPS']} dark={dark} />
             </FilterBar>
             <EmptyTable cols={['No.','Device name','IMEI','State','Duration','Start Time','End Time','Location']} rows={[
                 [1,'Device 001','123456789012001','Moving','3h 30m','2026-06-18 06:00','2026-06-18 09:30','Makati City'],
                 [2,'Device 002','123456789012002','Parked','5h 12m','2026-06-18 02:10','2026-06-18 07:22','Quezon City'],
                 [3,'Device 004','123456789012004','Offline','12h 04m','2026-06-17 21:00','2026-06-18 09:04','Pasig City'],
                 [4,'Device 008','123456789012008','No GPS','1h 15m','2026-06-18 08:00','2026-06-18 09:15','Caloocan City'],
-            ]} />
+            ]} dark={dark} />
         </>
     );
 }
@@ -3972,7 +3976,7 @@ function StateStatistics() {
 // reverse-geocoded-address fields the old Traccar-based version showed, so those columns are
 // dropped; onlineStatus (1 = online) is what buckets a device into Online vs Offline here since
 // TurboHive has no separate per-bucket endpoint the way Traccar's report did.
-function DeviceStatusPage({ online }) {
+function DeviceStatusPage({ online, dark }) {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
     const [rows, setRows]         = useState([]);
@@ -4038,19 +4042,19 @@ function DeviceStatusPage({ online }) {
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
-                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 200 }}>
+                    style={{ padding: '7px 28px 7px 10px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer', minWidth: 200 }}>
                     <option value="">All devices</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
                     <thead>
                         <tr>
                             {COLS.map(c => (
-                                <th key={c} style={TH}>
+                                <th key={c} style={TH(dark)}>
                                     {c === 'Device Name' ? (
                                         <button onClick={() => setSortAsc(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, font: 'inherit', color: 'inherit' }}>
                                             {c}<span style={{ fontSize: 11, color: '#94a3b8' }}>{sortAsc ? '▲' : '▼'}</span>
@@ -4062,28 +4066,28 @@ function DeviceStatusPage({ online }) {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : sorted.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : sorted.map((r, i) => (
                             <tr key={r.imei}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{r.deviceName ?? '—'}</td>
-                                <td style={TD}>{r.imei ?? '—'}</td>
-                                <td style={TD}>{r.model ?? '—'}</td>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{r.deviceName ?? '—'}</td>
+                                <td style={TD(dark)}>{r.imei ?? '—'}</td>
+                                <td style={TD(dark)}>{r.model ?? '—'}</td>
                                 {online
-                                    ? <td style={TD}>{r.speed ?? '—'}</td>
-                                    : <td style={TD}>{r.lastHeartTime ? formatDuration(Date.now() - r.lastHeartTime) : '—'}</td>}
-                                <td style={TD}>
+                                    ? <td style={TD(dark)}>{r.speed ?? '—'}</td>
+                                    : <td style={TD(dark)}>{r.lastHeartTime ? formatDuration(Date.now() - r.lastHeartTime) : '—'}</td>}
+                                <td style={TD(dark)}>
                                     {r.latitude != null && r.longitude != null ? (
                                         <a href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} target="_blank" rel="noreferrer" style={{ color: '#3b82f6' }}>
                                             {fmtCoords(r.latitude, r.longitude)}
                                         </a>
                                     ) : '—'}
                                 </td>
-                                <td style={TD}>{fmtTime(r.lastHeartTime)}</td>
+                                <td style={TD(dark)}>{fmtTime(r.lastHeartTime)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -4093,12 +4097,12 @@ function DeviceStatusPage({ online }) {
     );
 }
 
-function OfflinePage() {
-    return <DeviceStatusPage online={false} />;
+function OfflinePage({ dark }) {
+    return <DeviceStatusPage online={false} dark={dark} />;
 }
 
-function OnlinePage() {
-    return <DeviceStatusPage online={true} />;
+function OnlinePage({ dark }) {
+    return <DeviceStatusPage online={true} dark={dark} />;
 }
 
 /* ══════════════════════════════════════════════════════════════ */
@@ -4126,7 +4130,7 @@ function exportAlertsCsv(rows) {
 // alert_file_uploads tracking row (matched by imei + closest alert_time) to know what filenames to
 // re-request. If no tracking row exists at all (alert never had evidence requested), retry isn't
 // possible from here — only from the live feed at the moment the alert first arrives.
-function HistoricalAlertDetailsModal({ event, onClose }) {
+function HistoricalAlertDetailsModal({ event, onClose, dark }) {
     const [tracking, setTracking] = useState(null);
     const [loading, setLoading]   = useState(true);
     const [requesting, setRequesting] = useState(false);
@@ -4178,16 +4182,16 @@ function HistoricalAlertDetailsModal({ event, onClose }) {
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-            <div style={{ background: '#fff', borderRadius: 12, width: 460, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
-                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Alert Evidence</h2>
+            <div style={{ background: dark ? '#111827' : '#fff', borderRadius: 12, width: 460, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: dark ? '1px solid #1e293b' : '1px solid #f1f5f9' }}>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: dark ? '#f1f5f9' : '#0f172a' }}>Alert Evidence</h2>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
                 </div>
 
                 <div style={{ padding: 20 }}>
-                    {message && <div style={{ marginBottom: 14, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534' }}>{message}</div>}
+                    {message && <div style={{ marginBottom: 14, padding: '8px 12px', background: dark ? 'rgba(34,197,94,0.15)' : '#f0fdf4', border: `1px solid ${dark ? '#166534' : '#bbf7d0'}`, borderRadius: 6, fontSize: 12, color: dark ? '#86efac' : '#166534' }}>{message}</div>}
 
-                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: dark ? '#e2e8f0' : '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>
                         Uploaded Files ({(event.attachments || []).length})
                     </p>
                     {(!event.attachments || event.attachments.length === 0) ? (
@@ -4196,7 +4200,7 @@ function HistoricalAlertDetailsModal({ event, onClose }) {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                             {event.attachments.map((m, i) => (
                                 <a key={m.id ?? i} href={m.url} target="_blank" rel="noreferrer"
-                                    style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', border: '1px solid #f1f5f9', borderRadius: 8, fontSize: 12, textDecoration: 'none', color: '#111827' }}>
+                                    style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', border: dark ? '1px solid #1e293b' : '1px solid #f1f5f9', borderRadius: 8, fontSize: 12, textDecoration: 'none', color: dark ? '#f1f5f9' : '#111827' }}>
                                     <span>{/\.(mp4|mov|avi|mkv)$/i.test(m.fileName ?? '') ? '🎬' : '📷'} {m.fileName ?? `Channel ${m.channel}`}</span>
                                     <span style={{ color: '#9ca3af' }}>{m.fileSize ? `${(m.fileSize / 1024).toFixed(0)} KB` : ''}</span>
                                 </a>
@@ -4204,7 +4208,7 @@ function HistoricalAlertDetailsModal({ event, onClose }) {
                         </div>
                     )}
 
-                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: dark ? '#e2e8f0' : '#374151', textTransform: 'uppercase', letterSpacing: 0.4 }}>
                         Upload Request Tracking
                     </p>
                     {loading ? (
@@ -4213,10 +4217,10 @@ function HistoricalAlertDetailsModal({ event, onClose }) {
                         <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8' }}>No matching upload request found in Capture History for this alert.</p>
                     ) : (
                         <>
-                            <div style={{ padding: '10px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>
+                            <div style={{ padding: '10px 12px', background: dark ? '#0f172a' : '#f9fafb', border: dark ? '1px solid #1e293b' : '1px solid #e5e7eb', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>
                                 <div><strong>Status:</strong> {tracking.status}</div>
-                                {tracking.error && <div style={{ color: '#991b1b', marginTop: 4 }}>{tracking.error}</div>}
-                                <div style={{ marginTop: 4, color: '#6b7280' }}>{(tracking.file_names || []).length} file(s) requested</div>
+                                {tracking.error && <div style={{ color: dark ? '#fca5a5' : '#991b1b', marginTop: 4 }}>{tracking.error}</div>}
+                                <div style={{ marginTop: 4, color: dark ? '#94a3b8' : '#6b7280' }}>{(tracking.file_names || []).length} file(s) requested</div>
                                 <ul style={{ margin: '6px 0 0', paddingLeft: 16 }}>
                                     {(tracking.file_names || []).map(f => <li key={f} style={{ wordBreak: 'break-all' }}>{f}</li>)}
                                 </ul>
@@ -4242,7 +4246,7 @@ function HistoricalAlertDetailsModal({ event, onClose }) {
 // TurboHive has no Model/Account/reverse-geocoded-address fields the old Traccar-based report
 // showed, so those columns are dropped; Evidence reuses the same AttachmentLinks as Driver Behavior,
 // plus a "Details" action (HistoricalAlertDetailsModal) for the full file list and manual retry.
-function AlertDetails() {
+function AlertDetails({ dark }) {
     const [devices, setDevices]     = useState([]);
     const [deviceId, setDeviceId]   = useState('');
     const [alertType, setAlertType] = useState('');
@@ -4299,58 +4303,58 @@ function AlertDetails() {
             {/* Filter row */}
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
                 <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 6 }}>Alert Time</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff' }}>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dark ? '#f1f5f9' : '#111827', marginBottom: 6 }}>Alert Time</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 8, background: dark ? '#1e293b' : '#fff' }}>
                         <span style={{ color: '#9ca3af' }}>🕐</span>
                         <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-                            style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                            style={{ border: 'none', outline: 'none', fontSize: 13, color: dark ? '#e2e8f0' : '#374151' }} />
                         <span style={{ color: '#9ca3af' }}>-</span>
                         <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-                            style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
+                            style={{ border: 'none', outline: 'none', fontSize: 13, color: dark ? '#e2e8f0' : '#374151' }} />
                     </div>
                 </div>
-                <SearchSelect label="Devices" placeholder="All devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} />
-                <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} />
+                <SearchSelect label="Devices" placeholder="All devices" value={deviceId} onChange={setDeviceId} options={deviceOptions} dark={dark} />
+                <SearchSelect label="Alert Type" placeholder="All Types" value={alertType} onChange={setAlertType} options={alertTypeOptions} dark={dark} />
                 <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={search} style={{ padding: '9px 22px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="5.5" cy="5.5" r="4"/><line x1="9" y1="9" x2="12" y2="12"/></svg>Search
                     </button>
-                    <button onClick={reset} style={{ padding: '9px 18px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                    <button onClick={reset} style={{ padding: '9px 18px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Reset</button>
                 </div>
             </div>
             {/* Action row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                     <button onClick={() => exportAlertsCsv(filtered)} disabled={!filtered.length}
-                        style={{ padding: '6px 14px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: filtered.length ? '#374151' : '#cbd5e1', fontSize: 13, cursor: filtered.length ? 'pointer' : 'not-allowed' }}>Export</button>
+                        style={{ padding: '6px 14px', border: dark ? '1px solid #334155' : '1px solid #d1d5db', borderRadius: 6, background: dark ? '#1e293b' : '#fff', color: filtered.length ? (dark ? '#e2e8f0' : '#374151') : '#cbd5e1', fontSize: 13, cursor: filtered.length ? 'pointer' : 'not-allowed' }}>Export</button>
                 </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
                     <thead>
                         <tr>
-                            {COLS.map(c => <th key={c} style={TH}>{c}</th>)}
+                            {COLS.map(c => <th key={c} style={TH(dark)}>{c}</th>)}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : error ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : filtered.length === 0 ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD(dark), textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
                         ) : filtered.map((r, i) => (
                             <tr key={r.id ?? i}>
-                                <td style={TD}>{i + 1}</td>
-                                <td style={TD}>{resolveDeviceName(r)}</td>
-                                <td style={TD}>{r.imei ?? '—'}</td>
-                                <td style={TD}>{alertLabel(r)}</td>
-                                <td style={TD}>{r.speed ?? '—'}</td>
-                                <td style={TD}>{fmtTime(r.time)}</td>
-                                <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
-                                <td style={TD}>
+                                <td style={TD(dark)}>{i + 1}</td>
+                                <td style={TD(dark)}>{resolveDeviceName(r)}</td>
+                                <td style={TD(dark)}>{r.imei ?? '—'}</td>
+                                <td style={TD(dark)}>{alertLabel(r)}</td>
+                                <td style={TD(dark)}>{r.speed ?? '—'}</td>
+                                <td style={TD(dark)}>{fmtTime(r.time)}</td>
+                                <td style={TD(dark)}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={TD(dark)}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <AttachmentLinks attachments={r.attachments} />
+                                        <AttachmentLinks attachments={r.attachments} dark={dark} />
                                         <button onClick={() => setDetailsFor(r)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12, fontWeight: 600 }}>Details</button>
                                     </div>
                                 </td>
@@ -4361,7 +4365,7 @@ function AlertDetails() {
             </div>
 
             {detailsFor && (
-                <HistoricalAlertDetailsModal event={detailsFor} onClose={() => setDetailsFor(null)} />
+                <HistoricalAlertDetailsModal event={detailsFor} onClose={() => setDetailsFor(null)} dark={dark} />
             )}
         </div>
     );
@@ -4408,7 +4412,7 @@ const PAGES = {
 /* ══════════════════════════════════════════════════════════════ */
 /*  ROOT EXPORT                                                   */
 /* ══════════════════════════════════════════════════════════════ */
-export default function ReportPage({ reportSection }) {
+export default function ReportPage({ reportSection, dark }) {
     const Content = PAGES[reportSection] || (() => (
         <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', fontSize: 14 }}>Select a report from the sidebar.</div>
     ));
@@ -4429,15 +4433,15 @@ export default function ReportPage({ reportSection }) {
     }, [reportSection]);
 
     return (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: dark ? '#0b1220' : '#fff' }}>
             {/* Header */}
-            <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#111827' }}>{reportSection || 'Report'}</h2>
+            <div style={{ padding: '14px 20px 12px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, flexShrink: 0 }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: dark ? '#f1f5f9' : '#111827' }}>{reportSection || 'Report'}</h2>
             </div>
 
             {/* Content */}
             <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-                <Content />
+                <Content dark={dark} />
             </div>
         </div>
     );
