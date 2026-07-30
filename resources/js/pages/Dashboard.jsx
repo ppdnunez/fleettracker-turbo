@@ -10,7 +10,7 @@ import LogoutModal      from '../components/LogoutModal.jsx';
 import DeviceManagement from '../components/DeviceManagement.jsx';
 import CommandPage      from '../components/CommandPage.jsx';
 import ReportPage       from '../components/ReportPage.jsx';
-import FleetPage        from '../components/FleetPage.jsx';
+import FleetPage, { FleetDashboard } from '../components/FleetPage.jsx';
 import GeofencePage     from '../components/GeofencePage.jsx';
 import AlertRecipientsPage from '../components/AlertRecipientsPage.jsx';
 import SimDataManagementPage from '../components/SimDataManagementPage.jsx';
@@ -130,7 +130,7 @@ function applyLiveDevices(devices, updates) {
 
 export default function Dashboard({ user, onLogout }) {
     const [search,         setSearch]         = useState('');
-    const [page,           setPage]           = useState('Dashboard');
+    const [page,           setPage]           = useState('Fleet');
     const [showLogout,     setShowLogout]      = useState(false);
     const [mapMode,        setMapMode]        = useState('Map');
     const [panelOpen,      setPanelOpen]      = useState(true);
@@ -138,8 +138,6 @@ export default function Dashboard({ user, onLogout }) {
     const [reportSection,  setReportSection]  = useState('Internal Battery');
     const [fleetPage,      setFleetPage]      = useState('Dashboard');
     const [geofenceAlerts, setGeofenceAlerts] = useState([]); // live enter/exit toasts
-    const [dark, setDark] = useState(() => localStorage.getItem('fleet_dark') === '1');
-    useEffect(() => { localStorage.setItem('fleet_dark', dark ? '1' : '0'); }, [dark]);
 
     // Live device data — initial load via REST, then kept live via WebSocket (Traccar) or MQTT (TurboHive)
     const [liveDevices,   setLiveDevices]   = useState([]);
@@ -315,7 +313,7 @@ export default function Dashboard({ user, onLogout }) {
     const selectDevice = (id) => { setLiveSelected(id); setDetailPanelOpen(true); };
 
     return (
-        <div style={{ display: 'flex', height: '100vh', fontFamily: 'Inter,system-ui,sans-serif', background: dark ? '#0b1220' : '#f1f5f9', overflow: 'hidden' }}>
+        <div className="fleet-app-shell" style={{ display: 'flex', height: '100vh', fontFamily: 'Inter,system-ui,sans-serif', background: '#f1f5f9', overflow: 'hidden' }}>
             {geofenceAlerts.length > 0 && (
                 <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 2000, display: 'flex', flexDirection: 'column', gap: 8, width: 300 }}>
                     {geofenceAlerts.map(a => {
@@ -345,98 +343,111 @@ export default function Dashboard({ user, onLogout }) {
                 setReportSection={setReportSection}
                 fleetPage={fleetPage}
                 setFleetPage={setFleetPage}
-                dark={dark}
-                onToggleDark={() => setDark(d => !d)}
             />
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ height: 46, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9, padding: '0 18px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e2e8f0'}`, background: dark ? '#0f172a' : '#fff' }}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                        {user.name[0]}
+            <div className="fleet-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+                <header className="app-workspace-header mine-workspace-header">
+                    <div>
+                        <p className="workspace-kicker">Fleet operations</p>
+                        <h1 className="workspace-title">
+                            {page === 'Fleet' ? fleetPage : page === 'Report' ? reportSection : page}
+                        </h1>
                     </div>
-                    <div style={{ overflow: 'hidden' }}>
-                        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: dark ? '#f1f5f9' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{user.name}</p>
-                        <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', textTransform: 'capitalize' }}>{user.role || 'Administrator'}</p>
+                    <div className="workspace-user">
+                        <div className="workspace-avatar">
+                            {user.name?.trim()?.[0]?.toUpperCase() || 'U'}
+                        </div>
+                        <div style={{ overflow: 'hidden' }}>
+                            <p className="workspace-user-name">{user.name}</p>
+                            <p className="workspace-user-role">{user.role || 'Administrator'}</p>
+                        </div>
                     </div>
-                </div>
+                </header>
 
                 {page === 'Device Management' ? (
-                    <DeviceManagement dark={dark} />
+                    <DeviceManagement />
                 ) : page === 'Sim Data Management' ? (
-                    <SimDataManagementPage dark={dark} />
+                    <SimDataManagementPage />
                 ) : page === 'Command' ? (
-                    <CommandPage dark={dark} />
+                    <CommandPage />
                 ) : page === 'Geofence' ? (
-                    <GeofencePage onBack={() => setPage('Dashboard')} dark={dark} />
+                    <GeofencePage onBack={() => { setPage('Fleet'); setFleetPage('Dashboard'); }} />
                 ) : page === 'Alert Recipients' ? (
-                    <AlertRecipientsPage dark={dark} />
+                    <AlertRecipientsPage />
                 ) : page === 'Notification' ? (
-                    <NotificationPage dark={dark} />
+                    <NotificationPage />
                 ) : page === 'Calendars' ? (
-                    <CalendarPage dark={dark} />
+                    <CalendarPage />
                 ) : page === 'Computed Attributes' ? (
-                    <ComputedAttributePage dark={dark} />
+                    <ComputedAttributePage />
                 ) : page === 'Maintenance' ? (
-                    <MaintenancePage dark={dark} />
+                    <MaintenancePage />
                 ) : page === 'Saved Commands' ? (
-                    <SavedCommandPage dark={dark} />
+                    <SavedCommandPage />
                 ) : page === 'Groups' ? (
-                    <GroupPage dark={dark} />
+                    <GroupPage />
                 ) : page === 'Drivers' ? (
-                    <DriverPage dark={dark} />
+                    <DriverPage />
                 ) : page === 'Clients' ? (
-                    <ClientsPage dark={dark} />
+                    <ClientsPage />
                 ) : page === 'Report' ? (
-                    <ReportPage reportSection={reportSection} setReportSection={setReportSection} dark={dark} />
-                ) : page === 'Fleet' ? (
-                    <FleetPage fleetPage={fleetPage} setFleetPage={setFleetPage} dark={dark} />
-                ) : (
-                    <>
-                        <TopBar
-                            onlineCount={onlineCount}
-                            total={liveDevices.length}
-                            mapMode={mapMode}
-                            setMapMode={setMapMode}
-                            selectedDevice={selectedDevice}
-                            dark={dark}
-                        />
-                        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                            <DeviceList
-                                devices={filtered}
-                                selected={liveSelected}
-                                onSelect={selectDevice}
-                                search={search}
-                                setSearch={setSearch}
-                                loading={liveLoading}
-                                open={panelOpen}
-                                onToggle={() => setPanelOpen(o => !o)}
-                                dark={dark}
+                    <ReportPage reportSection={reportSection} setReportSection={setReportSection} />
+                ) : page === 'Fleet' && fleetPage !== 'Dashboard' ? (
+                    <FleetPage fleetPage={fleetPage} setFleetPage={setFleetPage} />
+                ) : page === 'Fleet' && fleetPage === 'Dashboard' ? (
+                    <FleetDashboard
+                        cockpit
+                        onNavigate={setFleetPage}
+                        mapContent={(
+                            <div className="mine-map-workspace">
+                            <TopBar
+                                onlineCount={onlineCount}
+                                total={liveDevices.length}
+                                mapMode={mapMode}
+                                setMapMode={setMapMode}
+                                selectedDevice={selectedDevice}
                             />
-
-                            {mapMode === 'Video' ? (
-                                <VideoMode selectedDevice={selectedDevice} dark={dark} />
-                            ) : (
-                                <MapCanvas
-                                    devices={liveDevices}
+                            <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+                                <DeviceList
+                                    devices={filtered}
                                     selected={liveSelected}
                                     onSelect={selectDevice}
-                                    selectedDevice={selectedDevice}
-                                    mapMode={mapMode}
-                                    mqttConnected={turboHiveEnabled ? mqttConnected : undefined}
-                                    nextRefreshIn={turboHiveEnabled ? nextRefreshIn : undefined}
-                                    dark={dark}
+                                    search={search}
+                                    setSearch={setSearch}
+                                    loading={liveLoading}
+                                    open={panelOpen}
+                                    onToggle={() => setPanelOpen(o => !o)}
                                 />
-                            )}
 
-                            {detailPanelOpen && selectedDevice && (
-                                <DeviceDetailPanel device={selectedDevice} onClose={() => setDetailPanelOpen(false)} dark={dark} />
-                            )}
-                        </div>
-                    </>
+                                {mapMode === 'Video' ? (
+                                    <VideoMode selectedDevice={selectedDevice} />
+                                ) : (
+                                    <MapCanvas
+                                        devices={liveDevices}
+                                        selected={liveSelected}
+                                        onSelect={selectDevice}
+                                        selectedDevice={selectedDevice}
+                                        mapMode={mapMode}
+                                        mqttConnected={turboHiveEnabled ? mqttConnected : undefined}
+                                        nextRefreshIn={turboHiveEnabled ? nextRefreshIn : undefined}
+                                    />
+                                )}
+
+                                {detailPanelOpen && selectedDevice && (
+                                    <DeviceDetailPanel device={selectedDevice} onClose={() => setDetailPanelOpen(false)} />
+                                )}
+                            </div>
+                            </div>
+                        )}
+                    />
+                ) : (
+                    <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#829ab1', fontSize: 13 }}>
+                        Select a workspace from the sidebar.
+                    </div>
                 )}
             </div>
 
-            {showLogout && <LogoutModal onCancel={() => setShowLogout(false)} onConfirm={onLogout} dark={dark} />}
+            {showLogout && <LogoutModal onCancel={() => setShowLogout(false)} onConfirm={onLogout} />}
         </div>
     );
 }
