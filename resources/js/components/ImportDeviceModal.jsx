@@ -15,15 +15,26 @@ function Field({ label, hint, children, dark }) {
     );
 }
 
-/* ── error codes TurboHive's /v3/devices/import/single returns ─ */
+/* ── every error code documented for POST /v3/devices/import/single ─ */
 const ERROR_HINTS = {
+    1101: 'You are not authenticated — try signing in again.',
+    1202: 'IMEI, Vendor and Model are required.',
+    1203: 'IMEI format is invalid — it must be digits only.',
+    1204: 'A field value is out of the allowed range.',
     2002: 'A device with this IMEI is already in your account.',
     2006: 'That model was not found for the selected vendor.',
     2009: 'Device vendor not found.',
+    2010: 'Invalid device type for the selected model.',
+    2026: 'Private deployment accounts are not allowed to add devices.',
     4001: 'Device quota exceeded — your account has reached its device limit.',
-    1202: 'IMEI, Vendor and Model are required.',
-    1203: 'IMEI format is invalid.',
+    4005: 'Your account quota has not been initialized yet — contact support.',
+    4007: 'Failed to update your device quota — try again.',
 };
+
+/* ── field constraints per the documented request schema ─ */
+const IMEI_PATTERN = /^\d*$/;
+const IMEI_MAX_LEN = 25;
+const NAME_MAX_LEN = 50;
 
 /* ── main modal — imports a device already provisioned by the vendor into this account ── */
 export default function ImportDeviceModal({ onClose, onCreated, dark }) {
@@ -68,6 +79,10 @@ export default function ImportDeviceModal({ onClose, onCreated, dark }) {
             setError('IMEI, Vendor and Model are required.');
             return;
         }
+        if (!IMEI_PATTERN.test(imei.trim()) || imei.trim().length > IMEI_MAX_LEN) {
+            setError(`IMEI must be digits only, up to ${IMEI_MAX_LEN} characters.`);
+            return;
+        }
         setSaving(true);
         try {
             const { data } = await api.importTurboHiveDevice({
@@ -106,8 +121,10 @@ export default function ImportDeviceModal({ onClose, onCreated, dark }) {
                         <p style={{ fontSize: 13, color: dark ? '#64748b' : '#94a3b8', textAlign: 'center', padding: '24px 0' }}>Loading vendor/model catalog…</p>
                     ) : (
                         <>
-                            <Field label="IMEI" hint="The IMEI printed on the device — must match what it reports to TurboHive." dark={dark}>
-                                <input value={imei} onChange={e => setImei(e.target.value)} placeholder="e.g. 863800080017899" style={inputStyle} />
+                            <Field label="IMEI" hint="Digits only, up to 25 characters — must match what the device reports to TurboHive." dark={dark}>
+                                <input value={imei} inputMode="numeric" maxLength={IMEI_MAX_LEN}
+                                    onChange={e => { if (IMEI_PATTERN.test(e.target.value)) setImei(e.target.value); }}
+                                    placeholder="e.g. 863800080017899" style={inputStyle} />
                             </Field>
 
                             <Field label="Vendor" dark={dark}>
@@ -131,8 +148,8 @@ export default function ImportDeviceModal({ onClose, onCreated, dark }) {
                                 </div>
                             )}
 
-                            <Field label="Device Name" hint="Optional — a friendly name for this device." dark={dark}>
-                                <input value={deviceName} onChange={e => setDeviceName(e.target.value)} placeholder="e.g. Truck 12" style={inputStyle} />
+                            <Field label="Device Name" hint="Optional — a friendly name for this device, up to 50 characters." dark={dark}>
+                                <input value={deviceName} maxLength={NAME_MAX_LEN} onChange={e => setDeviceName(e.target.value)} placeholder="e.g. Truck 12" style={inputStyle} />
                             </Field>
                         </>
                     )}

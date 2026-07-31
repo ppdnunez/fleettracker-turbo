@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, ZoomControl, Circle, Polygon, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle, Polygon, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { vehicleGlyphSvg } from '../vehicleIcons.js';
@@ -153,6 +153,67 @@ function LayersIcon() {
     );
 }
 
+// Custom hover label instead of the native `title` attribute — a browser tooltip on a 30x30
+// icon-only button tends to pop up right against (or under) the cursor/icon itself and is easy to
+// lose; this renders a readable pill offset clear of the button instead.
+function HoverTip({ label, wrapperStyle, children }) {
+    const [hover, setHover] = useState(false);
+    return (
+        <div style={{ position: 'relative', ...wrapperStyle }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+            {children}
+            {hover && (
+                <div style={{
+                    position: 'absolute', top: '50%', right: '100%', marginRight: 8, transform: 'translateY(-50%)',
+                    background: '#0f172a', color: '#fff', fontSize: 11.5, fontWeight: 600,
+                    padding: '4px 9px', borderRadius: 5, whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.35)', pointerEvents: 'none', zIndex: 1001,
+                }}>
+                    {label}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Custom zoom control matching the Show-Geofences / Change-map-layer buttons' dark square style,
+// replacing react-leaflet's default (white, theme-mismatched) <ZoomControl>.
+function ZoomButtons({ dark }) {
+    const map = useMap();
+    const [zoom, setZoomLevel] = useState(map.getZoom());
+
+    useEffect(() => {
+        const onZoom = () => setZoomLevel(map.getZoom());
+        map.on('zoomend', onZoom);
+        return () => map.off('zoomend', onZoom);
+    }, [map]);
+
+    const btnBase = {
+        width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: dark ? '#111827' : '#fff', color: dark ? '#94a3b8' : '#374151',
+        border: 'none', cursor: 'pointer', fontSize: 16, fontWeight: 700, padding: 0, lineHeight: 1,
+    };
+    const atMax = zoom >= map.getMaxZoom();
+    const atMin = zoom <= map.getMinZoom();
+
+    return (
+        <div style={{
+            position: 'absolute', top: 10, right: 10, zIndex: 1000,
+            display: 'flex', flexDirection: 'column',
+            border: `2px solid ${dark ? '#1e293b' : 'rgba(0,0,0,0.2)'}`, borderRadius: 4,
+            boxShadow: '0 1px 5px rgba(0,0,0,0.4)', overflow: 'hidden',
+        }}>
+            <HoverTip label="Zoom in">
+                <button onClick={() => map.zoomIn()} disabled={atMax} aria-label="Zoom in"
+                    style={{ ...btnBase, borderBottom: `1px solid ${dark ? '#1e293b' : 'rgba(0,0,0,0.15)'}`, opacity: atMax ? 0.4 : 1, cursor: atMax ? 'default' : 'pointer' }}>+</button>
+            </HoverTip>
+            <HoverTip label="Zoom out">
+                <button onClick={() => map.zoomOut()} disabled={atMin} aria-label="Zoom out"
+                    style={{ ...btnBase, fontSize: 20, opacity: atMin ? 0.4 : 1, cursor: atMin ? 'default' : 'pointer' }}>−</button>
+            </HoverTip>
+        </div>
+    );
+}
+
 // Google's XYZ tile mirrors (mt0-mt3) — unofficial (no API key), used the same way most
 // Leaflet/OSM-based projects pull Google tiles outside the JS Maps SDK. lyrs codes: m=roadmap,
 // p=terrain, s=satellite, y=hybrid (satellite+labels); "m,traffic" overlays live traffic on the
@@ -188,19 +249,21 @@ function MapLayerPicker({ layerKey, onChange, dark }) {
     }, []);
 
     return (
-        <div ref={ref} style={{ position: 'absolute', top: 116, right: 10, zIndex: 1000 }}>
-            <button
-                onClick={() => setOpen(v => !v)}
-                title="Change map layer"
-                style={{
-                    width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: open ? '#3b82f6' : (dark ? '#111827' : '#fff'), color: open ? '#fff' : (dark ? '#94a3b8' : '#374151'),
-                    border: `2px solid ${dark ? '#1e293b' : 'rgba(0,0,0,0.2)'}`, borderRadius: 4,
-                    cursor: 'pointer', boxShadow: '0 1px 5px rgba(0,0,0,0.4)', padding: 0,
-                }}
-            >
-                <LayersIcon />
-            </button>
+        <div ref={ref} style={{ position: 'relative' }}>
+            <HoverTip label="Change map layer">
+                <button
+                    onClick={() => setOpen(v => !v)}
+                    aria-label="Change map layer"
+                    style={{
+                        width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: open ? '#3b82f6' : (dark ? '#111827' : '#fff'), color: open ? '#fff' : (dark ? '#94a3b8' : '#374151'),
+                        border: `2px solid ${dark ? '#1e293b' : 'rgba(0,0,0,0.2)'}`, borderRadius: 4,
+                        cursor: 'pointer', boxShadow: '0 1px 5px rgba(0,0,0,0.4)', padding: 0,
+                    }}
+                >
+                    <LayersIcon />
+                </button>
+            </HoverTip>
 
             {open && (
                 <div style={{
@@ -258,7 +321,7 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
     };
 
     return (
-        <div style={{ flex: 1, position: 'relative' }}>
+        <div style={{ flex: 1, height: '100%', position: 'relative' }}>
             <MapContainer
                 center={CENTER}
                 zoom={13}
@@ -269,7 +332,7 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                 {MAP_LAYERS[layerKey].tiles.map((t, i) => (
                     <TileLayer key={`${layerKey}-${i}`} url={t.url} subdomains={t.subdomains || 'abc'} attribution={t.attribution} />
                 ))}
-                <ZoomControl position="topright" />
+                <ZoomButtons dark={dark} />
                 <FlyToSelected device={selectedDevice} />
                 <InvalidateOnResize />
 
@@ -291,44 +354,44 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                             eventHandlers={{ click: () => onSelect(d.id), popupopen: () => d.imei && loadFuel(d.imei) }}
                         >
                             <Popup>
-                                <div style={{ minWidth: 170, fontSize: 12, lineHeight: 1.6 }}>
-                                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{d.name}</div>
+                                <div style={{ minWidth: 170, fontSize: 12, lineHeight: 1.6, background: '#0f172a', color: '#f1f5f9', padding: '10px 12px', borderRadius: 12 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2, color: '#f1f5f9' }}>{d.name}</div>
                                     {d.tracker && (
-                                        <div style={{ color: '#64748b', fontSize: 11, marginBottom: 4 }}>{d.tracker}</div>
+                                        <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 4 }}>{d.tracker}</div>
                                     )}
                                     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                                         <tbody>
-                                            <tr><td style={{ color: '#64748b', paddingRight: 8 }}>Lat</td><td>{d.lat.toFixed(5)}</td></tr>
-                                            <tr><td style={{ color: '#64748b', paddingRight: 8 }}>Lng</td><td>{d.lng.toFixed(5)}</td></tr>
+                                            <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>Lat</td><td style={{ color: '#f1f5f9' }}>{d.lat.toFixed(5)}</td></tr>
+                                            <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>Lng</td><td style={{ color: '#f1f5f9' }}>{d.lng.toFixed(5)}</td></tr>
                                             {fmt(d.speed) != null && (
-                                                <tr><td style={{ color: '#64748b', paddingRight: 8 }}>Speed</td><td>{fmt(d.speed)} km/h</td></tr>
+                                                <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>Speed</td><td style={{ color: '#f1f5f9' }}>{fmt(d.speed)} km/h</td></tr>
                                             )}
                                             {fmt(d.heading) != null && (
-                                                <tr><td style={{ color: '#64748b', paddingRight: 8 }}>Heading</td><td>{fmt(d.heading)}°</td></tr>
+                                                <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>Heading</td><td style={{ color: '#f1f5f9' }}>{fmt(d.heading)}°</td></tr>
                                             )}
                                             {fmt(d.altitude) != null && (
-                                                <tr><td style={{ color: '#64748b', paddingRight: 8 }}>Altitude</td><td>{fmt(d.altitude)} m</td></tr>
+                                                <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>Altitude</td><td style={{ color: '#f1f5f9' }}>{fmt(d.altitude)} m</td></tr>
                                             )}
                                             {d.acc != null && (
-                                                <tr><td style={{ color: '#64748b', paddingRight: 8 }}>ACC</td><td style={{ color: d.acc ? '#16a34a' : '#94a3b8' }}>{d.acc ? 'ON' : 'OFF'}</td></tr>
+                                                <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>ACC</td><td style={{ color: d.acc ? '#4ade80' : '#94a3b8' }}>{d.acc ? 'ON' : 'OFF'}</td></tr>
                                             )}
                                             {d.signal != null && (
-                                                <tr><td style={{ color: '#64748b', paddingRight: 8 }}>Signal</td><td>{d.signal}%</td></tr>
+                                                <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>Signal</td><td style={{ color: '#f1f5f9' }}>{d.signal}%</td></tr>
                                             )}
                                             <tr>
-                                                <td style={{ color: '#64748b', paddingRight: 8 }}>Driver</td>
-                                                <td>{(driversByImei[d.imei] || []).map(dr => dr.name).join(', ') || '—'}</td>
+                                                <td style={{ color: '#94a3b8', paddingRight: 8 }}>Driver</td>
+                                                <td style={{ color: '#f1f5f9' }}>{(driversByImei[d.imei] || []).map(dr => dr.name).join(', ') || '—'}</td>
                                             </tr>
                                             <tr>
-                                                <td style={{ color: '#64748b', paddingRight: 8 }}>Fuel</td>
-                                                <td>{d.imei in fuelByImei ? (fmt(fuelByImei[d.imei]) != null ? `${fmt(fuelByImei[d.imei])}%` : '—') : 'Loading…'}</td>
+                                                <td style={{ color: '#94a3b8', paddingRight: 8 }}>Fuel</td>
+                                                <td style={{ color: '#f1f5f9' }}>{d.imei in fuelByImei ? (fmt(fuelByImei[d.imei]) != null ? `${fmt(fuelByImei[d.imei])}%` : '—') : 'Loading…'}</td>
                                             </tr>
                                             {fmtTime(d.lastUpdate) && (
-                                                <tr><td style={{ color: '#64748b', paddingRight: 8 }}>Updated</td><td style={{ color: '#64748b' }}>{fmtTime(d.lastUpdate)}</td></tr>
+                                                <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>Updated</td><td style={{ color: '#94a3b8' }}>{fmtTime(d.lastUpdate)}</td></tr>
                                             )}
                                         </tbody>
                                     </table>
-                                    <div style={{ marginTop: 6, color: d.status === 'ONLINE' ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
+                                    <div style={{ marginTop: 6, color: d.status === 'ONLINE' ? '#4ade80' : '#94a3b8', fontWeight: 600 }}>
                                         ● {d.status}
                                     </div>
                                 </div>
@@ -338,28 +401,31 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                 ))}
             </MapContainer>
 
-            {/* Show Geofences toggle — sits just under Leaflet's top-right zoom control */}
-            <button
-                onClick={() => setShowGeofences(v => !v)}
-                title={showGeofences ? 'Hide geofences' : 'Show geofences'}
-                style={{
-                    position: 'absolute', top: 78, right: 10, zIndex: 1000,
-                    width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: showGeofences ? '#3b82f6' : (dark ? '#111827' : '#fff'),
-                    color: showGeofences ? '#fff' : (dark ? '#94a3b8' : '#374151'),
-                    border: `2px solid ${dark ? '#1e293b' : 'rgba(0,0,0,0.2)'}`, borderRadius: 4,
-                    cursor: 'pointer', boxShadow: '0 1px 5px rgba(0,0,0,0.4)', padding: 0,
-                }}
-            >
-                <GeofenceToggleIcon />
-            </button>
+            {/* Show Geofences + Change map layer — centered on the map's right edge */}
+            <div style={{ position: 'absolute', top: '50%', right: 10, transform: 'translateY(-50%)', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <HoverTip label={showGeofences ? 'Hide geofences' : 'Show geofences'}>
+                    <button
+                        onClick={() => setShowGeofences(v => !v)}
+                        aria-label={showGeofences ? 'Hide geofences' : 'Show geofences'}
+                        style={{
+                            width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: showGeofences ? '#3b82f6' : (dark ? '#111827' : '#fff'),
+                            color: showGeofences ? '#fff' : (dark ? '#94a3b8' : '#374151'),
+                            border: `2px solid ${dark ? '#1e293b' : 'rgba(0,0,0,0.2)'}`, borderRadius: 4,
+                            cursor: 'pointer', boxShadow: '0 1px 5px rgba(0,0,0,0.4)', padding: 0,
+                        }}
+                    >
+                        <GeofenceToggleIcon />
+                    </button>
+                </HoverTip>
 
-            <MapLayerPicker layerKey={layerKey} onChange={setLayerKey} dark={dark} />
+                <MapLayerPicker layerKey={layerKey} onChange={setLayerKey} dark={dark} />
+            </div>
 
             {/* MQTT live status badge — only shown when TurboHive provider is active */}
             {mqttConnected !== undefined && (
                 <div style={{
-                    position: 'absolute', bottom: 16, right: 48, zIndex: 1000,
+                    position: 'absolute', bottom: 16, left: 16, zIndex: 1000,
                     display: 'flex', alignItems: 'center', gap: 5,
                     padding: '4px 10px', borderRadius: 20,
                     background: mqttConnected ? 'rgba(22,163,74,0.9)' : 'rgba(148,163,184,0.9)',
@@ -376,7 +442,7 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                 alone can't express (see Dashboard.jsx's fetchLiveDevices polling effect). */}
             {nextRefreshIn !== undefined && (
                 <div style={{
-                    position: 'absolute', bottom: 46, right: 48, zIndex: 1000,
+                    position: 'absolute', bottom: 46, left: 16, zIndex: 1000,
                     display: 'flex', alignItems: 'center', gap: 5,
                     padding: '4px 10px', borderRadius: 20,
                     background: 'rgba(51,65,85,0.85)',

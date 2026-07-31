@@ -61,6 +61,15 @@ export const api = {
     // ── Face recognition check history (alert.code 1823/1824, captured live via MqttWorker) ──
     getFaceRecognitionEvents: (params = {}) => axios.get('/api/face-recognition-events', { params }),
 
+    // ── Refuel history (detected live from fuel-level sensor readings via MqttWorker) ──
+    getFuelRefuelEvents: (params = {}) => axios.get('/api/fuel-refuel-events', { params }),
+
+    // ── Abnormal fuel loss history (leak/siphon, detected live via MqttWorker) ──
+    getFuelAbnormalLossEvents: (params = {}) => axios.get('/api/fuel-abnormal-loss-events', { params }),
+
+    // ── Idle-run fuel consumption history (detected live via MqttWorker) ──
+    getFuelIdleEvents: (params = {}) => axios.get('/api/fuel-idle-events', { params }),
+
     // ── Petrol/diesel price history ─────────────────────────────────────────
     getFuelPrices:    (params = {}) => axios.get('/api/fuel-prices', { params }),
     createFuelPrice:  (data)        => axios.post('/api/fuel-prices', data),

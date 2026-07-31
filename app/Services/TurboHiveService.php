@@ -46,11 +46,16 @@ class TurboHiveService
     }
 
     /**
-     * Registers a device (already provisioned by the vendor) into this account by IMEI.
-     * Required: imei, manufacturer (vendorCode, e.g. "JIMI"), model (modelCode). Optional:
-     * deviceName, deviceType, protocol. Returns the raw TurboHive envelope — code is anything
-     * but 1000 on failure (2002 already exists, 2006 model not found, 2009 vendor not found,
-     * 4001 quota exceeded, 1202/1203 bad input) — so the caller can surface `message` as-is.
+     * Registers a device (already provisioned by the vendor) into this account by IMEI, via
+     * POST /v3/devices/import/single. Required: imei (digits only, max 25 chars), manufacturer
+     * (vendorCode, e.g. "JIMI", max 50 chars), model (modelCode, max 50 chars). Optional:
+     * deviceName (max 50 chars), deviceType, protocol. Returns the raw TurboHive envelope — code
+     * is anything but 1000 on failure: 1101 not authenticated, 1202 missing required parameter,
+     * 1203 invalid parameter format, 1204 parameter value out of range, 2002 device already
+     * exists, 2006 model not found, 2009 vendor not found, 2010 invalid device type, 2026 private
+     * deployment accounts can't add devices, 4001 device quota exceeded, 4005 user quota not
+     * initialized, 4007 quota update failed — so the caller can surface `message` as-is (see
+     * ImportDeviceModal.jsx's ERROR_HINTS for the full code -> friendly-message mapping).
      */
     public function importDevice(array $data): array
     {

@@ -133,10 +133,9 @@ function EmptyTable({ cols, rows }) {
         </div>
     );
 }
-function PageShell({ title, children }) {
+function PageShell({ children }) {
     return (
         <div style={{ flex: 1, overflowY: 'auto', background: '#fff', padding: '16px 24px' }}>
-            <h2 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: '#111827' }}>{title}</h2>
             {children}
         </div>
     );
@@ -376,18 +375,6 @@ export function FleetDashboard({ compact = false, cockpit = false, mapContent = 
 
         return (
             <div className="mine-cockpit-canvas">
-                <div className="mine-cockpit-intro">
-                    <div>
-                        <span className="mine-eyebrow">Fleet-wide snapshot</span>
-                        <h2>Fleet Operations Cockpit</h2>
-                        <p>GPS tracking, driver safety, vehicle condition and operational performance in one live view.</p>
-                    </div>
-                    <span className="mine-live-pill">
-                        <i />
-                        {loading ? 'Synchronizing' : 'Live operations'}
-                    </span>
-                </div>
-
                 {error && <div className="mine-error-banner">{error}</div>}
 
                 <section className="mine-kpi-grid" aria-label="Fleet operations KPIs">
@@ -401,17 +388,6 @@ export function FleetDashboard({ compact = false, cockpit = false, mapContent = 
                 </section>
 
                 <section className="mine-panel">
-                    <header className="mine-panel-header">
-                        <div>
-                            <h3>Live Site Map</h3>
-                            <p>Live vehicle positions, device status and video access across the operating area.</p>
-                        </div>
-                        <div className="mine-map-legend">
-                            <span><i className="online" />Online</span>
-                            <span><i className="offline" />Offline</span>
-                            <span><i className="selected" />Selected</span>
-                        </div>
-                    </header>
                     <div className="mine-live-map-frame">
                         {mapContent}
                     </div>
@@ -565,68 +541,72 @@ function DriverFormModal({ driver, onClose, onSaved }) {
         }
     };
 
+    const dField = { display: 'flex', flexDirection: 'column', gap: 6 };
+    const dLabel = { fontSize: 12.5, color: '#94a3b8', fontWeight: 600 };
+    const dInput = { padding: '10px 12px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 13.5, outline: 'none', boxSizing: 'border-box', width: '100%', background: '#1e293b', color: '#f1f5f9' };
+
     return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-            <div style={{ background: '#fff', borderRadius: 12, width: 480, maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
-                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>{isNew ? 'New Driver' : 'Edit Driver'}</h2>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#0f172a', borderRadius: 14, width: 480, maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#f8fafc' }}>{isNew ? 'New Driver' : 'Edit Driver'}</h2>
+                    <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 20, lineHeight: 1, padding: 4 }}>✕</button>
                 </div>
 
-                <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                    {error && <div style={{ gridColumn: '1 / -1', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+                <div style={{ padding: 22, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    {error && <div style={{ gridColumn: '1 / -1', padding: '8px 12px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 6, fontSize: 12, color: '#fca5a5' }}>{error}</div>}
 
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>Driver No. *</label>
-                        <input value={form.badge_no} onChange={set('badge_no')} disabled={!isNew} style={{ ...driverInputStyle, background: isNew ? '#fff' : '#f3f4f6' }} />
+                    <div style={dField}>
+                        <label style={dLabel}>Driver No. *</label>
+                        <input value={form.badge_no} onChange={set('badge_no')} disabled={!isNew} style={{ ...dInput, background: isNew ? '#1e293b' : '#0b1220', color: isNew ? '#f1f5f9' : '#64748b' }} />
                     </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>Driver Name *</label>
-                        <input value={form.name} onChange={set('name')} style={driverInputStyle} />
+                    <div style={dField}>
+                        <label style={dLabel}>Driver Name *</label>
+                        <input value={form.name} onChange={set('name')} style={dInput} />
                     </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>Phone</label>
-                        <input value={form.phone} onChange={set('phone')} style={driverInputStyle} />
+                    <div style={dField}>
+                        <label style={dLabel}>Phone</label>
+                        <input value={form.phone} onChange={set('phone')} style={dInput} />
                     </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>License No.</label>
-                        <input value={form.license_no} onChange={set('license_no')} style={driverInputStyle} />
+                    <div style={dField}>
+                        <label style={dLabel}>License No.</label>
+                        <input value={form.license_no} onChange={set('license_no')} style={dInput} />
                     </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>RFID Card No.</label>
-                        <input value={form.rfid_card_no} onChange={set('rfid_card_no')} style={driverInputStyle} />
+                    <div style={dField}>
+                        <label style={dLabel}>RFID Card No.</label>
+                        <input value={form.rfid_card_no} onChange={set('rfid_card_no')} style={dInput} />
                     </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>iButton No.</label>
-                        <input value={form.ibutton_no} onChange={set('ibutton_no')} placeholder="Card number on the iButton fob" style={driverInputStyle} />
+                    <div style={dField}>
+                        <label style={dLabel}>iButton No.</label>
+                        <input value={form.ibutton_no} onChange={set('ibutton_no')} placeholder="Card number on the iButton fob" style={dInput} />
                     </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>Register Place</label>
-                        <input value={form.register_place} onChange={set('register_place')} style={driverInputStyle} />
+                    <div style={dField}>
+                        <label style={dLabel}>Register Place</label>
+                        <input value={form.register_place} onChange={set('register_place')} style={dInput} />
                     </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>Register Date</label>
-                        <input type="date" value={form.register_date} onChange={set('register_date')} style={driverInputStyle} />
+                    <div style={dField}>
+                        <label style={dLabel}>Register Date</label>
+                        <input type="date" value={form.register_date} onChange={set('register_date')} style={{ ...dInput, colorScheme: 'dark' }} />
                     </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>Status</label>
-                        <select value={form.status} onChange={set('status')} style={{ ...driverInputStyle, background: '#fff', cursor: 'pointer' }}>
+                    <div style={dField}>
+                        <label style={dLabel}>Status</label>
+                        <select value={form.status} onChange={set('status')} style={{ ...dInput, cursor: 'pointer' }}>
                             <option>Active</option>
                             <option>Inactive</option>
                         </select>
                     </div>
-                    <div style={driverFieldStyle}>
-                        <label style={driverLabelStyle}>License Expiry</label>
-                        <input type="date" value={form.license_expiry} onChange={set('license_expiry')} style={driverInputStyle} />
+                    <div style={dField}>
+                        <label style={dLabel}>License Expiry</label>
+                        <input type="date" value={form.license_expiry} onChange={set('license_expiry')} style={{ ...dInput, colorScheme: 'dark' }} />
                     </div>
-                    <div style={{ ...driverFieldStyle, gridColumn: '1 / -1' }}>
-                        <label style={driverLabelStyle}>Notify before expiry (days)</label>
-                        <input type="number" min="1" max="365" placeholder={`Default ${DEFAULT_NOTICE_DAYS}`} value={form.notify_days_before} onChange={set('notify_days_before')} style={{ ...driverInputStyle, maxWidth: 200 }} />
+                    <div style={{ ...dField, gridColumn: '1 / -1' }}>
+                        <label style={dLabel}>Notify before expiry (days)</label>
+                        <input type="number" min="1" max="365" placeholder={`Default ${DEFAULT_NOTICE_DAYS}`} value={form.notify_days_before} onChange={set('notify_days_before')} style={{ ...dInput, maxWidth: 200 }} />
                     </div>
                 </div>
 
-                <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                <div style={{ padding: '14px 22px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 7, border: '1.5px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#cbd5e1', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
                     <button onClick={handleSave} disabled={saving} style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
                         {saving ? 'Saving…' : 'Save'}
                     </button>
@@ -931,8 +911,8 @@ function DriverStatCard({ label, value, sublabel, color }) {
 function DetailRow({ label, value, extra }) {
     return (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <span style={{ color: '#6b7280' }}>{label}</span>
-            <span style={{ color: '#111827', fontWeight: 500, textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>{value ?? (!extra && '—')}{extra}</span>
+            <span style={{ color: '#94a3b8' }}>{label}</span>
+            <span style={{ color: '#f1f5f9', fontWeight: 500, textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>{value ?? (!extra && '—')}{extra}</span>
         </div>
     );
 }
@@ -962,7 +942,7 @@ function DriverDetailPanel({ driver, onEdit, onManageFace }) {
 
     if (!driver) {
         return (
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+            <div style={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
                 Select a driver from the list to view details.
             </div>
         );
@@ -973,22 +953,22 @@ function DriverDetailPanel({ driver, onEdit, onManageFace }) {
     const initials  = driver.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
 
     return (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 18px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
+        <div style={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
                     {initials}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{driver.name}</p>
-                    <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>{driver.badge_no}</p>
+                    <p style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{driver.name}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: '#94a3b8' }}>{driver.badge_no}</p>
                 </div>
                 <Badge text={driver.authorized ? 'Authorized' : 'Not Authorized'} color={driver.authorized ? '#16a34a' : '#ef4444'} />
             </div>
 
-            <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9', overflowX: 'auto' }}>
+            <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.1)', overflowX: 'auto' }}>
                 {DRIVER_DETAIL_TABS.map(t => (
                     <button key={t} onClick={() => setTab(t)}
-                        style={{ padding: '9px 14px', border: 'none', borderBottom: tab === t ? '2px solid #3b82f6' : '2px solid transparent', background: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: tab === t ? '#1d4ed8' : '#6b7280', whiteSpace: 'nowrap' }}>
+                        style={{ padding: '9px 14px', border: 'none', borderBottom: tab === t ? '2px solid #3b82f6' : '2px solid transparent', background: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: tab === t ? '#60a5fa' : '#94a3b8', whiteSpace: 'nowrap' }}>
                         {t}
                     </button>
                 ))}
@@ -1028,14 +1008,14 @@ function DriverDetailPanel({ driver, onEdit, onManageFace }) {
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {faces.map(f => (
-                                    <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid #f1f5f9', borderRadius: 8 }}>
+                                    <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}>
                                         {f.photo_path ? (
                                             <img src={`/storage/${f.photo_path}`} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
                                         ) : (
-                                            <div style={{ width: 36, height: 36, borderRadius: 6, background: '#f1f5f9', flexShrink: 0 }} />
+                                            <div style={{ width: 36, height: 36, borderRadius: 6, background: '#1e293b', flexShrink: 0 }} />
                                         )}
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#111827' }}>{f.imei}</p>
+                                            <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#f1f5f9' }}>{f.imei}</p>
                                             <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>
                                                 {f.enrolled_at ? `Enrolled ${new Date(f.enrolled_at).toLocaleDateString()}` : f.requested_at ? `Requested ${new Date(f.requested_at).toLocaleDateString()}` : ''}
                                             </p>
@@ -1049,7 +1029,7 @@ function DriverDetailPanel({ driver, onEdit, onManageFace }) {
                 )}
             </div>
 
-            <div style={{ padding: '12px 18px', borderTop: '1px solid #f1f5f9' }}>
+            <div style={{ padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                 <button onClick={() => onEdit(driver)}
                     style={{ width: '100%', padding: '8px 14px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
                     Edit Profile
@@ -1068,8 +1048,8 @@ function LicenseExpiryAlertCard({ drivers }) {
         .slice(0, 6);
 
     return (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 18 }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13.5, fontWeight: 700, color: '#111827' }}>License Expiry Alert</h3>
+        <div style={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 18 }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 13.5, fontWeight: 700, color: '#f8fafc' }}>License Expiry Alert</h3>
             {alerts.length === 0 ? (
                 <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8', textAlign: 'center', padding: '12px 0' }}>No upcoming expirations.</p>
             ) : (
@@ -1079,12 +1059,12 @@ function LicenseExpiryAlertCard({ drivers }) {
                         return (
                             <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
                                 <div style={{ minWidth: 0 }}>
-                                    <p style={{ margin: 0, fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</p>
-                                    <p style={{ margin: 0, color: '#9ca3af' }}>{d.license_no || '—'}</p>
+                                    <p style={{ margin: 0, fontWeight: 600, color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</p>
+                                    <p style={{ margin: 0, color: '#94a3b8' }}>{d.license_no || '—'}</p>
                                 </div>
                                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
                                     <Badge text={status} color={REMINDER_COLOR[status]} />
-                                    <p style={{ margin: '2px 0 0', color: '#9ca3af' }}>{d.license_expiry.slice(0, 10)}</p>
+                                    <p style={{ margin: '2px 0 0', color: '#94a3b8' }}>{d.license_expiry.slice(0, 10)}</p>
                                 </div>
                             </div>
                         );
@@ -1153,7 +1133,7 @@ function DriverPage() {
 
     const selectedDriver = drivers.find(d => d.id === selectedId) || null;
 
-    const COLS = ['No.','Driver No.','Driver Name','Phone','License No.','Authorization','RFID Card No.','iButton No.','Register Place','Register Date','License Expiry','License Status','Driving license reminder','Status','Action'];
+    const COLS = ['No.','Driver Name','License Status','License Expiry','Driving license reminder','Status','Action'];
 
     const stopRowClick = (e) => e.stopPropagation();
 
@@ -1183,9 +1163,8 @@ function DriverPage() {
 
             {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
                         <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                         <tbody>
                             {loading ? (
@@ -1199,17 +1178,9 @@ function DriverPage() {
                                     <tr key={d.id} onClick={() => setSelectedId(d.id)}
                                         style={{ cursor: 'pointer', background: selectedId === d.id ? '#eff6ff' : undefined }}>
                                         <td style={TD}>{i + 1}</td>
-                                        <td style={TD}>{d.badge_no}</td>
                                         <td style={{ ...TD, fontWeight: 500 }}>{d.name}</td>
-                                        <td style={TD}>{d.phone || '—'}</td>
-                                        <td style={TD}>{d.license_no || '—'}</td>
-                                        <td style={TD}><Badge text={d.authorized ? 'Authorized' : 'Not Authorized'} color={d.authorized ? '#16a34a' : '#ef4444'} /></td>
-                                        <td style={TD}>{d.rfid_card_no || '—'}</td>
-                                        <td style={TD}>{d.ibutton_no || '—'}</td>
-                                        <td style={TD}>{d.register_place || '—'}</td>
-                                        <td style={TD}>{d.register_date ? d.register_date.slice(0, 10) : '—'}</td>
-                                        <td style={TD}>{d.license_expiry ? d.license_expiry.slice(0, 10) : '—'}</td>
                                         <td style={TD}><Badge text={lStatus} color={STATUS_COLOR[lStatus]} /></td>
+                                        <td style={TD}>{d.license_expiry ? d.license_expiry.slice(0, 10) : '—'}</td>
                                         <td style={TD}><Badge text={lReminder} color={REMINDER_COLOR[lReminder]} /></td>
                                         <td style={TD}>{d.status}</td>
                                         <td style={{ ...TD, whiteSpace: 'nowrap' }} onClick={stopRowClick}>
@@ -1222,13 +1193,26 @@ function DriverPage() {
                             })}
                         </tbody>
                     </table>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    <DriverDetailPanel driver={selectedDriver} onEdit={setEditing} onManageFace={setFaceDriver} />
-                    <LicenseExpiryAlertCard drivers={drivers} />
-                </div>
             </div>
+
+            {selectedDriver && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 90 }}>
+                    <div style={{ position: 'relative', width: 400 }}>
+                        <button onClick={() => setSelectedId(null)} aria-label="Close"
+                            style={{ position: 'absolute', top: -30, right: -4, background: 'none', border: 'none', color: '#e2e8f0', fontSize: 22, lineHeight: 1, cursor: 'pointer', padding: 4, zIndex: 1 }}>
+                            ✕
+                        </button>
+                        <div style={{ maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <div style={{ boxShadow: '0 24px 60px rgba(0,0,0,0.35)', borderRadius: 12 }}>
+                                <DriverDetailPanel driver={selectedDriver} onEdit={setEditing} onManageFace={setFaceDriver} />
+                            </div>
+                            <div style={{ boxShadow: '0 24px 60px rgba(0,0,0,0.35)', borderRadius: 12 }}>
+                                <LicenseExpiryAlertCard drivers={drivers} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {editing && (
                 <DriverFormModal
@@ -1586,6 +1570,8 @@ function VehiclePage() {
     const [loading,  setLoading]  = useState(true);
     const [error,    setError]    = useState('');
     const [search,   setSearch]   = useState('');
+    const [stickerExpiredOnly,   setStickerExpiredOnly]   = useState(false);
+    const [insuranceExpiredOnly, setInsuranceExpiredOnly] = useState(false);
     const [editing,  setEditing]  = useState(null); // vehicle object, 'new', or null
     const [pendingDeleteId, setPendingDeleteId] = useState(null);
     const [assigning, setAssigning] = useState(null); // vehicle object, or null
@@ -1620,9 +1606,6 @@ function VehiclePage() {
         (driversByImei[imei] ||= []).push(d);
     }));
 
-    const devicesByImei = {};
-    devices.forEach(d => { devicesByImei[d.imei] = d; });
-
     const settingsByImei = {};
     vehicleSettings.forEach(s => { settingsByImei[s.imei] = s; });
 
@@ -1631,12 +1614,16 @@ function VehiclePage() {
     const boundImeis = new Set(vehicles.map(v => v.imei));
     const availableDevices = devices.filter(d => !boundImeis.has(d.imei));
 
-    const filtered = vehicles.filter(v =>
-        !search ||
-        (v.name || '').toLowerCase().includes(search.toLowerCase()) ||
-        (v.plate_number || '').toLowerCase().includes(search.toLowerCase()) ||
-        (v.imei || '').includes(search)
-    );
+    const filtered = vehicles.filter(v => {
+        if (search &&
+            !(v.name || '').toLowerCase().includes(search.toLowerCase()) &&
+            !(v.plate_number || '').toLowerCase().includes(search.toLowerCase())
+        ) return false;
+        const setting = settingsByImei[v.imei];
+        if (stickerExpiredOnly && expiryReminder(setting?.safety_sticker_expiry, setting?.sticker_notify_days_before) !== 'Expired') return false;
+        if (insuranceExpiredOnly && expiryReminder(setting?.insurance_expiry, setting?.insurance_notify_days_before) !== 'Expired') return false;
+        return true;
+    });
 
     const handleDelete = async () => {
         const id = pendingDeleteId;
@@ -1649,13 +1636,19 @@ function VehiclePage() {
         }
     };
 
-    const COLS = ['No.','Vehicle Name','Plate Number','IMEI','Manufacturer / Model','Year','Color','Status','Online','Safety Sticker Expiry','Safety Sticker Status','Insurance Expiry','Insurance Status','Drivers','Action'];
+    const COLS = ['No.','Vehicle Name','Plate Number','Manufacturer / Model','Status','Safety Sticker Status','Insurance Status','Drivers','Action'];
 
     return (
         <PageShell title="Vehicle">
             <FilterBar>
-                <FInput placeholder="Vehicle Name, Plate No., or IMEI" style={{ width: 240 }} value={search} onChange={e => setSearch(e.target.value)} />
-                <button onClick={() => setSearch('')} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                <FInput placeholder="Vehicle Name or Plate No." style={{ width: 240 }} value={search} onChange={e => setSearch(e.target.value)} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer', paddingBottom: 1 }}>
+                    <input type="checkbox" checked={stickerExpiredOnly} onChange={e => setStickerExpiredOnly(e.target.checked)} style={{ accentColor: '#3b82f6' }} />Safety Sticker Expired
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer', paddingBottom: 1 }}>
+                    <input type="checkbox" checked={insuranceExpiredOnly} onChange={e => setInsuranceExpiredOnly(e.target.checked)} style={{ accentColor: '#3b82f6' }} />Insurance Expired
+                </label>
+                <button onClick={() => { setSearch(''); setStickerExpiredOnly(false); setInsuranceExpiredOnly(false); }} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
                 <button onClick={load} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh</button>
             </FilterBar>
             <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add Vehicle</Btn>]} hideExport />
@@ -1676,7 +1669,6 @@ function VehiclePage() {
                             </td></tr>
                         ) : filtered.map((v, i) => {
                             const assigned = driversByImei[v.imei] || [];
-                            const device   = devicesByImei[v.imei];
                             const setting  = settingsByImei[v.imei];
                             const sStatus  = expiryReminder(setting?.safety_sticker_expiry, setting?.sticker_notify_days_before);
                             const iStatus  = expiryReminder(setting?.insurance_expiry, setting?.insurance_notify_days_before);
@@ -1685,17 +1677,9 @@ function VehiclePage() {
                                     <td style={TD}>{i + 1}</td>
                                     <td style={{ ...TD, fontWeight: 500 }}>{v.name}</td>
                                     <td style={TD}>{v.plate_number || '—'}</td>
-                                    <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{v.imei}</td>
                                     <td style={TD}>{[v.manufacturer, v.model].filter(Boolean).join(' / ') || '—'}</td>
-                                    <td style={TD}>{v.year || '—'}</td>
-                                    <td style={TD}>{v.color || '—'}</td>
                                     <td style={TD}><Badge text={v.status} color={v.status === 'Active' ? '#16a34a' : '#ef4444'} /></td>
-                                    <td style={TD}>
-                                        {device ? <Badge text={device.onlineStatus === 1 ? 'Online' : 'Offline'} color={device.onlineStatus === 1 ? '#16a34a' : '#9ca3af'} /> : <span style={{ color: '#9ca3af' }}>—</span>}
-                                    </td>
-                                    <td style={TD}>{setting?.safety_sticker_expiry ? setting.safety_sticker_expiry.slice(0, 10) : '—'}</td>
                                     <td style={TD}><Badge text={sStatus} color={REMINDER_COLOR[sStatus]} /></td>
-                                    <td style={TD}>{setting?.insurance_expiry ? setting.insurance_expiry.slice(0, 10) : '—'}</td>
                                     <td style={TD}><Badge text={iStatus} color={REMINDER_COLOR[iStatus]} /></td>
                                     <td style={TD}>
                                         {assigned.length === 0 ? <span style={{ color: '#9ca3af' }}>—</span> : assigned.map(d => d.name).join(', ')}
@@ -1852,9 +1836,6 @@ function VehicleTrackPage() {
 
     return (
         <PageShell title="Vehicle Track">
-            <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
-                Real-time location, route replay, speed, mileage, stop, geofence, work-zone rule and online-rate management for every VL863-tracked vehicle — powered by Traccar.
-            </p>
             <TabBar tabs={VEHICLE_TRACK_TABS} active={tab} onChange={setTab} />
 
             {tab === 'Real-time Location' && <LiveLocationTab />}
@@ -1896,21 +1877,18 @@ function VehicleTrackPage() {
 // Ranking) since the spec calls it out as a distinct analytics capability.
 // "Ranking" and "Tonne-Km" hidden from the tab bar temporarily per request — their report
 // components/routes are untouched, so re-add the two entries below to bring them back.
-const FUEL_MANAGEMENT_TABS = ['Fuel Curve', 'Consumption', 'Consumption (Mileage)', 'Consumption (Trips)', 'Current Fuel', 'Refuelling', 'Idle Fuel', 'Abnormal Loss', 'Fuel Price' /*, 'Ranking', 'Tonne-Km' */];
+const FUEL_MANAGEMENT_TABS = ['Fuel Curve', 'Consumption', 'Consumption Per Distance Travelled', 'Consumption (Trips)', 'Current Fuel', 'Refuelling', 'Idle Fuel', 'Abnormal Loss', 'Fuel Price' /*, 'Ranking', 'Tonne-Km' */];
 
 function FuelManagementPage() {
     const [tab, setTab] = useState(FUEL_MANAGEMENT_TABS[0]);
 
     return (
         <PageShell title="Fuel Management">
-            <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
-                Fuel curve, refuelling, idle fuel, abnormal loss, vehicle/driver/route ranking and tonne-kilometre fuel analytics — core and auxiliary vehicles by priority, powered by TurboHive OBD data.
-            </p>
             <TabBar tabs={FUEL_MANAGEMENT_TABS} active={tab} onChange={setTab} />
 
             {tab === 'Fuel Curve'          && <EmbeddedReport section="Fuel Curve" />}
             {tab === 'Consumption'         && <EmbeddedReport section="Fuel Consumption" />}
-            {tab === 'Consumption (Mileage)' && <EmbeddedReport section="Fuel Consumption (Mileage)" />}
+            {tab === 'Consumption Per Distance Travelled' && <EmbeddedReport section="Fuel Consumption (Mileage)" />}
             {tab === 'Consumption (Trips)' && <EmbeddedReport section="Fuel Consumption (Trips)" height={760} />}
             {tab === 'Current Fuel'        && <EmbeddedReport section="Current fuel Value" />}
             {tab === 'Refuelling'          && <EmbeddedReport section="Refuelling" />}
@@ -1992,9 +1970,6 @@ function CheckInPage() {
 
     return (
         <PageShell title="Check in Record">
-            <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
-                RFID/iButton card taps, captured live from TurboHive's MQTT peripheral stream — TurboHive doesn't retain this data itself, so this is the system of record.
-            </p>
             <FilterBar>
                 <FInput placeholder="Card ID" style={{ width: 140 }} value={cardId} onChange={e => setCardId(e.target.value)} />
                 <FInput placeholder="Device name or IMEI" style={{ width: 220 }} value={deviceSearch} onChange={e => setDeviceSearch(e.target.value)} />
@@ -2335,7 +2310,7 @@ function VehicleMaintenancePage() {
                 </select>
                 <button onClick={() => { setSearch(''); setStatusFilter(''); }} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </FilterBar>
-            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add</Btn>]} />
+            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add</Btn>]} hideExport />
 
             {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
 
@@ -2429,9 +2404,6 @@ function CaptureHistoryPage() {
 
     return (
         <PageShell title="Capture History">
-            <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
-                Tracks alert-evidence (photo/video) upload requests sent to devices and the resulting file URLs once TurboHive confirms the upload.
-            </p>
             <FilterBar>
                 <FInput placeholder="IMEI" style={{ width: 200 }} value={imei} onChange={e => setImei(e.target.value)} />
                 <select value={status} onChange={e => setStatus(e.target.value)}
@@ -2623,10 +2595,6 @@ function MediaGalleryPage() {
 
     return (
         <PageShell title="Media Gallery">
-            <p style={{ margin: '-6px 0 16px', fontSize: 12.5, color: '#6b7280' }}>
-                Photos and video captured by devices — periodic captures, alert evidence, and manual snapshots — from TurboHive's media library.
-            </p>
-
             <FilterBar>
                 <select value={imei} onChange={e => setImei(e.target.value)}
                     style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>

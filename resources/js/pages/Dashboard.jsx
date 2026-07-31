@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
-import Sidebar          from '../components/Sidebar.jsx';
+import Sidebar, { FLEET_ITEMS } from '../components/Sidebar.jsx';
 import DeviceList       from '../components/DeviceList.jsx';
 import DeviceDetailPanel from '../components/DeviceDetailPanel.jsx';
 import MapCanvas        from '../components/MapCanvas.jsx';
@@ -127,6 +127,8 @@ function applyLiveDevices(devices, updates) {
         };
     });
 }
+
+const FLEET_PAGE_LABELS = Object.fromEntries(FLEET_ITEMS.map(i => [i.key, i.label]));
 
 export default function Dashboard({ user, onLogout }) {
     const [search,         setSearch]         = useState('');
@@ -350,7 +352,7 @@ export default function Dashboard({ user, onLogout }) {
                     <div>
                         <p className="workspace-kicker">Fleet operations</p>
                         <h1 className="workspace-title">
-                            {page === 'Fleet' ? fleetPage : page === 'Report' ? reportSection : page}
+                            {page === 'Fleet' ? (FLEET_PAGE_LABELS[fleetPage] || fleetPage) : page === 'Report' ? reportSection : page}
                         </h1>
                     </div>
                     <div className="workspace-user">

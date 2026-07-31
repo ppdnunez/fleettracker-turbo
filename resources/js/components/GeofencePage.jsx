@@ -106,7 +106,7 @@ function DrawLayer({ geofences, selectedId, editingId, onCreate, onEditSave, onE
             const style = g.id === selectedId ? SHAPE_STYLE_SELECTED : SHAPE_STYLE;
             const layer = shapeToLayer(shape, style);
             if (!layer) return;
-            layer.bindTooltip(g.name);
+            layer.bindTooltip(g.name, { permanent: true, direction: 'center', className: 'geofence-label' });
             layer.on('click', () => { if (deleteModeRef.current) onDeleteShape(g.id); });
             layer.addTo(groupRef.current);
             layersById.current[g.id] = layer;
@@ -199,6 +199,70 @@ function DrawLayer({ geofences, selectedId, editingId, onCreate, onEditSave, onE
             {activeTool === 'delete' && (
                 <div style={{ background: dark ? 'rgba(239,68,68,0.15)' : '#fef2f2', border: `1px solid ${dark ? 'rgba(239,68,68,0.35)' : '#fecaca'}`, borderRadius: 8, padding: '8px 10px', width: 200, fontSize: 12, color: dark ? '#f87171' : '#991b1b' }}>
                     Click a shape on the map to delete it.
+                </div>
+            )}
+        </div>
+    );
+}
+
+/* ── Location search: forward-geocodes via Nominatim (same OSM service already used for reverse
+   geocoding in DeviceDetailPanel.jsx) and flies the map to the picked result. ── */
+function LocationSearch({ dark }) {
+    const map = useMap();
+    const [query, setQuery]     = useState('');
+    const [results, setResults] = useState([]);
+    const [open, setOpen]       = useState(false);
+    const [loading, setLoading] = useState(false);
+    const debounceRef = useRef(null);
+
+    useEffect(() => {
+        clearTimeout(debounceRef.current);
+        if (!query.trim()) { setResults([]); setOpen(false); return; }
+        debounceRef.current = setTimeout(async () => {
+            setLoading(true);
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&addressdetails=0`);
+                const data = await res.json();
+                setResults(Array.isArray(data) ? data : []);
+                setOpen(true);
+            } catch (e) {
+                setResults([]);
+            } finally {
+                setLoading(false);
+            }
+        }, 400);
+        return () => clearTimeout(debounceRef.current);
+    }, [query]);
+
+    const selectResult = (r) => {
+        map.flyTo([Number(r.lat), Number(r.lon)], 15);
+        setQuery(r.display_name);
+        setOpen(false);
+    };
+
+    return (
+        <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 500, width: 320 }}>
+            <div style={{ position: 'relative' }}>
+                <input
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                    onFocus={() => results.length > 0 && setOpen(true)}
+                    onBlur={() => setTimeout(() => setOpen(false), 150)}
+                    placeholder="Search location…"
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '9px 34px 9px 12px', border: `1px solid ${dark ? '#334155' : '#e2e8f0'}`, borderRadius: 8, fontSize: 13, outline: 'none', background: dark ? '#111827' : '#fff', color: dark ? '#e2e8f0' : '#111827', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}
+                />
+                <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: dark ? '#64748b' : '#9ca3af', fontSize: 13, pointerEvents: 'none' }}>
+                    {loading ? '…' : '🔍'}
+                </span>
+            </div>
+            {open && results.length > 0 && (
+                <div style={{ marginTop: 4, background: dark ? '#111827' : '#fff', border: `1px solid ${dark ? '#334155' : '#e2e8f0'}`, borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', overflow: 'hidden', maxHeight: 220, overflowY: 'auto' }}>
+                    {results.map((r, i) => (
+                        <div key={r.place_id ?? i} onMouseDown={() => selectResult(r)}
+                            style={{ padding: '9px 12px', fontSize: 12.5, color: dark ? '#e2e8f0' : '#111827', cursor: 'pointer', borderBottom: i < results.length - 1 ? `1px solid ${dark ? '#1e293b' : '#f1f5f9'}` : 'none' }}>
+                            {r.display_name}
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
@@ -386,6 +450,7 @@ export default function GeofencePage({ onBack, dark }) {
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
                     <ZoomControl position="topright" />
+                    <LocationSearch dark={dark} />
                     <DrawLayer
                         geofences={geofences}
                         selectedId={selectedId}

@@ -15,6 +15,9 @@ use App\Models\Driver;
 use App\Models\DriverCheckin;
 use App\Models\DriverFace;
 use App\Models\FaceRecognitionEvent;
+use App\Models\FuelAbnormalLossEvent;
+use App\Models\FuelIdleEvent;
+use App\Models\FuelRefuelEvent;
 use App\Services\DriverRecognizedAlertService;
 use App\Services\GeofenceMonitorService;
 use App\Services\TurboHiveService;
@@ -31,6 +34,40 @@ class MqttWorker extends Command
     private const MIN_BACKOFF_SECONDS = 3;
     private const MAX_BACKOFF_SECONDS = 60;
     private const HEALTHY_AFTER_SECONDS = 30;
+
+    /** Same rule the old on-demand Refuelling report used (see ReportPage.jsx's
+     *  REFUEL_RISE_THRESHOLD) — a level rise of at least this many percentage points between two
+     *  consecutive readings for the same device is treated as a refuel. */
+    private const REFUEL_RISE_THRESHOLD = 5;
+
+    /** Same rule the old on-demand Abnormal Loss report used — a level drop of at least this many
+     *  percentage points between two consecutive readings, with under ABNORMAL_DROP_MAX_KM
+     *  travelled in between, is flagged as an abnormal loss (leak/siphon) rather than normal
+     *  consumption while driving. */
+    private const ABNORMAL_DROP_THRESHOLD = 8;
+    private const ABNORMAL_DROP_MAX_KM = 1;
+
+    /** Same rule the old on-demand Idle Fuel report used — a live speed reading at or under this
+     *  is treated as idling (engine running, not really moving). */
+    private const IDLE_SPEED_KMH = 5;
+
+    /** An idle run shorter than this is treated as sensor noise (one stray low-speed reading)
+     *  rather than a real idle period worth a row — mirrors the old report's "run.length >= 2
+     *  points" guard, expressed as a minimum duration since the live stream has no fixed point
+     *  cadence to count. */
+    private const MIN_IDLE_DURATION_SECONDS = 60;
+
+    /** Last known {fuelLevel, odometer} reading per IMEI, so a change can be detected between
+     *  consecutive readings — in-memory only (reset on worker restart), since there's no reliable
+     *  prior reading to seed from without re-querying TurboHive's OBD history. Missing at most one
+     *  comparison per restart is an acceptable trade-off for not adding a startup dependency. */
+    private array $lastFuelLevelByImei = [];
+    private array $lastOdometerByImei = [];
+
+    /** In-progress idle run per IMEI: ['startTime' => Carbon, 'startFuelTotal' => ?float]. An
+     *  in-progress run at the moment the worker restarts is lost (never closed/saved) — same
+     *  class of trade-off as the last-known-reading caches above. */
+    private array $idleRunByImei = [];
 
     /**
      * php-mqtt/client's own setReconnectAutomatically() only covers transport-level resends, not
@@ -147,8 +184,24 @@ class MqttWorker extends Command
             $event = new DeviceSensorUpdated($imei, $data);
             broadcast($event);
 
-            $fuel = $event->broadcastWith()['fuelLevel'];
+            $payload = $event->broadcastWith();
+            $fuel = $payload['fuelLevel'];
             $this->line("[sensor]   {$imei} ({$topic}) → fuel=" . ($fuel ?? '?'));
+
+            $odometer = $payload['odometer'] ?? null;
+            $this->handleFuelReading(
+                $imei,
+                $fuel !== null ? (float) $fuel : null,
+                $odometer !== null ? (float) $odometer : null,
+            );
+
+            $speed = $payload['speed'] ?? null;
+            $totalFuel = $payload['totalFuelConsumption'] ?? null;
+            $this->detectIdleFuel(
+                $imei,
+                $speed !== null ? (float) $speed : null,
+                $totalFuel !== null ? (float) $totalFuel : null,
+            );
         };
         $mqtt->subscribe("{$userId}/sensor/#", $sensorHandler);
         $mqtt->subscribe("{$userId}/obd/#", $sensorHandler);
@@ -355,6 +408,139 @@ class MqttWorker extends Command
             'longitude'   => $data['gnss.lng'] ?? $data['longitude'] ?? null,
             'occurred_at' => $timeMs ? Carbon::createFromTimestampMs((int) $timeMs) : now(),
         ]);
+    }
+
+    /**
+     * Compares a fresh fuel-level reading against the last one seen for this IMEI and persists a
+     * FuelRefuelEvent row when the rise crosses REFUEL_RISE_THRESHOLD — this is what makes the
+     * Refuelling report a real history instead of a live-only on-demand OBD scan (see
+     * fuel_refuel_events migration).
+     */
+    /**
+     * Reads-then-updates the shared last-known {fuel, odometer} cache exactly once per reading, so
+     * detectRefuel and detectAbnormalLoss both compare against the same "previous" snapshot instead
+     * of racing to update it out from under each other.
+     */
+    private function handleFuelReading(string $imei, ?float $fuel, ?float $odometer): void
+    {
+        if ($fuel === null) {
+            if ($odometer !== null) {
+                $this->lastOdometerByImei[$imei] = $odometer;
+            }
+            return;
+        }
+
+        $previousFuel     = $this->lastFuelLevelByImei[$imei] ?? null;
+        $previousOdometer = $this->lastOdometerByImei[$imei] ?? null;
+
+        if ($previousFuel !== null) {
+            $this->detectRefuel($imei, $previousFuel, $fuel);
+            $this->detectAbnormalLoss($imei, $previousFuel, $fuel, $previousOdometer, $odometer);
+        }
+
+        $this->lastFuelLevelByImei[$imei] = $fuel;
+        if ($odometer !== null) {
+            $this->lastOdometerByImei[$imei] = $odometer;
+        }
+    }
+
+    private function detectRefuel(string $imei, float $previous, float $fuel): void
+    {
+        $change = round($fuel - $previous, 2);
+        if ($change < self::REFUEL_RISE_THRESHOLD) {
+            return;
+        }
+
+        FuelRefuelEvent::create([
+            'imei'           => $imei,
+            'from_percent'   => $previous,
+            'to_percent'     => $fuel,
+            'change_percent' => $change,
+            'detected_at'    => now(),
+        ]);
+
+        $this->line("[refuel]   {$imei} → {$previous}% → {$fuel}% (+{$change}%)");
+    }
+
+    /**
+     * A drop of at least ABNORMAL_DROP_THRESHOLD% with under ABNORMAL_DROP_MAX_KM travelled between
+     * the same two readings reads as a leak/siphon rather than normal consumption while driving.
+     * Requires an odometer on both readings — silently skipped otherwise, since there's no way to
+     * confirm "barely moved" without it (see DeviceSensorUpdated's odometer extraction caveat).
+     */
+    private function detectAbnormalLoss(string $imei, float $previousFuel, float $fuel, ?float $previousOdometer, ?float $odometer): void
+    {
+        if ($previousOdometer === null || $odometer === null) {
+            return;
+        }
+
+        $change = round($fuel - $previousFuel, 2);
+        if ($change > -self::ABNORMAL_DROP_THRESHOLD) {
+            return;
+        }
+
+        $distance = round($odometer - $previousOdometer, 2);
+        if ($distance < 0 || $distance > self::ABNORMAL_DROP_MAX_KM) {
+            return;
+        }
+
+        FuelAbnormalLossEvent::create([
+            'imei'             => $imei,
+            'from_percent'     => $previousFuel,
+            'to_percent'       => $fuel,
+            'change_percent'   => $change,
+            'from_odometer_km' => $previousOdometer,
+            'to_odometer_km'   => $odometer,
+            'distance_km'      => $distance,
+            'detected_at'      => now(),
+        ]);
+
+        $this->line("[fuelloss] {$imei} → {$previousFuel}% → {$fuel}% ({$change}%) over {$distance}km");
+    }
+
+    /**
+     * Starts an idle run the moment speed drops to/under IDLE_SPEED_KMH, and closes + saves it once
+     * speed rises back above that — mirrors the old on-demand Idle Fuel report's contiguous-run
+     * segmentation, just done incrementally against the live stream instead of a fetched-after-the-
+     * fact point list. A run shorter than MIN_IDLE_DURATION_SECONDS is dropped as noise.
+     */
+    private function detectIdleFuel(string $imei, ?float $speed, ?float $totalFuelConsumption): void
+    {
+        if ($speed === null) {
+            return;
+        }
+
+        $run = $this->idleRunByImei[$imei] ?? null;
+
+        if ($speed <= self::IDLE_SPEED_KMH) {
+            if ($run === null) {
+                $this->idleRunByImei[$imei] = ['startTime' => now(), 'startFuelTotal' => $totalFuelConsumption];
+            }
+            return;
+        }
+
+        if ($run === null) {
+            return;
+        }
+        unset($this->idleRunByImei[$imei]);
+
+        $durationSeconds = now()->diffInSeconds($run['startTime']);
+        if ($durationSeconds < self::MIN_IDLE_DURATION_SECONDS) {
+            return;
+        }
+
+        $fuelUsed = ($run['startFuelTotal'] !== null && $totalFuelConsumption !== null)
+            ? round($totalFuelConsumption - $run['startFuelTotal'], 2)
+            : null;
+
+        FuelIdleEvent::create([
+            'imei'       => $imei,
+            'start_time' => $run['startTime'],
+            'end_time'   => now(),
+            'fuel_used'  => $fuelUsed,
+        ]);
+
+        $this->line("[idle]     {$imei} → idled {$durationSeconds}s" . ($fuelUsed !== null ? ", used {$fuelUsed}L" : ''));
     }
 
     private function extractImei(string $topic): string

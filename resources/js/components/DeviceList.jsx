@@ -60,11 +60,6 @@ export default function DeviceList({ devices, selected, onSelect, search, setSea
                 flexDirection: 'column',
             }}>
                 <div style={{ width: 260, display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    {/* Header — no hamburger */}
-                    <div style={{ height: 44, display: 'flex', alignItems: 'center', padding: '0 14px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, flexShrink: 0 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', letterSpacing: 1.2 }}>DEVICES</span>
-                    </div>
-
                     {/* Search */}
                     <div style={{ padding: '10px 12px 6px', flexShrink: 0 }}>
                         <div style={{ position: 'relative' }}>
@@ -96,7 +91,6 @@ export default function DeviceList({ devices, selected, onSelect, search, setSea
                                         </div>
                                         <span style={{ fontSize: 13, fontWeight: 700, color: dark ? '#f1f5f9' : '#0f172a' }}>{d.name}</span>
                                     </div>
-                                    <span style={{ fontSize: 10, color: '#94a3b8' }}>···</span>
                                 </div>
                                 <div style={{ paddingLeft: 36 }}>
                                     <span style={{ fontSize: 11, color: dark ? '#60a5fa' : '#3b82f6', fontWeight: 600 }}>{d.tracker}</span>

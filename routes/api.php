@@ -10,7 +10,10 @@ use App\Http\Controllers\DriverCheckinController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\DriverFaceController;
 use App\Http\Controllers\FaceRecognitionEventController;
+use App\Http\Controllers\FuelAbnormalLossEventController;
+use App\Http\Controllers\FuelIdleEventController;
 use App\Http\Controllers\FuelPriceController;
+use App\Http\Controllers\FuelRefuelEventController;
 use App\Http\Controllers\GeofenceController;
 use App\Http\Controllers\GpsFileUploadController;
 use App\Http\Controllers\TurboHiveController;
@@ -80,6 +83,18 @@ Route::middleware('auth:sanctum')->group(function () {
     // Driver check-ins (RFID/iButton card taps) — captured live via MqttWorker from
     // {userId}/peri/#, since TurboHive has no REST history endpoint for this data.
     Route::get('/driver-checkins', [DriverCheckinController::class, 'index']);
+
+    // Refuel history — detected live by MqttWorker from consecutive fuel-level sensor readings
+    // ({userId}/sensor|obd/#) and persisted here, since TurboHive's own OBD history has a limited
+    // retention window (see fuel_refuel_events migration).
+    Route::get('/fuel-refuel-events', [FuelRefuelEventController::class, 'index']);
+
+    // Abnormal fuel loss (leak/siphon) history — same live-detection approach as refuel events,
+    // opposite direction (see fuel_abnormal_loss_events migration).
+    Route::get('/fuel-abnormal-loss-events', [FuelAbnormalLossEventController::class, 'index']);
+
+    // Idle-run fuel consumption history — see fuel_idle_events migration.
+    Route::get('/fuel-idle-events', [FuelIdleEventController::class, 'index']);
 
     // Traccar routes disabled — TurboHive is the primary GPS provider
 

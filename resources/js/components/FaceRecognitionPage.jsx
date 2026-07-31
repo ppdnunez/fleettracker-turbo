@@ -101,8 +101,7 @@ export default function FaceRecognitionPage({ dark }) {
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: dark ? '#0b1220' : '#fff' }}>
             <div style={{ padding: '14px 20px 12px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, flexShrink: 0 }}>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: dark ? '#f1f5f9' : '#111827' }}>Face Recognition</h2>
-                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: dark ? '#94a3b8' : '#6b7280' }}>Driver face-match checks captured live from device cameras (alert codes 1823/1824) — not a driving-behavior alert.</p>
+                <p style={{ margin: 0, fontSize: 12.5, color: dark ? '#94a3b8' : '#6b7280' }}>Driver face-match checks captured live from device cameras (alert codes 1823/1824) — not a driving-behavior alert.</p>
             </div>
 
             <div style={{ display: 'flex', gap: 12, padding: '14px 20px 0', flexShrink: 0 }}>

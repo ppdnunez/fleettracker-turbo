@@ -763,7 +763,7 @@
 
     .mine-kpi-tile {
         min-width: 0;
-        padding: 17px 20px 18px;
+        padding: 11px 20px 12px;
         background: var(--mine-raised);
     }
 
@@ -771,7 +771,7 @@
         display: flex;
         align-items: center;
         gap: 7px;
-        margin-bottom: 13px;
+        margin-bottom: 6px;
         overflow: hidden;
         color: var(--mine-muted);
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -796,16 +796,17 @@
         overflow: hidden;
         color: var(--mine-text);
         font-family: Georgia, Cambria, "Times New Roman", serif;
-        font-size: 30px;
+        font-size: 26px;
         font-weight: 700;
+        line-height: 1.15;
         letter-spacing: -.02em;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
     .mine-kpi-note {
-        margin-top: 12px;
-        padding-top: 9px;
+        margin-top: 6px;
+        padding-top: 6px;
         overflow: hidden;
         color: var(--mine-muted);
         border-top: 1px dashed var(--mine-border);
@@ -1007,5 +1008,91 @@
         .mine-panel-header { align-items: flex-start; flex-direction: column; }
         .mine-map-legend { flex-wrap: wrap; }
         .mine-live-map-frame { height: 620px; padding: 10px; }
+    }
+
+    /* Date/datetime filter inputs across the report and form pages. `color-scheme: dark` tells the
+       browser to render native picker chrome (calendar icon, spinner arrows, clock icon) in light
+       colors suited to a dark field, instead of the default dark-on-dark icon that was nearly
+       invisible. The icon is kept (not hidden) — on datetime-local it's the only clickable spot
+       that opens the picker; clicking elsewhere in the field doesn't. */
+    input[type="date"],
+    input[type="datetime-local"] {
+        color-scheme: dark;
+    }
+
+    /* Makes a horizontally-scrollable wide table's scrollbar impossible to miss — the browser
+       default thin/auto-hiding scrollbar made it easy not to notice a table had more columns off
+       to the right at all (see ReportPage.jsx's Fuel Consumption (Trips) tables). */
+    .wide-table-scroll {
+        scrollbar-width: auto;
+        scrollbar-color: #94a3b8 #e5e7eb;
+    }
+    .wide-table-scroll::-webkit-scrollbar {
+        height: 12px;
+    }
+    .wide-table-scroll::-webkit-scrollbar-track {
+        background: #e5e7eb;
+        border-radius: 6px;
+    }
+    .wide-table-scroll::-webkit-scrollbar-thumb {
+        background: #94a3b8;
+        border-radius: 6px;
+        border: 2px solid #e5e7eb;
+    }
+    .wide-table-scroll::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+    }
+
+    /* Force the device-marker popup dark, uniformly — forcing it *light* fought a losing battle
+       against the browser/environment's auto-dark repaint pass (it kept re-inverting explicit
+       white backgrounds back to dark). Forcing dark instead sidesteps that: auto-dark heuristics
+       invert light content to dark, but generally leave already-dark content untouched. Every
+       descendant's color is set individually since that repaint pass (when it does apply) recolors
+       each element's own computed color independently, not just the parent's. */
+    .leaflet-popup-content-wrapper,
+    .leaflet-popup-tip,
+    .leaflet-popup-content {
+        color-scheme: dark !important;
+        background-color: #0f172a !important;
+        background-image: linear-gradient(#0f172a, #0f172a) !important;
+        color: #f1f5f9 !important;
+    }
+    .leaflet-popup-content,
+    .leaflet-popup-content * {
+        color-scheme: dark !important;
+        color: #f1f5f9 !important;
+    }
+    /* Leaflet's default .leaflet-popup-content has a built-in margin (13px 24px 13px 20px) around
+       the actual content — that gap sits inside the wrapper and was showing as a lighter edge even
+       with the wrapper forced dark above. Zeroing it out and letting MapCanvas.jsx's own div supply
+       the padding instead means there's no gap left for anything else to show through. */
+    .leaflet-popup-content {
+        margin: 0 !important;
+    }
+    .leaflet-popup-content-wrapper {
+        padding: 0 !important;
+    }
+    .leaflet-popup-close-button {
+        color: #94a3b8 !important;
+    }
+    .leaflet-popup-close-button:hover {
+        color: #f1f5f9 !important;
+    }
+
+    /* Permanent (always-visible, not hover-only) geofence name label — see GeofencePage.jsx's
+       DrawLayer, which binds one of these to every shape via bindTooltip(..., { permanent: true }). */
+    .geofence-label {
+        background: rgba(15, 23, 42, 0.82);
+        border: none;
+        border-radius: 6px;
+        padding: 2px 8px;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        box-shadow: none;
+        pointer-events: none;
+    }
+    .geofence-label::before {
+        display: none;
     }
 }

@@ -44,6 +44,15 @@ class DeviceSensorUpdated implements ShouldBroadcastNow
             'imei' => $this->imei,
             'fuelLevel'   => $s['fuelLevel'] ?? $s['fuel_level'] ?? $s['fuel'] ?? $s['fuel.level']
                 ?? $s['obd.fuelLevel'] ?? $obd['fuelLevel'] ?? null,
+            // Same best-effort guessing as fuelLevel above — TurboHive documents neither field name
+            // for this live topic (confirmed field names, where they exist, are for the separate
+            // GET /v3/obd REST endpoint only). Used by MqttWorker::detectAbnormalLoss/detectIdleFuel;
+            // if the live payload doesn't actually carry these under any of these names, those
+            // detectors simply never fire — same shape of caveat as obdOdometer's on the frontend.
+            'odometer'    => $s['odometer'] ?? $s['mileage'] ?? $s['totalMileage'] ?? $s['odo']
+                ?? $s['obd.odometer'] ?? $obd['odometer'] ?? null,
+            'totalFuelConsumption' => $s['totalFuelConsumption'] ?? $s['total_fuel_consumption']
+                ?? $s['obd.totalFuelConsumption'] ?? $obd['totalFuelConsumption'] ?? null,
             'voltage'     => $s['voltage'] ?? $s['batteryVoltage'] ?? $s['battery.voltage'] ?? $s['obd.batteryVoltage']
                 ?? $obd['batteryVoltage'] ?? null,
             'engineSpeed' => $s['engineSpeed'] ?? $s['engine.speed'] ?? $obd['engineSpeed'] ?? null,

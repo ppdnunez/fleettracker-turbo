@@ -5,6 +5,33 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api } from '../api.js';
 
+// Single source of truth for the Reports module's category -> report-name grouping — used both
+// by Sidebar.jsx (one flat, non-expanding nav entry per category, replacing the old nested/
+// scrolling tree) and by ReportPage's own in-page tab bar below (see ReportTabBar), so a report
+// switches between siblings in its category without leaving the page or going back to the sidebar.
+export const REPORT_CATEGORIES = [
+    { key: 'live',   label: 'Live Statistic',    items: ['Current fuel Value', 'Temperature & Humidity', 'Driver Behavior (Live)', 'DMS (Live)'] },
+    { key: 'device', label: 'Device Statistics', items: ['Internal Battery', 'External Battery', 'Fuel Consumption', 'Driver Behavior', 'DMS'] },
+    { key: 'motion', label: 'Motion Statistics', items: ['Track Details', 'Replay', 'Mileage', 'Trips', 'Overspeed', 'Parking', 'Idling', 'Ignition', 'Geo Fence'] },
+    { key: 'state',  label: 'State Statistics',  items: ['Offline', 'Online'] },
+    { key: 'alert',  label: 'Alert Statistics',  items: ['Alert Details'] },
+];
+
+// Same visual style as FleetPage.jsx's TabBar (kept as a separate local copy rather than a
+// cross-file import — these two files are already large and otherwise independent). Wraps to a
+// second line rather than overflowing, since Motion Statistics alone has 9 reports.
+function ReportTabBar({ tabs, active, onChange }) {
+    return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', borderBottom: '2px solid #e5e7eb', marginBottom: 4 }}>
+            {tabs.map(t => (
+                <button key={t} onClick={() => onChange(t)} style={{ padding: '10px 18px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: active === t ? 700 : 500, color: active === t ? '#3b82f6' : '#6b7280', borderBottom: active === t ? '2.5px solid #3b82f6' : '2.5px solid transparent', marginBottom: -2, whiteSpace: 'nowrap' }}>
+                    {t}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 // Fix default marker icon paths broken by bundlers (same fix as MapCanvas.jsx; idempotent).
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -121,16 +148,6 @@ function InternalBattery() {
     const [loadingList, setLoadingList] = useState(false);
     const [checkingAll, setCheckingAll] = useState(false);
 
-    const loadDevices = () => {
-        setLoadingList(true);
-        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
-            .then(res => setDevices(res.data?.data ?? []))
-            .catch(() => setDevices([]))
-            .finally(() => setLoadingList(false));
-    };
-
-    useEffect(() => { loadDevices(); }, []);
-
     const checkDevice = async (imei) => {
         setReadings(prev => ({ ...prev, [imei]: { ...prev[imei], loading: true, error: null } }));
         try {
@@ -141,24 +158,42 @@ function InternalBattery() {
         }
     };
 
-    const checkAll = async () => {
+    // Sequential — each is a live round-trip to the device (TurboHive has no historical/bulk
+    // endpoint for this). Takes a freshly-fetched list rather than reading `devices` state, so it
+    // can run immediately after loadDevices() sets it without waiting on a re-render.
+    const checkAllDevices = async (list) => {
         setCheckingAll(true);
-        for (const d of devices) {
-            await checkDevice(d.imei); // sequential — each is a live round-trip to the device
+        for (const d of list) {
+            await checkDevice(d.imei);
         }
         setCheckingAll(false);
     };
 
-    const COLS = ['No.', 'Device name', 'IMEI', 'Battery', 'Status', 'Last checked', 'Action'];
+    // Loads the device list and immediately checks every one — no button press needed before the
+    // latest readings show up, since TurboHive only offers this live on-demand, not as history.
+    const loadDevices = () => {
+        setLoadingList(true);
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => {
+                const list = res.data?.data ?? [];
+                setDevices(list);
+                checkAllDevices(list);
+            })
+            .catch(() => setDevices([]))
+            .finally(() => setLoadingList(false));
+    };
+
+    useEffect(() => { loadDevices(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const COLS = ['No.', 'Device name', 'IMEI', 'Battery', 'Status', 'Last checked'];
 
     return (
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-                <button onClick={checkAll} disabled={checkingAll || devices.length === 0}
-                    style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: checkingAll ? 'default' : 'pointer', opacity: checkingAll ? 0.6 : 1 }}>
-                    {checkingAll ? 'Checking…' : 'Check All'}
+                <button onClick={loadDevices} disabled={checkingAll || loadingList}
+                    style={{ padding: '7px 18px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: (checkingAll || loadingList) ? 'default' : 'pointer', opacity: (checkingAll || loadingList) ? 0.6 : 1 }}>
+                    {checkingAll ? 'Loading latest…' : 'Refresh'}
                 </button>
-                <button onClick={loadDevices} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh devices</button>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
@@ -174,17 +209,11 @@ function InternalBattery() {
                                 <td style={TD}>{i + 1}</td>
                                 <td style={TD}>{d.deviceName ?? '—'}</td>
                                 <td style={TD}>{d.imei}</td>
-                                <td style={TD}>{r.voltage != null ? `${r.voltage}V` : '—'}</td>
+                                <td style={TD}>{r.loading ? '…' : (r.voltage != null ? `${r.voltage}V` : '—')}</td>
                                 <td style={{ ...TD, color: BATTERY_STATUS_COLOR[r.status] || '#374151', fontWeight: 600 }}>
-                                    {r.error ? <span style={{ color: '#ef4444', fontWeight: 400 }}>{r.error}</span> : (r.status ?? '—')}
+                                    {r.error ? <span style={{ color: '#ef4444', fontWeight: 400 }}>{r.error}</span> : (r.loading ? '…' : (r.status ?? '—'))}
                                 </td>
                                 <td style={TD}>{fmtTime(r.checkedAt)}</td>
-                                <td style={TD}>
-                                    <button onClick={() => checkDevice(d.imei)} disabled={r.loading}
-                                        style={{ padding: '5px 12px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, cursor: r.loading ? 'default' : 'pointer', opacity: r.loading ? 0.6 : 1 }}>
-                                        {r.loading ? 'Checking…' : 'Check'}
-                                    </button>
-                                </td>
                             </tr>
                         );
                     })}
@@ -273,6 +302,8 @@ function ExternalBattery() {
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error === 'Select a device.' ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                     ) : error ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
@@ -327,6 +358,27 @@ function fuelEconomy(distanceKm, fuelUsedL) {
     const gallons = fuelUsedL * 0.264172;
     const mpg = +(miles / gallons).toFixed(2);
     return { kmPerL, lPer100km, mpg };
+}
+
+// Hover-only formula explainer for a table header — replaces a static "Fuel Economy: km/L = ..."
+// banner that used to always show above the table regardless of whether anyone needed it.
+function HeaderTip({ label, tip }) {
+    const [hover, setHover] = useState(false);
+    return (
+        <span style={{ position: 'relative', cursor: 'help', borderBottom: '1px dotted #9ca3af' }}
+            onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+            {label}
+            {hover && (
+                <span style={{
+                    position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', marginTop: 6,
+                    background: '#0f172a', color: '#fff', fontSize: 11, fontWeight: 500, padding: '6px 10px',
+                    borderRadius: 6, whiteSpace: 'nowrap', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 10,
+                }}>
+                    {tip}
+                </span>
+            )}
+        </span>
+    );
 }
 
 function FuelConsumption() {
@@ -405,18 +457,12 @@ function FuelConsumption() {
 
     const selectedDevice = devices.find(d => d.imei === deviceId);
 
-    const ECONOMY_COLS = ['km/L', 'L/100km', 'MPG'];
+    const ECONOMY_COLS = ['km/L', 'L/100km'];
     const COLS = method === 'totalizer'
-        ? ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Used (L)', ...ECONOMY_COLS, 'Data Points']
+        ? ['No.', 'Device Name', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Used (L)', ...ECONOMY_COLS]
         : method === 'rate'
-        ? ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Rate (L/100km)', 'Est. Fuel Used (L)', ...ECONOMY_COLS, 'Data Points']
-        : ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Start Level (%)', 'End Level (%)', 'Tank Capacity (L)', 'Est. Fuel Used (L)', ...ECONOMY_COLS, 'Data Points'];
-
-    const notice = method === 'totalizer'
-        ? 'Only OBD-capable devices report a fuel totalizer. Fuel Used / Distance are the delta between the first and last reading (max 30-day range per query).'
-        : method === 'rate'
-        ? 'Estimated from distance travelled (OBD odometer) × this vehicle\'s configured Fuel Rate — set it under Vehicle > Vehicle Settings. Useful when a device reports odometer but not a fuel totalizer.'
-        : 'Estimated from the drop in OBD/sensor fuel-level percentage × this vehicle\'s Tank Capacity — set it under Vehicle > Vehicle Settings. A refuel (level rose) or missing tank capacity shows as "—".';
+        ? ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Rate (L/100km)', 'Est. Fuel Used (L)', ...ECONOMY_COLS]
+        : ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Start Level (%)', 'End Level (%)', 'Tank Capacity (L)', 'Est. Fuel Used (L)', ...ECONOMY_COLS];
 
     const missingSetting = method === 'rate' && deviceId && vehicleSetting && vehicleSetting.fuel_rate_l_per_100km == null;
     const missingTank = method === 'sensor' && deviceId && vehicleSetting && vehicleSetting.fuel_tank_capacity_liters == null;
@@ -456,16 +502,22 @@ function FuelConsumption() {
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text={notice} />
-            <Notice color="#dbeafe" icon="ℹ" text="Fuel Economy: km/L = Distance ÷ Fuel Used, L/100km = Fuel Used × 100 ÷ Distance, MPG = Distance ÷ Fuel Used converted to miles/US gallons. Shown once Distance and Fuel Used are both available, whichever method computed them." />
             {missingSetting && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Fuel Rate configured yet — Est. Fuel Used will show as “—” until one is set." />}
             {missingTank && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Tank Capacity configured yet — Est. Fuel Used will show as “—” until one is set." />}
             {missingDistance && <Notice color="#fef3c7" icon="⚠" text="This device didn't report an odometer reading for the selected range, so Distance (and anything calculated from it) shows as “—” — this is a device/data limitation, not a missing setting." />}
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
-                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <thead><tr>{COLS.map(c => (
+                    <th key={c} style={TH}>
+                        {c === 'km/L' ? <HeaderTip label={c} tip="Distance ÷ Fuel Used" />
+                            : c === 'L/100km' ? <HeaderTip label={c} tip="Fuel Used × 100 ÷ Distance" />
+                            : c}
+                    </th>
+                ))}</tr></thead>
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error === 'Select a device.' ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                     ) : error ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
@@ -474,7 +526,7 @@ function FuelConsumption() {
                         <tr key={i}>
                             <td style={TD}>{i + 1}</td>
                             <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                            <td style={TD}>{deviceId}</td>
+                            {method !== 'totalizer' && <td style={TD}>{deviceId}</td>}
                             <td style={TD}>{fmtTime(r.startTime)}</td>
                             <td style={TD}>{fmtTime(r.endTime)}</td>
                             {method === 'totalizer' && <>
@@ -495,8 +547,6 @@ function FuelConsumption() {
                             </>}
                             <td style={TD}>{r.kmPerL ?? '—'}</td>
                             <td style={TD}>{r.lPer100km ?? '—'}</td>
-                            <td style={TD}>{r.mpg ?? '—'}</td>
-                            <td style={TD}>{r.points}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -578,7 +628,7 @@ function MileageFuelConsumption() {
     const selectedDevice = devices.find(d => d.imei === deviceId);
     const missingSetting = !!(deviceId && vehicleSetting && vehicleSetting.fuel_rate_l_per_100km == null);
 
-    const COLS = ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Rate (L/100km)', 'Est. Fuel Used (L)', 'km/L', 'L/100km', 'MPG', 'Data Points'];
+    const COLS = ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Distance (km)', 'Fuel Rate (L/100km)', 'Est. Fuel Used (L)', 'km/L', 'L/100km'];
 
     return (
         <>
@@ -596,17 +646,23 @@ function MileageFuelConsumption() {
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Estimated purely from distance travelled (GNSS position, not OBD) × this vehicle's configured Fuel Rate — set it under Vehicle > Vehicle Settings. Works for any trackable device, with or without an OBD harness." />
             {missingSetting && <Notice color="#fef3c7" icon="⚠" text="This vehicle has no Fuel Rate configured yet — Est. Fuel Used will show as “—” until one is set." />}
-            {error && <Notice color="#fee2e2" icon="⚠" text={error} />}
+            {error && error !== 'Select a device.' && <Notice color="#fee2e2" icon="⚠" text={error} />}
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
-                    <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <thead><tr>{COLS.map(c => (
+                        <th key={c} style={TH}>
+                            {c === 'Est. Fuel Used (L)' ? <HeaderTip label={c} tip="Distance × Fuel Rate ÷ 100" />
+                                : c === 'km/L' ? <HeaderTip label={c} tip="Distance ÷ Fuel Used" />
+                                : c === 'L/100km' ? <HeaderTip label={c} tip="Fuel Used × 100 ÷ Distance" />
+                                : c}
+                        </th>
+                    ))}</tr></thead>
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : !row ? (
-                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error || 'No data'}</td></tr>
                         ) : (
                             <tr>
                                 <td style={TD}>1</td>
@@ -619,8 +675,6 @@ function MileageFuelConsumption() {
                                 <td style={TD}>{row.fuelUsed ?? '—'}</td>
                                 <td style={TD}>{row.kmPerL ?? '—'}</td>
                                 <td style={TD}>{row.lPer100km ?? '—'}</td>
-                                <td style={TD}>{row.mpg ?? '—'}</td>
-                                <td style={TD}>{row.points}</td>
                             </tr>
                         )}
                     </tbody>
@@ -833,13 +887,14 @@ function FuelCurve() {
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="Only OBD-capable devices reporting a fuel-level reading show data here (max 30-day range, up to 100 readings per query)." />
             <FuelCurveChart rows={rows} />
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error === 'Select a device.' ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                     ) : error ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
@@ -859,15 +914,21 @@ function FuelCurve() {
     );
 }
 
-// Shared by Refuelling and Abnormal Loss — both scan consecutive OBD readings (see loadObdPoints)
-// for a level jump past a threshold, differing only in direction/threshold/labels. Amount in liters
-// can't be shown (TurboHive doesn't expose tank capacity), so only the percentage change is reported.
-function FuelEventReport({ detect, eventLabel, noticeText }) {
+
+// Real persisted history — MqttWorker watches every live fuel-level sensor reading per device and
+// saves a row the moment a rise of REFUEL_RISE_THRESHOLD% or more is seen between two consecutive
+// readings (see MqttWorker::detectRefuel). Unlike the old on-demand version (still how Abnormal
+// Loss below works), this survives past whatever OBD retention window TurboHive itself keeps.
+function Refuelling() {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
-    const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
+    const [from, setFrom]         = useState(() => { const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return toLocalInput(d); });
     const [to, setTo]             = useState(() => toLocalInput(new Date()));
     const [rows, setRows]         = useState([]);
+    const [page, setPage]         = useState(1);
+    const [pageSize, setPageSize] = useState(20);
+    const [total, setTotal]       = useState(0);
+    const [totalPages, setTotalPages] = useState(0);
     const [loading, setLoading]   = useState(false);
     const [error, setError]       = useState('');
 
@@ -877,41 +938,45 @@ function FuelEventReport({ detect, eventLabel, noticeText }) {
             .catch(() => setDevices([]));
     }, []);
 
-    const search = async () => {
-        if (!deviceId) { setError('Select a device.'); return; }
+    const search = async (pageArg = 1, sizeArg = pageSize) => {
         setError('');
         setLoading(true);
         try {
-            const points = await loadObdPoints(deviceId, from, to);
-            const events = [];
-            for (let i = 1; i < points.length; i++) {
-                const event = detect(points[i - 1], points[i]);
-                if (event) events.push(event);
-            }
-            setRows(events);
+            const params = { page: pageArg, size: sizeArg, startDate: from, endDate: to };
+            if (deviceId) params.imei = deviceId;
+            const res = await api.getFuelRefuelEvents(params);
+            setRows(res.data?.data ?? []);
+            setPage(res.data?.page ?? pageArg);
+            setPageSize(sizeArg);
+            setTotal(res.data?.total ?? 0);
+            setTotalPages(res.data?.totalPages ?? 0);
         } catch (e) {
-            setError(e.message || e.response?.data?.message || `Failed to load ${eventLabel.toLowerCase()} report.`);
-            setRows([]);
+            setError(e.response?.data?.message || 'Failed to load refuel history.');
+            setRows([]); setTotal(0); setTotalPages(0);
         } finally {
             setLoading(false);
         }
     };
 
+    useEffect(() => { search(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     const reset = () => {
-        const d = new Date(); d.setHours(0,0,0,0);
+        const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0);
         setDeviceId(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
-        setRows([]); setError('');
+        search(1);
     };
 
-    const selectedDevice = devices.find(d => d.imei === deviceId);
-    const COLS = ['No.','Device name','IMEI','From (%)','To (%)','Change (%)','Time'];
+    const devicesByImei = {};
+    devices.forEach(d => { devicesByImei[d.imei] = d; });
+
+    const COLS = ['No.', 'Device Name', 'IMEI', 'From (%)', 'To (%)', 'Change (%)', 'Detected At'];
 
     return (
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
                     style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
-                    <option value="">Select device</option>
+                    <option value="">All devices</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
@@ -919,77 +984,57 @@ function FuelEventReport({ detect, eventLabel, noticeText }) {
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={() => search(1)} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            {noticeText && <Notice color="#dbeafe" icon="ℹ" text={noticeText} />}
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
+            {error && <Notice color="#fee2e2" icon="⚠" text={error} />}
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
-                    ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No refuels detected in this range.</td></tr>
                     ) : rows.map((r, i) => (
-                        <tr key={i}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                            <td style={TD}>{deviceId}</td>
-                            <td style={TD}>{r.fromPercent}%</td>
-                            <td style={TD}>{r.toPercent}%</td>
-                            <td style={TD}>{r.changePercent > 0 ? '+' : ''}{r.changePercent}%</td>
-                            <td style={TD}>{fmtTime(r.time)}</td>
+                        <tr key={r.id}>
+                            <td style={TD}>{(page - 1) * pageSize + i + 1}</td>
+                            <td style={TD}>{devicesByImei[r.imei]?.deviceName ?? '—'}</td>
+                            <td style={TD}>{r.imei}</td>
+                            <td style={TD}>{r.from_percent}%</td>
+                            <td style={TD}>{r.to_percent}%</td>
+                            <td style={TD}>+{r.change_percent}%</td>
+                            <td style={TD}>{fmtTime(r.detected_at)}</td>
                         </tr>
                     ))}
                 </tbody>
             </table>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>{total} refuel{total !== 1 ? 's' : ''} · Page {page} of {totalPages || 1}</span>
+                <button onClick={() => search(Math.max(1, page - 1))} disabled={page <= 1}
+                    style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page <= 1 ? 'default' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}>‹ Prev</button>
+                <button onClick={() => search(Math.min(totalPages || 1, page + 1))} disabled={page >= totalPages}
+                    style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page >= totalPages ? 'default' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}>Next ›</button>
+                <select value={pageSize} onChange={e => search(1, +e.target.value)}
+                    style={{ padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }}>
+                    {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} / page</option>)}
+                </select>
+            </div>
         </>
     );
 }
 
-const REFUEL_RISE_THRESHOLD = 5;   // percentage points between two consecutive readings
-const ABNORMAL_DROP_THRESHOLD = 8; // percentage points
-const ABNORMAL_DROP_MAX_KM = 1;    // "almost no distance travelled" cutoff
-
-function Refuelling() {
-    const detect = (prev, curr) => {
-        const from = obdFuelLevel(prev), to = obdFuelLevel(curr);
-        if (from == null || to == null) return null;
-        const change = +(to - from).toFixed(1);
-        return change >= REFUEL_RISE_THRESHOLD
-            ? { fromPercent: from, toPercent: to, changePercent: change, time: curr.gateTime }
-            : null;
-    };
-    return <FuelEventReport detect={detect} eventLabel="Refuelling"
-        noticeText={`A level rise of at least ${REFUEL_RISE_THRESHOLD}% between two consecutive OBD readings is treated as a refuel.`} />;
-}
-
+// Real persisted history — same live-detection approach as Refuelling above (see
+// MqttWorker::detectAbnormalLoss), instead of the old on-demand GET /v3/obd re-scan.
 function AbnormalFuelLoss() {
-    const detect = (prev, curr) => {
-        const from = obdFuelLevel(prev), to = obdFuelLevel(curr);
-        if (from == null || to == null) return null;
-        const change = +(to - from).toFixed(1);
-        const prevOdo = obdOdometer(prev), currOdo = obdOdometer(curr);
-        const distanceKm = (prevOdo != null && currOdo != null) ? currOdo - prevOdo : null;
-        return (change <= -ABNORMAL_DROP_THRESHOLD && distanceKm != null && distanceKm <= ABNORMAL_DROP_MAX_KM)
-            ? { fromPercent: from, toPercent: to, changePercent: change, time: curr.gateTime }
-            : null;
-    };
-    return <FuelEventReport detect={detect} eventLabel="Abnormal Loss"
-        noticeText={`A level drop of at least ${ABNORMAL_DROP_THRESHOLD}% with under ${ABNORMAL_DROP_MAX_KM}km travelled between two consecutive OBD readings is flagged as an abnormal loss (leak/siphon), distinct from normal consumption while driving.`} />;
-}
-
-// Sums fuel burned (via the confirmed totalFuelConsumption totalizer) across contiguous runs of
-// near-zero-speed OBD readings — same IDLE_SPEED_KMH threshold Parking/Idling/Ignition use on the
-// GNSS track, applied here to OBD's vehicleSpeed field instead.
-function IdleFuel() {
     const [devices, setDevices]   = useState([]);
     const [deviceId, setDeviceId] = useState('');
-    const [from, setFrom]         = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return toLocalInput(d); });
+    const [from, setFrom]         = useState(() => { const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return toLocalInput(d); });
     const [to, setTo]             = useState(() => toLocalInput(new Date()));
     const [rows, setRows]         = useState([]);
+    const [page, setPage]         = useState(1);
+    const [pageSize, setPageSize] = useState(20);
+    const [total, setTotal]       = useState(0);
+    const [totalPages, setTotalPages] = useState(0);
     const [loading, setLoading]   = useState(false);
     const [error, setError]       = useState('');
 
@@ -999,52 +1044,45 @@ function IdleFuel() {
             .catch(() => setDevices([]));
     }, []);
 
-    const search = async () => {
-        if (!deviceId) { setError('Select a device.'); return; }
+    const search = async (pageArg = 1, sizeArg = pageSize) => {
         setError('');
         setLoading(true);
         try {
-            const points = await loadObdPoints(deviceId, from, to);
-            const idleRuns = [];
-            let run = [];
-            const flush = () => {
-                if (run.length >= 2) {
-                    const first = run[0], last = run[run.length - 1];
-                    const fuelUsed = (first.totalFuelConsumption != null && last.totalFuelConsumption != null)
-                        ? +(last.totalFuelConsumption - first.totalFuelConsumption).toFixed(2) : null;
-                    idleRuns.push({ startTime: first.gateTime, endTime: last.gateTime, idleDurationMs: last.gateTime - first.gateTime, fuelUsed });
-                }
-                run = [];
-            };
-            for (const p of points) {
-                const speed = p.vehicleSpeed ?? p.speed ?? 0;
-                if (speed <= IDLE_SPEED_KMH) run.push(p); else flush();
-            }
-            flush();
-            setRows(idleRuns);
+            const params = { page: pageArg, size: sizeArg, startDate: from, endDate: to };
+            if (deviceId) params.imei = deviceId;
+            const res = await api.getFuelAbnormalLossEvents(params);
+            setRows(res.data?.data ?? []);
+            setPage(res.data?.page ?? pageArg);
+            setPageSize(sizeArg);
+            setTotal(res.data?.total ?? 0);
+            setTotalPages(res.data?.totalPages ?? 0);
         } catch (e) {
-            setError(e.message || e.response?.data?.message || 'Failed to load idle fuel report.');
-            setRows([]);
+            setError(e.response?.data?.message || 'Failed to load abnormal loss history.');
+            setRows([]); setTotal(0); setTotalPages(0);
         } finally {
             setLoading(false);
         }
     };
 
+    useEffect(() => { search(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     const reset = () => {
-        const d = new Date(); d.setHours(0,0,0,0);
+        const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0);
         setDeviceId(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
-        setRows([]); setError('');
+        search(1);
     };
 
-    const selectedDevice = devices.find(d => d.imei === deviceId);
-    const COLS = ['No.','Device name','IMEI','Start time','End Time','Idle Duration','Fuel Used (L)'];
+    const devicesByImei = {};
+    devices.forEach(d => { devicesByImei[d.imei] = d; });
+
+    const COLS = ['No.', 'Device Name', 'IMEI', 'From (%)', 'To (%)', 'Change (%)', 'Distance (km)', 'Detected At'];
 
     return (
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
                     style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
-                    <option value="">Select device</option>
+                    <option value="">All devices</option>
                     {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
                 </select>
                 <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
@@ -1052,31 +1090,149 @@ function IdleFuel() {
                 <span style={{ color: '#9ca3af' }}>-</span>
                 <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
-                <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={() => search(1)} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
+            {error && <Notice color="#fee2e2" icon="⚠" text={error} />}
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                 <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
-                    ) : error ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
-                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No abnormal losses detected in this range.</td></tr>
                     ) : rows.map((r, i) => (
-                        <tr key={i}>
-                            <td style={TD}>{i + 1}</td>
-                            <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                            <td style={TD}>{deviceId}</td>
-                            <td style={TD}>{fmtTime(r.startTime)}</td>
-                            <td style={TD}>{fmtTime(r.endTime)}</td>
-                            <td style={TD}>{formatHMS(r.idleDurationMs)}</td>
-                            <td style={TD}>{r.fuelUsed ?? '—'}</td>
+                        <tr key={r.id}>
+                            <td style={TD}>{(page - 1) * pageSize + i + 1}</td>
+                            <td style={TD}>{devicesByImei[r.imei]?.deviceName ?? '—'}</td>
+                            <td style={TD}>{r.imei}</td>
+                            <td style={TD}>{r.from_percent}%</td>
+                            <td style={TD}>{r.to_percent}%</td>
+                            <td style={TD}>{r.change_percent}%</td>
+                            <td style={TD}>{r.distance_km ?? '—'}</td>
+                            <td style={TD}>{fmtTime(r.detected_at)}</td>
                         </tr>
                     ))}
                 </tbody>
             </table>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>{total} event{total !== 1 ? 's' : ''} · Page {page} of {totalPages || 1}</span>
+                <button onClick={() => search(Math.max(1, page - 1))} disabled={page <= 1}
+                    style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page <= 1 ? 'default' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}>‹ Prev</button>
+                <button onClick={() => search(Math.min(totalPages || 1, page + 1))} disabled={page >= totalPages}
+                    style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page >= totalPages ? 'default' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}>Next ›</button>
+                <select value={pageSize} onChange={e => search(1, +e.target.value)}
+                    style={{ padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }}>
+                    {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} / page</option>)}
+                </select>
+            </div>
+        </>
+    );
+}
+
+// Real persisted history — one row per completed idle run, detected live by MqttWorker as speed
+// stays at/under IDLE_SPEED_KMH and closed out once it rises back above that (see
+// MqttWorker::detectIdleFuel), instead of the old on-demand GET /v3/obd re-scan + segmentation.
+function IdleFuel() {
+    const [devices, setDevices]   = useState([]);
+    const [deviceId, setDeviceId] = useState('');
+    const [from, setFrom]         = useState(() => { const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return toLocalInput(d); });
+    const [to, setTo]             = useState(() => toLocalInput(new Date()));
+    const [rows, setRows]         = useState([]);
+    const [page, setPage]         = useState(1);
+    const [pageSize, setPageSize] = useState(20);
+    const [total, setTotal]       = useState(0);
+    const [totalPages, setTotalPages] = useState(0);
+    const [loading, setLoading]   = useState(false);
+    const [error, setError]       = useState('');
+
+    useEffect(() => {
+        api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
+            .then(res => setDevices(res.data?.data ?? []))
+            .catch(() => setDevices([]));
+    }, []);
+
+    const search = async (pageArg = 1, sizeArg = pageSize) => {
+        setError('');
+        setLoading(true);
+        try {
+            const params = { page: pageArg, size: sizeArg, startDate: from, endDate: to };
+            if (deviceId) params.imei = deviceId;
+            const res = await api.getFuelIdleEvents(params);
+            setRows(res.data?.data ?? []);
+            setPage(res.data?.page ?? pageArg);
+            setPageSize(sizeArg);
+            setTotal(res.data?.total ?? 0);
+            setTotalPages(res.data?.totalPages ?? 0);
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to load idle fuel history.');
+            setRows([]); setTotal(0); setTotalPages(0);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { search(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const reset = () => {
+        const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0);
+        setDeviceId(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
+        search(1);
+    };
+
+    const devicesByImei = {};
+    devices.forEach(d => { devicesByImei[d.imei] = d; });
+
+    const COLS = ['No.', 'Device Name', 'IMEI', 'Start Time', 'End Time', 'Idle Duration', 'Fuel Used (L)'];
+
+    return (
+        <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <select value={deviceId} onChange={e => setDeviceId(e.target.value)}
+                    style={{ padding: '7px 28px 7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', background: '#fff', cursor: 'pointer', minWidth: 170 }}>
+                    <option value="">All devices</option>
+                    {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName ?? d.imei}</option>)}
+                </select>
+                <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <span style={{ color: '#9ca3af' }}>-</span>
+                <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, color: '#374151', outline: 'none' }} />
+                <button onClick={() => search(1)} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+            </div>
+            {error && <Notice color="#fee2e2" icon="⚠" text={error} />}
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                <tbody>
+                    {loading ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : rows.length === 0 ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No idle runs detected in this range.</td></tr>
+                    ) : rows.map((r, i) => (
+                        <tr key={r.id}>
+                            <td style={TD}>{(page - 1) * pageSize + i + 1}</td>
+                            <td style={TD}>{devicesByImei[r.imei]?.deviceName ?? '—'}</td>
+                            <td style={TD}>{r.imei}</td>
+                            <td style={TD}>{fmtTime(r.start_time)}</td>
+                            <td style={TD}>{fmtTime(r.end_time)}</td>
+                            <td style={TD}>{formatHMS(new Date(r.end_time) - new Date(r.start_time))}</td>
+                            <td style={TD}>{r.fuel_used ?? '—'}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>{total} run{total !== 1 ? 's' : ''} · Page {page} of {totalPages || 1}</span>
+                <button onClick={() => search(Math.max(1, page - 1))} disabled={page <= 1}
+                    style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page <= 1 ? 'default' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}>‹ Prev</button>
+                <button onClick={() => search(Math.min(totalPages || 1, page + 1))} disabled={page >= totalPages}
+                    style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page >= totalPages ? 'default' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}>Next ›</button>
+                <select value={pageSize} onChange={e => search(1, +e.target.value)}
+                    style={{ padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }}>
+                    {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} / page</option>)}
+                </select>
+            </div>
         </>
     );
 }
@@ -1165,6 +1321,8 @@ function FuelRanking() {
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error === 'Select a device.' ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                     ) : error ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
@@ -1255,6 +1413,8 @@ function TonneKmAnalytics() {
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error === 'Select a device.' ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                     ) : error ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
@@ -1455,15 +1615,16 @@ function TripFuelConsumption() {
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="A trip is a run of ACC-on OBD points (max 30-day range per query); Distance and Fuel Used are the device's own odometer/fuel-totalizer deltas across each trip, not estimates." />
-            {error && <Notice color="#fee2e2" icon="⚠" text={error} />}
+            {error && error !== 'Select a device.' && <Notice color="#fee2e2" icon="⚠" text={error} />}
 
             {loading ? (
                 <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</div>
             ) : days.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</div>
+                <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error || 'No data'}</div>
             ) : (
-                <div style={{ overflowX: 'auto' }}>
+                <>
+                <p style={{ margin: '0 0 8px', fontSize: 11.5, color: '#94a3b8' }}>⟷ Scroll horizontally to see all columns</p>
+                <div className="wide-table-scroll" style={{ overflowX: 'auto', paddingBottom: 6 }}>
                     {days.map(({ date, trips }) => {
                         const isCollapsed = !!collapsed[date];
                         return (
@@ -1533,6 +1694,7 @@ function TripFuelConsumption() {
                         </table>
                     </div>
                 </div>
+                </>
             )}
         </>
     );
@@ -2082,6 +2244,8 @@ function DriverBehavior() {
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error === 'Select a device.' ? (
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                     ) : error ? (
                         <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : filteredHistorical.length === 0 ? (
@@ -2330,6 +2494,8 @@ function Dsm() {
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error === 'Select a device.' ? (
+                        <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                     ) : error ? (
                         <tr><td colSpan={HIST_COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : filteredHistorical.length === 0 ? (
@@ -2416,6 +2582,8 @@ function PositioningBattery() {
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : error === 'Select a device.' ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : rows.length === 0 ? (
@@ -2549,6 +2717,8 @@ function TravelStatisticsOBD() {
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error === 'Select a device.' ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                     ) : error ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
@@ -2601,16 +2771,16 @@ const COMPASS_DIRS = ['Due North', 'Northeast', 'Due East', 'Southeast', 'Due So
 function azimuthLabel(course) {
     if (course == null) return '—';
     const idx = Math.round(course / 45) % 8;
-    return `${COMPASS_DIRS[idx]}(Direction number: ${Math.round(course)})`;
+    return COMPASS_DIRS[idx];
 }
 
 function exportTrackDetailsCsv(rows) {
-    const header = ['No.', 'Position Time', 'Speed (km/h)', 'Azimuth', 'Satellites', 'Fix Type', 'ACC', 'Coordinates'];
+    const header = ['No.', 'Position Time', 'Speed (km/h)', 'Azimuth', 'ACC', 'Coordinates'];
     const lines = [header.join(',')];
     rows.forEach((r, i) => {
         const cells = [
             i + 1, fmtTime(r.deviceTime), r.speed, azimuthLabel(r.course),
-            r.satellites ?? '—', r.fixType ?? '—', r.acc === 1 ? 'ON' : r.acc === 0 ? 'OFF' : '—',
+            r.acc === 1 ? 'ON' : r.acc === 0 ? 'OFF' : '—',
             `${r.latitude},${r.longitude}`,
         ];
         lines.push(cells.map(c => `"${String(c ?? '—').replace(/"/g, '""')}"`).join(','));
@@ -2625,6 +2795,26 @@ function exportTrackDetailsCsv(rows) {
 // Built from TurboHive's GET /v3/track (historical GNSS points, max 30-day range per query) —
 // one row per reported position: speed, heading/azimuth, satellite count, GPS fix type, ACC state,
 // and coordinates. See TurboHiveService::getTrack.
+// Client-side pager for report tables whose rows are already fully loaded (TurboHive's track/
+// mileage endpoints return the whole range in one call) — slices the already-fetched array rather
+// than re-querying, unlike Mileage's own server-side pagination.
+function Pager({ page, setPage, pageSize, setPageSize, total }) {
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>{total} result{total !== 1 ? 's' : ''} · Page {page} of {totalPages}</span>
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page <= 1 ? 'default' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}>‹ Prev</button>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', fontSize: 12, cursor: page >= totalPages ? 'default' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}>Next ›</button>
+            <select value={pageSize} onChange={e => { setPageSize(+e.target.value); setPage(1); }}
+                style={{ padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }}>
+                {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} / page</option>)}
+            </select>
+        </div>
+    );
+}
+
 function TrackDetails() {
     const [devices,  setDevices]  = useState([]);
     const [deviceId, setDeviceId] = useState('');
@@ -2633,6 +2823,8 @@ function TrackDetails() {
     const [rows,      setRows]    = useState([]);
     const [loading,   setLoading] = useState(false);
     const [error,     setError]   = useState('');
+    const [page,      setPage]     = useState(1);
+    const [pageSize,  setPageSize] = useState(20);
 
     useEffect(() => {
         api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
@@ -2644,6 +2836,7 @@ function TrackDetails() {
         if (!deviceId) { setError('Select a device.'); return; }
         setError('');
         setLoading(true);
+        setPage(1);
         try {
             const startTime = new Date(from).getTime();
             const endTime   = new Date(to).getTime();
@@ -2666,10 +2859,11 @@ function TrackDetails() {
     const reset = () => {
         const d = new Date(); d.setHours(0,0,0,0);
         setDeviceId(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
-        setRows([]); setError('');
+        setRows([]); setError(''); setPage(1);
     };
 
-    const COLS = ['No.', 'Position Time', 'Speed (km/h)', 'Azimuth', 'Satellites', 'Fix Type', 'ACC', 'Coordinates'];
+    const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+    const COLS = ['No.', 'Position Time', 'Speed (km/h)', 'Azimuth', 'ACC', 'Coordinates'];
 
     return (
         <>
@@ -2700,7 +2894,6 @@ function TrackDetails() {
                     style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: rows.length ? '#374151' : '#cbd5e1', fontSize: 13, cursor: rows.length ? 'pointer' : 'not-allowed' }}>Export</button>
             </div>
 
-            <Notice color="#dbeafe" icon="ℹ" text="Track precision depends on GPS signal quality and reporting interval settings (max 30-day range per query)." />
             {error && <Notice text={error} />}
 
             <div style={{ overflowX: 'auto' }}>
@@ -2713,14 +2906,12 @@ function TrackDetails() {
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
                         ) : rows.length === 0 ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
-                        ) : rows.map((r, i) => (
+                        ) : pageRows.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
+                                <td style={TD}>{(page - 1) * pageSize + i + 1}</td>
                                 <td style={TD}>{fmtTime(r.deviceTime)}</td>
-                                <td style={TD}>{r.speed ?? '—'}</td>
+                                <td style={TD}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
                                 <td style={TD}>{azimuthLabel(r.course)}</td>
-                                <td style={TD}>{r.satellites ?? '—'}</td>
-                                <td style={TD}>{r.fixType ?? '—'}</td>
                                 <td style={TD}>{r.acc === 1 ? 'ON' : r.acc === 0 ? 'OFF' : '—'}</td>
                                 <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
                             </tr>
@@ -2728,6 +2919,7 @@ function TrackDetails() {
                     </tbody>
                 </table>
             </div>
+            {rows.length > 0 && <Pager page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} total={rows.length} />}
         </>
     );
 }
@@ -2756,6 +2948,11 @@ function replayIcon(course) {
 
 const behaviorIcon = L.divIcon({
     html: '<div style="width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 0 0 1px #ef4444;"></div>',
+    className: '', iconSize: [14, 14], iconAnchor: [7, 7],
+});
+
+const dsmIcon = L.divIcon({
+    html: '<div style="width:14px;height:14px;border-radius:50%;background:#8b5cf6;border:2px solid #fff;box-shadow:0 0 0 1px #8b5cf6;"></div>',
     className: '', iconSize: [14, 14], iconAnchor: [7, 7],
 });
 
@@ -2869,6 +3066,7 @@ function Replay() {
     const [showTrack, setShowTrack]       = useState(true);
     const [showByFix, setShowByFix]       = useState(false);
     const [showBehavior, setShowBehavior] = useState(false);
+    const [showDsm, setShowDsm]           = useState(false);
     const [showGeofence, setShowGeofence] = useState(false);
 
     const [behaviorEvents, setBehaviorEvents] = useState([]);
@@ -2943,9 +3141,12 @@ function Replay() {
         }
     }
 
-    const filteredBehavior = alertType
-        ? behaviorEvents.filter(r => r.name === alertType)
-        : behaviorEvents;
+    const filteredBehavior = behaviorEvents.filter(r =>
+        DRIVING_BEHAVIOR_ALERT_NAMES.includes(r.name) && (!alertType || r.name === alertType));
+    // Same fetched alerts list as filteredBehavior above (one GET /v3/alerts/page call for the
+    // device/date-range covers every category) — just filtered to the DSM (Driver State
+    // Monitoring) subset instead of Driving Behavior.
+    const filteredDsm = behaviorEvents.filter(r => DMS_ALERT_NAMES.includes(r.name));
 
     const center = points.length ? [points[0].latitude, points[0].longitude] : REPLAY_DEFAULT_CENTER;
 
@@ -2989,6 +3190,14 @@ function Replay() {
                     {showBehavior && filteredBehavior.map(r => (
                         r.latitude != null && (
                             <Marker key={r.id} position={[r.latitude, r.longitude]} icon={behaviorIcon}>
+                                <Popup>{alertLabel(r)}<br />{fmtTime(r.time)}</Popup>
+                            </Marker>
+                        )
+                    ))}
+
+                    {showDsm && filteredDsm.map(r => (
+                        r.latitude != null && (
+                            <Marker key={r.id} position={[r.latitude, r.longitude]} icon={dsmIcon}>
                                 <Popup>{alertLabel(r)}<br />{fmtTime(r.time)}</Popup>
                             </Marker>
                         )
@@ -3054,7 +3263,7 @@ function Replay() {
                                 <select value={alertType} onChange={e => setAlertType(e.target.value)}
                                     style={{ flex: 1, minWidth: 0, maxWidth: '100%', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, padding: '4px 6px' }}>
                                     <option value="">Select Alert Type</option>
-                                    {ALERT_TYPE_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
+                                    {DRIVING_BEHAVIOR_ALERT_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
                                 </select>
                             </div>
 
@@ -3067,6 +3276,9 @@ function Replay() {
                                 </label>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
                                     <input type="checkbox" checked={showBehavior} onChange={e => setShowBehavior(e.target.checked)} /> Driving behavior
+                                </label>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={showDsm} onChange={e => setShowDsm(e.target.checked)} /> DSM
                                 </label>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
                                     <input type="checkbox" checked={showGeofence} onChange={e => setShowGeofence(e.target.checked)} /> Geofence
@@ -3148,6 +3360,8 @@ function Mileage() {
                 <tbody>
                     {loading ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                    ) : error === 'Select a device.' ? (
+                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                     ) : error ? (
                         <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                     ) : rows.length === 0 ? (
@@ -3366,6 +3580,8 @@ function Trips() {
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : error === 'Select a device.' ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : rows.length === 0 ? (
@@ -3475,6 +3691,8 @@ function Overspeed() {
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : error === 'Select a device.' ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : filtered.length === 0 ? (
@@ -3511,6 +3729,8 @@ function Parking() {
     const [sortAsc, setSortAsc]     = useState(true);
     const [loading, setLoading]     = useState(false);
     const [error, setError]         = useState('');
+    const [page, setPage]           = useState(1);
+    const [pageSize, setPageSize]   = useState(20);
 
     useEffect(() => {
         api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
@@ -3522,6 +3742,7 @@ function Parking() {
         if (!deviceId) { setError('Select a device.'); return; }
         setError('');
         setLoading(true);
+        setPage(1);
         try {
             const points = await loadSortedTrack(deviceId, from, to);
             const stops = segmentByAcc(points).filter(s => s.acc === 0);
@@ -3537,12 +3758,13 @@ function Parking() {
     const reset = () => {
         const d = new Date(); d.setHours(0,0,0,0);
         setDeviceId(''); setMinDuration(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
-        setRows([]); setError('');
+        setRows([]); setError(''); setPage(1);
     };
 
     const selectedDevice = devices.find(d => d.imei === deviceId);
     const filtered = (minDuration ? rows.filter(r => r.durationMs >= Number(minDuration) * 60000) : rows)
         .sort((a, b) => sortAsc ? a.startTime - b.startTime : b.startTime - a.startTime);
+    const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
     const COLS = ['No.', 'Device Name', 'IMEI', 'Model', 'State', 'Start time', 'End Time', 'Coordinates', 'Stay time'];
 
     return (
@@ -3563,7 +3785,6 @@ function Parking() {
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text="A parking period is a run of ACC-off GNSS points (max 30-day range per query)." />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                     <thead>
@@ -3582,13 +3803,15 @@ function Parking() {
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : error === 'Select a device.' ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : filtered.length === 0 ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
-                        ) : filtered.map((r, i) => (
+                        ) : pageRows.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
+                                <td style={TD}>{(page - 1) * pageSize + i + 1}</td>
                                 <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
                                 <td style={TD}>{deviceId}</td>
                                 <td style={TD}>{selectedDevice?.model ?? '—'}</td>
@@ -3602,6 +3825,7 @@ function Parking() {
                     </tbody>
                 </table>
             </div>
+            {filtered.length > 0 && <Pager page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} total={filtered.length} />}
         </>
     );
 }
@@ -3619,6 +3843,8 @@ function Idling() {
     const [sortAsc, setSortAsc]     = useState(true);
     const [loading, setLoading]     = useState(false);
     const [error, setError]         = useState('');
+    const [page, setPage]           = useState(1);
+    const [pageSize, setPageSize]   = useState(20);
 
     useEffect(() => {
         api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
@@ -3630,6 +3856,7 @@ function Idling() {
         if (!deviceId) { setError('Select a device.'); return; }
         setError('');
         setLoading(true);
+        setPage(1);
         try {
             const points = await loadSortedTrack(deviceId, from, to);
             const idlePeriods = segmentByAcc(points).filter(s => s.acc === 1 && s.avgSpeedKmh < IDLE_SPEED_KMH);
@@ -3645,12 +3872,13 @@ function Idling() {
     const reset = () => {
         const d = new Date(); d.setHours(0,0,0,0);
         setDeviceId(''); setMinDuration(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
-        setRows([]); setError('');
+        setRows([]); setError(''); setPage(1);
     };
 
     const selectedDevice = devices.find(d => d.imei === deviceId);
     const filtered = (minDuration ? rows.filter(r => r.durationMs >= Number(minDuration) * 60000) : rows)
         .sort((a, b) => sortAsc ? a.startTime - b.startTime : b.startTime - a.startTime);
+    const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
     const COLS = ['No.', 'Device Name', 'IMEI', 'Model', 'State', 'Start time', 'End Time', 'Coordinates', 'Stay time'];
 
     return (
@@ -3671,7 +3899,6 @@ function Idling() {
                 <button onClick={search} style={{ padding: '7px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
                 <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
             </div>
-            <Notice color="#dbeafe" icon="ℹ" text={`An idling period is a run of ACC-on GNSS points averaging under ${IDLE_SPEED_KMH} km/h (max 30-day range per query).`} />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                     <thead>
@@ -3690,13 +3917,15 @@ function Idling() {
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : error === 'Select a device.' ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : filtered.length === 0 ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
-                        ) : filtered.map((r, i) => (
+                        ) : pageRows.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
+                                <td style={TD}>{(page - 1) * pageSize + i + 1}</td>
                                 <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
                                 <td style={TD}>{deviceId}</td>
                                 <td style={TD}>{selectedDevice?.model ?? '—'}</td>
@@ -3710,6 +3939,7 @@ function Idling() {
                     </tbody>
                 </table>
             </div>
+            {filtered.length > 0 && <Pager page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} total={filtered.length} />}
         </>
     );
 }
@@ -3794,6 +4024,8 @@ function Ignition() {
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : error === 'Select a device.' ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : sorted.length === 0 ? (
@@ -3833,6 +4065,8 @@ function GeoFence() {
     const [sortAsc, setSortAsc]     = useState(true);
     const [loading, setLoading]     = useState(false);
     const [error, setError]         = useState('');
+    const [page, setPage]           = useState(1);
+    const [pageSize, setPageSize]   = useState(20);
 
     useEffect(() => {
         api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
@@ -3850,6 +4084,7 @@ function GeoFence() {
         if (!deviceId) { setError('Select a device.'); return; }
         setError('');
         setLoading(true);
+        setPage(1);
         try {
             const points = await loadSortedTrack(deviceId, from, to);
             const targets = geofenceId ? linkedGeofences.filter(g => String(g.id) === String(geofenceId)) : linkedGeofences;
@@ -3865,12 +4100,13 @@ function GeoFence() {
     const reset = () => {
         const d = new Date(); d.setHours(0,0,0,0);
         setDeviceId(''); setGeofenceId(''); setFrom(toLocalInput(d)); setTo(toLocalInput(new Date()));
-        setRows([]); setError('');
+        setRows([]); setError(''); setPage(1);
     };
 
     const selectedDevice = devices.find(d => d.imei === deviceId);
     const sorted = [...rows].sort((a, b) => sortAsc ? a.enterTime - b.enterTime : b.enterTime - a.enterTime);
-    const COLS = ['No.', 'Device Name', 'IMEI', 'Model', 'Fence Name', 'Enter Time', 'Exit Time', 'Stay Time'];
+    const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
+    const COLS = ['No.', 'Device Name', 'Fence Name', 'Enter Time', 'Exit Time', 'Stay Time'];
 
     return (
         <>
@@ -3896,7 +4132,6 @@ function GeoFence() {
             {deviceId && linkedGeofences.length === 0 && (
                 <Notice text="This device has no geofences linked yet — link one from the Geofences page's Linked Devices panel." />
             )}
-            <Notice color="#dbeafe" icon="ℹ" text="Enter/exit is computed by testing the device's GNSS track against its linked geofence shapes (max 30-day range per query)." />
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
                     <thead>
@@ -3915,16 +4150,16 @@ function GeoFence() {
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : error === 'Select a device.' ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : sorted.length === 0 ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
-                        ) : sorted.map((r, i) => (
+                        ) : pageRows.map((r, i) => (
                             <tr key={i}>
-                                <td style={TD}>{i + 1}</td>
+                                <td style={TD}>{(page - 1) * pageSize + i + 1}</td>
                                 <td style={TD}>{selectedDevice?.deviceName ?? deviceId}</td>
-                                <td style={TD}>{deviceId}</td>
-                                <td style={TD}>{selectedDevice?.model ?? '—'}</td>
                                 <td style={TD}>{r.geofenceName ?? '—'}</td>
                                 <td style={TD}>{fmtTime(r.enterTime)}</td>
                                 <td style={TD}>{r.exitTime ? fmtTime(r.exitTime) : 'Still inside'}</td>
@@ -3934,6 +4169,7 @@ function GeoFence() {
                     </tbody>
                 </table>
             </div>
+            {sorted.length > 0 && <Pager page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} total={sorted.length} />}
         </>
     );
 }
@@ -4027,7 +4263,7 @@ function DeviceStatusPage({ online }) {
     });
 
     const COLS = online
-        ? ['No.', 'Device Name', 'IMEI', 'Model', 'Speed (km/h)', 'Coordinates', 'Last Heartbeat']
+        ? ['No.', 'Device Name', 'IMEI', 'Model', 'Coordinates', 'Last Heartbeat']
         : ['No.', 'Device Name', 'IMEI', 'Model', 'Offline Since', 'Coordinates', 'Last Heartbeat'];
 
     return (
@@ -4059,6 +4295,8 @@ function DeviceStatusPage({ online }) {
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : error === 'Select a device.' ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : sorted.length === 0 ? (
@@ -4069,9 +4307,8 @@ function DeviceStatusPage({ online }) {
                                 <td style={TD}>{r.deviceName ?? '—'}</td>
                                 <td style={TD}>{r.imei ?? '—'}</td>
                                 <td style={TD}>{r.model ?? '—'}</td>
-                                {online
-                                    ? <td style={TD}>{r.speed ?? '—'}</td>
-                                    : <td style={TD}>{r.lastHeartTime ? formatDuration(Date.now() - r.lastHeartTime) : '—'}</td>}
+                                {!online &&
+                                    <td style={TD}>{r.lastHeartTime ? formatDuration(Date.now() - r.lastHeartTime) : '—'}</td>}
                                 <td style={TD}>
                                     {r.latitude != null && r.longitude != null ? (
                                         <a href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} target="_blank" rel="noreferrer" style={{ color: '#3b82f6' }}>
@@ -4297,7 +4534,6 @@ function AlertDetails() {
                 <div>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 6 }}>Alert Time</label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff' }}>
-                        <span style={{ color: '#9ca3af' }}>🕐</span>
                         <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
                             style={{ border: 'none', outline: 'none', fontSize: 13, color: '#374151' }} />
                         <span style={{ color: '#9ca3af' }}>-</span>
@@ -4331,6 +4567,8 @@ function AlertDetails() {
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : error === 'Select a device.' ? (
+                            <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>{error}</td></tr>
                         ) : error ? (
                             <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#ef4444' }}>{error}</td></tr>
                         ) : filtered.length === 0 ? (
@@ -4404,10 +4642,16 @@ const PAGES = {
 /* ══════════════════════════════════════════════════════════════ */
 /*  ROOT EXPORT                                                   */
 /* ══════════════════════════════════════════════════════════════ */
-export default function ReportPage({ reportSection }) {
+export default function ReportPage({ reportSection, setReportSection }) {
     const Content = PAGES[reportSection] || (() => (
         <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', fontSize: 14 }}>Select a report from the sidebar.</div>
     ));
+
+    // Only the top-level Reports module passes setReportSection (see Dashboard.jsx) — FleetPage's
+    // EmbeddedReport uses this same component to show one specific report inline (Fuel Management,
+    // Vehicle Track, etc.) without setReportSection, so the category tab bar stays hidden there;
+    // showing "sibling reports" wouldn't make sense in a context that already has its own tabs.
+    const category = setReportSection ? REPORT_CATEGORIES.find(c => c.items.includes(reportSection)) : null;
 
     // Reports like Replay render a tall absolutely-positioned overlay on top of the map that grows
     // once track data loads; some browsers' scroll-anchoring then keeps the viewport pinned near
@@ -4427,8 +4671,9 @@ export default function ReportPage({ reportSection }) {
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff' }}>
             {/* Header */}
-            <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#111827' }}>{reportSection || 'Report'}</h2>
+            <div style={{ padding: category ? '14px 20px 0' : '14px 20px 12px', borderBottom: category ? 'none' : '1px solid #e5e7eb', flexShrink: 0 }}>
+                <h2 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, color: '#111827' }}>{category ? category.label : (reportSection || 'Report')}</h2>
+                {category && <ReportTabBar tabs={category.items} active={reportSection} onChange={setReportSection} />}
             </div>
 
             {/* Content */}

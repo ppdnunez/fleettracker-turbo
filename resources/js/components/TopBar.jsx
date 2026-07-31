@@ -72,13 +72,10 @@ export default function TopBar({ onlineCount, total, mapMode, setMapMode, select
                 </div>
             ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', letterSpacing: 1 }}>DEVICE LIST</span>
-                        <span style={{ background: dark ? 'rgba(59,130,246,0.15)' : '#eff6ff', color: dark ? '#60a5fa' : '#1e40af', fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 20, border: `1px solid ${dark ? 'rgba(96,165,250,0.35)' : '#bfdbfe'}` }}>{onlineCount}/{total}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-                        <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 700 }}>LIVE</span>
+                    <div className="mine-map-legend">
+                        <span><i className="online" />Online</span>
+                        <span><i className="offline" />Offline</span>
+                        <span><i className="selected" />Selected</span>
                     </div>
                 </div>
             )}
