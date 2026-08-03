@@ -13,7 +13,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        //
+        // Device-facing webhook — no session/CSRF token available, guarded by its own signature instead.
+        $middleware->validateCsrfTokens(except: [
+            'img/uploads/face/uploadPic',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

@@ -20,16 +20,189 @@ function StatCard({ label, value, color, dark }) {
     );
 }
 
+function TabBar({ tabs, active, onChange, dark }) {
+    return (
+        <div style={{ display: 'flex', gap: 4, padding: '0 20px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, flexShrink: 0 }}>
+            {tabs.map(t => (
+                <button key={t} onClick={() => onChange(t)}
+                    style={{
+                        padding: '10px 16px', fontSize: 13, fontWeight: 600, border: 'none', borderBottom: `2px solid ${active === t ? '#3b82f6' : 'transparent'}`,
+                        background: 'transparent', color: active === t ? (dark ? '#f1f5f9' : '#111827') : (dark ? '#64748b' : '#9ca3af'), cursor: 'pointer',
+                    }}>
+                    {t}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+const RESPONSE_COLOR = (code) => (code === 200 ? '#16a34a' : code === 403 ? '#f59e0b' : '#ef4444');
+
+/**
+ * Our own re-implementation of TurboHive's device-facing face image ingest API
+ * (POST /img/uploads/face/uploadPic — see face-upload-api.md, FaceUploadService,
+ * FaceUploadController). Devices are pointed here instead of TurboHive's/a third party's host via
+ * the "Push Upload Host" form below (DriverFaceController::setUploadUrl -> UPLOADFACE command).
+ * Lists every request received and exactly what {code,message,data} we replied with.
+ */
+function UploadLogTab({ dark, devices, devicesByImei }) {
+    const TH = THStyle(dark);
+    const TD = TDStyle(dark);
+    const [receipts, setReceipts] = useState([]);
+    const [loading, setLoading]   = useState(true);
+    const [error, setError]       = useState('');
+    const [search, setSearch]     = useState('');
+
+    const [hostConfig, setHostConfig] = useState('');
+    const [pushImei, setPushImei]     = useState('');
+    const [pushUrl, setPushUrl]       = useState('');
+    const [pushing, setPushing]       = useState(false);
+    const [pushResult, setPushResult] = useState(null);
+
+    const load = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const params = {};
+            if (search) params.imei = search;
+            const res = await api.getFaceUploads(params);
+            setReceipts(Array.isArray(res.data) ? res.data : []);
+        } catch (e) {
+            setError('Failed to load upload log.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, [search]);
+
+    useEffect(() => {
+        api.getFaceUploadConfig().then(res => {
+            const host = res.data?.host || '';
+            setHostConfig(host);
+            setPushUrl(host);
+        }).catch(() => {});
+    }, []);
+
+    const handlePush = async () => {
+        if (!pushImei || !pushUrl) return;
+        setPushing(true);
+        setPushResult(null);
+        try {
+            const res = await api.setFaceUploadUrl(pushImei, pushUrl);
+            setPushResult(res.data);
+        } catch (e) {
+            setPushResult(e.response?.data || { message: 'Failed to send command.' });
+        } finally {
+            setPushing(false);
+        }
+    };
+
+    return (
+        <>
+            <div style={{ padding: '14px 20px 0', flexShrink: 0 }}>
+                <div style={{ background: dark ? '#111827' : '#f9fafb', border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, borderRadius: 10, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: dark ? '#94a3b8' : '#6b7280', marginBottom: 10 }}>Push Upload Host to Device</div>
+                    {hostConfig && (
+                        <div style={{ fontSize: 11.5, color: dark ? '#64748b' : '#9ca3af', marginBottom: 10 }}>
+                            Configured host: <span style={{ fontFamily: 'monospace', color: dark ? '#94a3b8' : '#6b7280' }}>{hostConfig}</span>
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Device</label>
+                            <select value={pushImei} onChange={e => setPushImei(e.target.value)}
+                                style={{ width: 220, padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer' }}>
+                                <option value="">Select device…</option>
+                                {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName || d.imei}</option>)}
+                            </select>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 260 }}>
+                            <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Upload URL</label>
+                            <input value={pushUrl} onChange={e => setPushUrl(e.target.value)}
+                                style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
+                        </div>
+                        <button onClick={handlePush} disabled={pushing || !pushImei || !pushUrl}
+                            style={{ padding: '8px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: (pushing || !pushImei || !pushUrl) ? 'not-allowed' : 'pointer', opacity: (pushing || !pushImei || !pushUrl) ? 0.6 : 1 }}>
+                            {pushing ? 'Sending…' : 'Push to Device'}
+                        </button>
+                    </div>
+                    {pushResult && (
+                        <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', background: dark ? '#0b1220' : '#fff', border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, color: dark ? '#94a3b8' : '#6b7280', whiteSpace: 'pre-wrap' }}>
+                            {JSON.stringify(pushResult, null, 2)}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', padding: '14px 20px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, flexShrink: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>IMEI</label>
+                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter by IMEI"
+                        style={{ width: 220, boxSizing: 'border-box', padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
+                </div>
+                <button onClick={load} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh</button>
+            </div>
+
+            {error && (
+                <div style={{ margin: '12px 20px 0', padding: '8px 12px', background: dark ? 'rgba(239,68,68,0.15)' : '#fef2f2', border: `1px solid ${dark ? '#7f1d1d' : '#fecaca'}`, borderRadius: 6, fontSize: 12, color: dark ? '#fca5a5' : '#991b1b' }}>
+                    {error}
+                </div>
+            )}
+
+            <div style={{ flex: 1, overflow: 'auto', padding: '12px 20px 16px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 960 }}>
+                    <thead>
+                        <tr>
+                            <th style={TH}>Received</th>
+                            <th style={TH}>Vehicle</th>
+                            <th style={TH}>IMEI</th>
+                            <th style={TH}>File Name</th>
+                            <th style={TH}>Instruction ID</th>
+                            <th style={TH}>Source IP</th>
+                            <th style={TH}>Response</th>
+                            <th style={TH}>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td colSpan={8} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : receipts.length === 0 ? (
+                            <tr><td colSpan={8} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No uploads received yet.</td></tr>
+                        ) : receipts.map(r => (
+                            <tr key={r.id}>
+                                <td style={{ ...TD, color: dark ? '#94a3b8' : '#6b7280', whiteSpace: 'nowrap' }}>{new Date(r.created_at).toLocaleString()}</td>
+                                <td style={{ ...TD, fontWeight: 500 }}>{devicesByImei[r.imei]?.deviceName || '—'}</td>
+                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{r.imei || '—'}</td>
+                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{r.file_name || '—'}</td>
+                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{r.instruction_id || '—'}</td>
+                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }} title={r.user_agent || ''}>{r.ip || '—'}</td>
+                                <td style={TD}><Badge text={r.response_code} color={RESPONSE_COLOR(r.response_code)} /></td>
+                                <td style={{ ...TD, color: dark ? '#94a3b8' : '#6b7280' }}>{r.response_message}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </>
+    );
+}
+
 /**
  * Face Recognition (alert.code 1823 = match / 1824 = no match) — a biometric authentication event,
  * kept deliberately separate from the Driving Behavior module's 13xx codes. History is captured
  * live by MqttWorker::recordFaceRecognitionEvent into face_recognition_events (see that table's
  * migration docblock); this page just lists it, plus a live top-up via the same 'fleet' Reverb
  * channel other live feeds (ReportPage's alert feed, Dashboard's position/geofence feed) use.
+ *
+ * The "Upload Log" tab is a separate concern: our own re-implementation of TurboHive's raw
+ * device-facing face-photo ingest API (see UploadLogTab above) — what actually lands the image on
+ * our server, upstream of whatever alert code eventually gets attached to it.
  */
 export default function FaceRecognitionPage({ dark }) {
     const TH = THStyle(dark);
     const TD = TDStyle(dark);
+    const [tab, setTab] = useState('Match Events');
     const [events, setEvents]   = useState([]);
     const [devices, setDevices] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -100,84 +273,92 @@ export default function FaceRecognitionPage({ dark }) {
 
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: dark ? '#0b1220' : '#fff' }}>
-            <div style={{ padding: '14px 20px 12px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, flexShrink: 0 }}>
-                <p style={{ margin: 0, fontSize: 12.5, color: dark ? '#94a3b8' : '#6b7280' }}>Driver face-match checks captured live from device cameras (alert codes 1823/1824) — not a driving-behavior alert.</p>
-            </div>
+            <TabBar tabs={['Match Events', 'Upload Log']} active={tab} onChange={setTab} dark={dark} />
 
-            <div style={{ display: 'flex', gap: 12, padding: '14px 20px 0', flexShrink: 0 }}>
-                <StatCard label="Total Checks" value={total} dark={dark} />
-                <StatCard label="Succeeded" value={succeeded} color="#16a34a" dark={dark} />
-                <StatCard label="Failed" value={failed} color="#ef4444" dark={dark} />
-            </div>
+            {tab === 'Upload Log' ? (
+                <UploadLogTab dark={dark} devices={devices} devicesByImei={devicesByImei} />
+            ) : (
+                <>
+                    <div style={{ padding: '14px 20px 12px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, flexShrink: 0 }}>
+                        <p style={{ margin: 0, fontSize: 12.5, color: dark ? '#94a3b8' : '#6b7280' }}>Driver face-match checks captured live from device cameras (alert codes 1823/1824) — not a driving-behavior alert.</p>
+                    </div>
 
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', padding: '14px 20px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, flexShrink: 0 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Search</label>
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Vehicle name, IMEI, or driver"
-                        style={{ width: 260, boxSizing: 'border-box', padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Result</label>
-                    <select value={result} onChange={e => setResult(e.target.value)}
-                        style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer' }}>
-                        <option value="">All</option>
-                        <option value="succeeded">Succeeded</option>
-                        <option value="failed">Failed</option>
-                    </select>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>From</label>
-                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-                        style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>To</label>
-                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-                        style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
-                </div>
-                <button onClick={() => { setSearch(''); setResult(''); setStartDate(''); setEndDate(''); }}
-                    style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
-                <button onClick={load} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh</button>
-            </div>
+                    <div style={{ display: 'flex', gap: 12, padding: '14px 20px 0', flexShrink: 0 }}>
+                        <StatCard label="Total Checks" value={total} dark={dark} />
+                        <StatCard label="Succeeded" value={succeeded} color="#16a34a" dark={dark} />
+                        <StatCard label="Failed" value={failed} color="#ef4444" dark={dark} />
+                    </div>
 
-            {error && (
-                <div style={{ margin: '12px 20px 0', padding: '8px 12px', background: dark ? 'rgba(239,68,68,0.15)' : '#fef2f2', border: `1px solid ${dark ? '#7f1d1d' : '#fecaca'}`, borderRadius: 6, fontSize: 12, color: dark ? '#fca5a5' : '#991b1b' }}>
-                    {error}
-                </div>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', padding: '14px 20px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, flexShrink: 0 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Search</label>
+                            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Vehicle name, IMEI, or driver"
+                                style={{ width: 260, boxSizing: 'border-box', padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>Result</label>
+                            <select value={result} onChange={e => setResult(e.target.value)}
+                                style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a', cursor: 'pointer' }}>
+                                <option value="">All</option>
+                                <option value="succeeded">Succeeded</option>
+                                <option value="failed">Failed</option>
+                            </select>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>From</label>
+                            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+                                style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <label style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', fontWeight: 600 }}>To</label>
+                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+                                style={{ padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
+                        </div>
+                        <button onClick={() => { setSearch(''); setResult(''); setStartDate(''); setEndDate(''); }}
+                            style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                        <button onClick={load} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh</button>
+                    </div>
+
+                    {error && (
+                        <div style={{ margin: '12px 20px 0', padding: '8px 12px', background: dark ? 'rgba(239,68,68,0.15)' : '#fef2f2', border: `1px solid ${dark ? '#7f1d1d' : '#fecaca'}`, borderRadius: 6, fontSize: 12, color: dark ? '#fca5a5' : '#991b1b' }}>
+                            {error}
+                        </div>
+                    )}
+
+                    <div style={{ flex: 1, overflow: 'auto', padding: '12px 20px 16px' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
+                            <thead>
+                                <tr>
+                                    <th style={TH}>Time</th>
+                                    <th style={TH}>Vehicle</th>
+                                    <th style={TH}>IMEI</th>
+                                    <th style={TH}>Driver</th>
+                                    <th style={TH}>Result</th>
+                                    <th style={TH}>Filename(s)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {loading ? (
+                                    <tr><td colSpan={6} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                                ) : filtered.length === 0 ? (
+                                    <tr><td colSpan={6} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No face recognition checks recorded yet.</td></tr>
+                                ) : filtered.map(ev => (
+                                    <tr key={ev.id}>
+                                        <td style={{ ...TD, color: dark ? '#94a3b8' : '#6b7280', whiteSpace: 'nowrap' }}>{new Date(ev.occurred_at).toLocaleString()}</td>
+                                        <td style={{ ...TD, fontWeight: 500 }}>{devicesByImei[ev.imei]?.deviceName || '—'}</td>
+                                        <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{ev.imei}</td>
+                                        <td style={TD}>{ev.driver?.name || '—'}</td>
+                                        <td style={TD}><Badge text={RESULT_LABEL[ev.result] || ev.result} color={RESULT_COLOR[ev.result] || '#9ca3af'} /></td>
+                                        <td style={{ ...TD, fontFamily: 'monospace', fontSize: 11.5, color: dark ? '#94a3b8' : '#6b7280' }}>
+                                            {(ev.file_names || []).length > 0 ? ev.file_names.join(', ') : '—'}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </>
             )}
-
-            <div style={{ flex: 1, overflow: 'auto', padding: '12px 20px 16px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
-                    <thead>
-                        <tr>
-                            <th style={TH}>Time</th>
-                            <th style={TH}>Vehicle</th>
-                            <th style={TH}>IMEI</th>
-                            <th style={TH}>Driver</th>
-                            <th style={TH}>Result</th>
-                            <th style={TH}>Filename(s)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {loading ? (
-                            <tr><td colSpan={6} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
-                        ) : filtered.length === 0 ? (
-                            <tr><td colSpan={6} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No face recognition checks recorded yet.</td></tr>
-                        ) : filtered.map(ev => (
-                            <tr key={ev.id}>
-                                <td style={{ ...TD, color: dark ? '#94a3b8' : '#6b7280', whiteSpace: 'nowrap' }}>{new Date(ev.occurred_at).toLocaleString()}</td>
-                                <td style={{ ...TD, fontWeight: 500 }}>{devicesByImei[ev.imei]?.deviceName || '—'}</td>
-                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{ev.imei}</td>
-                                <td style={TD}>{ev.driver?.name || '—'}</td>
-                                <td style={TD}><Badge text={RESULT_LABEL[ev.result] || ev.result} color={RESULT_COLOR[ev.result] || '#9ca3af'} /></td>
-                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 11.5, color: dark ? '#94a3b8' : '#6b7280' }}>
-                                    {(ev.file_names || []).length > 0 ? ev.file_names.join(', ') : '—'}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
         </div>
     );
 }

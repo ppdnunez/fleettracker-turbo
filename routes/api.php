@@ -10,6 +10,7 @@ use App\Http\Controllers\DriverCheckinController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\DriverFaceController;
 use App\Http\Controllers\FaceRecognitionEventController;
+use App\Http\Controllers\FaceUploadController;
 use App\Http\Controllers\FuelAbnormalLossEventController;
 use App\Http\Controllers\FuelIdleEventController;
 use App\Http\Controllers\FuelPriceController;
@@ -65,6 +66,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Face recognition check history (alert.code 1823/1824, system-generated, read-only — see MqttWorker)
     Route::get('/face-recognition-events', [FaceRecognitionEventController::class, 'index']);
+
+    // Inbound log of our own /img/uploads/face/uploadPic webhook (see routes/web.php and
+    // FaceUploadService) — system-generated, read-only.
+    Route::get('/face-uploads',        [FaceUploadController::class, 'index']);
+    Route::get('/face-upload-config',  [FaceUploadController::class, 'config']);
 
     // Petrol/diesel price history — see FuelPriceController
     Route::get('/fuel-prices', [FuelPriceController::class, 'index']);

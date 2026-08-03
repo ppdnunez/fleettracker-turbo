@@ -808,6 +808,16 @@ function DriverFaceModal({ driver, onClose }) {
 
     useEffect(() => { fetchFaces(); }, []);
 
+    // The device's real SHOT result (enrolled/failed) arrives asynchronously over MQTT — see
+    // MqttWorker::recordFaceShotResult() — so while a request is pending, keep polling until it
+    // resolves instead of leaving the modal stuck showing "pending" forever.
+    const currentStatus = faces.find(f => f.imei === imei)?.status;
+    useEffect(() => {
+        if (currentStatus !== 'pending') return;
+        const interval = setInterval(fetchFaces, 4000);
+        return () => clearInterval(interval);
+    }, [currentStatus, imei]);
+
     const run = async (fn, successMsg) => {
         if (!imei) { setError('Select a vehicle (IMEI) first.'); return; }
         setBusy(true); setError(''); setMessage('');
@@ -858,14 +868,27 @@ function DriverFaceModal({ driver, onClose }) {
                             </div>
 
                             <div style={{ marginBottom: 14, padding: '10px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12.5 }}>
-                                <strong>Status:</strong> {loading ? 'Loading…' : (current?.status || 'Not enrolled')}
+                                <strong>Status:</strong>{' '}
+                                {loading ? 'Loading…' : (
+                                    <span style={{ color: FACE_STATUS_COLOR[current?.status] || '#6b7280', fontWeight: 700 }}>
+                                        {current?.status || 'Not enrolled'}
+                                    </span>
+                                )}
+                                {current?.status === 'pending' && <span style={{ marginLeft: 6, color: '#94a3b8' }}>(waiting for device confirmation…)</span>}
                                 {current?.error && <div style={{ color: '#991b1b', marginTop: 4 }}>{current.error}</div>}
                             </div>
+
+                            {current?.status === 'enrolled' && (
+                                <div style={{ marginBottom: 14, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                    <span>✓</span>
+                                    <span>Already enrolled{current.enrolled_at ? ` on ${new Date(current.enrolled_at).toLocaleString()}` : ''} — re-enrolling will replace the current face data on the device.</span>
+                                </div>
+                            )}
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <button disabled={busy} onClick={() => run(() => api.enrollDriverFace(driver.id, imei), 'Enroll command sent — device will capture a live photo.')}
                                     style={{ padding: '9px 14px', borderRadius: 7, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>
-                                    Enroll Face (Device Camera)
+                                    {current?.status === 'enrolled' ? 'Re-enroll Face (Device Camera)' : 'Enroll Face (Device Camera)'}
                                 </button>
                                 <button disabled={busy} onClick={() => { setError(''); setMessage(''); setCameraOpen(true); }}
                                     style={{ padding: '9px 14px', borderRadius: 7, border: '1.5px solid #3b82f6', background: '#fff', color: '#3b82f6', fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>

@@ -262,17 +262,23 @@ class MqttWorker extends Command
             }
 
             $fileList = $data['upload.fileList'] ?? $data['uploadFileList'] ?? null;
-            if (!is_array($fileList)) {
-                // Logged rather than silently dropped — no confirmation has ever been observed on
-                // this topic yet (see AlertFileUpload rows stuck at status=requested), so if
-                // TurboHive is sending something back in an unrecognized shape, this is the only
-                // way to see it and adjust the parsing above.
-                $this->line("[notify]   {$imei} → unrecognized shape (no upload.fileList): " . substr($message, 0, 200));
-                Log::info('Unrecognized notify/# payload', ['imei' => $imei, 'raw' => $data]);
+            if (is_array($fileList)) {
+                $this->recordUploadResult($imei, $data, $fileList);
                 return;
             }
 
-            $this->recordUploadResult($imei, $data, $fileList);
+            // EVENTSET,FACE,SHOT enrollment result (DriverFaceController::enroll()) — same notify/#
+            // topic, distinguished by carrying resultCode/cmdNo instead of upload.fileList.
+            if (isset($data['resultCode']) && isset($data['cmdNo'])) {
+                $this->recordFaceShotResult($imei, $data);
+                return;
+            }
+
+            // Logged rather than silently dropped — if TurboHive is sending something back in a
+            // shape neither branch above recognizes, this is the only way to see it and adjust the
+            // parsing.
+            $this->line("[notify]   {$imei} → unrecognized shape: " . substr($message, 0, 200));
+            Log::info('Unrecognized notify/# payload', ['imei' => $imei, 'raw' => $data]);
         });
 
         $mqtt->loop(true);
@@ -381,6 +387,45 @@ class MqttWorker extends Command
         }
 
         $this->line("[upload]   {$imei} → {$status} (" . count($fileList) . ' file(s))');
+    }
+
+    /**
+     * Result of an EVENTSET,FACE,SHOT enrollment command (DriverFaceController::enroll()).
+     * TurboHive's immediate POST /v3/command/send response only confirms the command was queued
+     * (code=1000) — the device's actual capture attempt reports back here. Observed shapes:
+     *   success: {"resultCode":"100","cmdNo":"...","content":"SHOT OK! 22222-Jerome"}
+     *   failure: {"resultCode":"100","cmdNo":"...","content":"Set failed!"}
+     *            {"resultCode":"100","cmdNo":"...","content":"SHOT FAIL!Face recognition"}
+     *            {"resultCode":"100","cmdNo":"...","content":"EVENTSET_FACE Error: DMS AI DISCONNECTED!"}
+     *            {"resultCode":"600","cmdNo":"...","resultMsg":"request timeout"}
+     * resultCode "100" isn't itself success/failure — it's just "the device responded" — so the
+     * only reliable success signal is content starting with "SHOT OK". Matched back to the
+     * requesting row by cmd_no; falls back to the most recent pending row for the IMEI if cmd_no
+     * doesn't match anything (mirrors recordUploadResult()'s fallback), so a result is never
+     * silently dropped.
+     */
+    private function recordFaceShotResult(string $imei, array $data): void
+    {
+        $cmdNo   = (string) $data['cmdNo'];
+        $content = (string) ($data['content'] ?? $data['resultMsg'] ?? '');
+        $ok      = (string) $data['resultCode'] === '100' && str_starts_with($content, 'SHOT OK');
+
+        $face = DriverFace::where('imei', $imei)->where('cmd_no', $cmdNo)->first()
+            ?? DriverFace::where('imei', $imei)->where('status', 'pending')->orderByDesc('requested_at')->first();
+
+        if (!$face) {
+            $this->line("[face]     {$imei} → SHOT result with no matching enrollment (cmdNo {$cmdNo}): " . ($content ?: '—'));
+            Log::info('Unmatched face SHOT result', ['imei' => $imei, 'cmdNo' => $cmdNo, 'content' => $content]);
+            return;
+        }
+
+        $face->update([
+            'status'      => $ok ? 'enrolled' : 'failed',
+            'error'       => $ok ? null : ($content ?: 'Face capture failed.'),
+            'enrolled_at' => $ok ? now() : $face->enrolled_at,
+        ]);
+
+        $this->line("[face]     {$imei} → SHOT " . ($ok ? 'OK' : 'FAILED') . " for driver #{$face->driver_id}: {$content}");
     }
 
     /**

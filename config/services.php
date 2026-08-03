@@ -29,6 +29,10 @@ return [
         // codes — 200/400/403/500 rather than the v3 API's 1000-based codes).
         'face_upload_api_url'    => env('TURBOHIVE_FACE_UPLOAD_API_URL'),
         'face_upload_secret_key' => env('TURBOHIVE_FACE_UPLOAD_SECRET_KEY', 'jimidvr@123!443'),
+        // Our own re-implementation of the same API (routes/web.php + FaceUploadController)  —
+        // the URL to push to a device via setFaceUploadUrl() so its captures land on our server
+        // instead of face_upload_api_url above.
+        'face_upload_inbound_host' => env('FACE_UPLOAD_INBOUND_HOST', 'https://fleettracker.nextgenpng.net/img/uploads/face/uploadPic'),
     ],
 
     // Used by the mqtt:worker Artisan command (TCP connection, server-side only)

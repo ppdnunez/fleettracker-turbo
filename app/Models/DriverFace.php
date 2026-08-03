@@ -10,6 +10,7 @@ class DriverFace extends Model
     protected $fillable = [
         'driver_id',
         'imei',
+        'cmd_no',
         'status',
         'photo_path',
         'error',

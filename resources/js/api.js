@@ -164,6 +164,10 @@ export const api = {
     checkFaceRoster:         (imei)                               => axios.post('/api/turbohive/face/roster', { imei }),
     setFaceUploadUrl:        (imei, url)                          => axios.post('/api/turbohive/face/upload-url', { imei, url }),
 
+    // ── Our own /face/uploadPic webhook — inbound log + configured host ─────
+    getFaceUploads:       (params = {}) => axios.get('/api/face-uploads', { params }),
+    getFaceUploadConfig:  ()            => axios.get('/api/face-upload-config'),
+
     // ── Stubs — Traccar-only features removed; return empty so UI won't crash ──
     getTraccarGroups:             empty,
     getTraccarCalendars:          empty,

@@ -67,10 +67,15 @@ class DriverFaceController extends Controller
         $result = $this->turboHive->enrollDriverFace($data['imei'], $driver->badge_no, $this->faceToken($driver->name));
         $ok     = (int) ($result['code'] ?? 0) === 1000;
 
+        // code=1000 here only confirms TurboHive queued the SHOT command — it says nothing about
+        // whether the device actually captured a usable face. The real result ("SHOT OK!"/"SHOT
+        // FAIL!...") arrives later on {userId}/notify/# and is matched back to this row by cmd_no
+        // (see MqttWorker::recordFaceShotResult()), which then flips status to enrolled/failed.
         $face = DriverFace::updateOrCreate(
             ['driver_id' => $driver->id, 'imei' => $data['imei']],
             [
                 'status'       => $ok ? 'pending' : 'failed',
+                'cmd_no'       => $ok ? ($result['data']['cmdNo'] ?? $result['data']['cmd_no'] ?? null) : null,
                 'requested_at' => now(),
                 'error'        => $ok ? null : ($result['message'] ?? 'Command failed.'),
             ]
