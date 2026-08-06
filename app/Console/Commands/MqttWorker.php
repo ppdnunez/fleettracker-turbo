@@ -14,15 +14,19 @@ use App\Models\AlertFileUpload;
 use App\Models\Driver;
 use App\Models\DriverCheckin;
 use App\Models\DriverFace;
+use App\Mail\FuelAlertMail;
 use App\Models\FaceRecognitionEvent;
 use App\Models\FuelAbnormalLossEvent;
+use App\Models\FuelAlert;
 use App\Models\FuelIdleEvent;
 use App\Models\FuelRefuelEvent;
+use App\Models\AlertRecipient;
 use App\Services\DriverRecognizedAlertService;
 use App\Services\GeofenceMonitorService;
 use App\Services\TurboHiveService;
 use App\Services\UnregisteredDriverAlertService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Mail;
 
 class MqttWorker extends Command
 {
@@ -68,6 +72,19 @@ class MqttWorker extends Command
      *  in-progress run at the moment the worker restarts is lost (never closed/saved) — same
      *  class of trade-off as the last-known-reading caches above. */
     private array $idleRunByImei = [];
+
+    /** TurboHive fuel-sensor alert.codes persisted to fuel_alerts — see
+     *  DeviceAlertReceived::KNOWN_CODE_NAMES for what each one means. */
+    private const FUEL_ALERT_CODES = ['1222', '1223', '1224', '1225'];
+
+    /** Subset of FUEL_ALERT_CODES worth emailing alert_recipients about — Low Fuel (1222, routine)
+     *  and Fuel Level Increased (1224, a refuel, not a problem) are deliberately excluded; only an
+     *  abnormal level (1223) or an unexpected drop (1225) is worth paging someone for. */
+    private const FUEL_LOSS_ALERT_CODES = ['1223', '1225'];
+
+    /** Resolved device names by IMEI, kept for the lifetime of this instance — same
+     *  reasoning/pattern as GeofenceMonitorService's own cache. */
+    private array $deviceNameCache = [];
 
     /**
      * php-mqtt/client's own setReconnectAutomatically() only covers transport-level resends, not
@@ -170,6 +187,7 @@ class MqttWorker extends Command
             }
 
             $this->requestAlertFileUpload($turboHive, $imei, $data);
+            $this->recordFuelAlert($turboHive, $imei, $alert);
         });
 
         // OBD/sensor readings (fuel level, etc). TurboHive's MQTT panel offers a "sensor" message
@@ -453,6 +471,89 @@ class MqttWorker extends Command
             'longitude'   => $data['gnss.lng'] ?? $data['longitude'] ?? null,
             'occurred_at' => $timeMs ? Carbon::createFromTimestampMs((int) $timeMs) : now(),
         ]);
+    }
+
+    /**
+     * Persists one row per TurboHive fuel-sensor alert (Low Fuel/1222, Fuel Level Abnormal/1223,
+     * Fuel Level Increased/1224, Fuel Level Dropped/1225 — see DeviceAlertReceived::KNOWN_CODE_NAMES
+     * for name/trigger_type/severity/description) so Fuel Management has a real persisted history
+     * to report on, same "insert a row every time this fires" pattern as
+     * recordFaceRecognitionEvent/GeofenceMonitorService. $alert is the already-normalized array
+     * from DeviceAlertReceived::broadcastWith() (code/name/severity/triggerType/description/
+     * latitude/longitude), not the raw MQTT payload — this is called right after that event is
+     * broadcast, so there's no need to re-derive the same lookup here.
+     *
+     * Only the "loss/drop" subset (FUEL_LOSS_ALERT_CODES: 1223/1225) also emails alert_recipients
+     * subscribed to the 'fuel_alert' category — Low Fuel and Fuel Level Increased aren't failures
+     * worth paging someone about.
+     */
+    private function recordFuelAlert(TurboHiveService $turboHive, string $imei, array $alert): void
+    {
+        $code = (string) ($alert['code'] ?? '');
+        if (!in_array($code, self::FUEL_ALERT_CODES, true)) {
+            return;
+        }
+
+        $fuelAlert = FuelAlert::create([
+            'imei'         => $imei,
+            'code'         => $code,
+            'type'         => $alert['name'] ?? "Alert Code {$code}",
+            'trigger_type' => $alert['triggerType'] ?? 'event',
+            'severity'     => $alert['severity'] ?? 'medium',
+            'description'  => $alert['description'] ?? null,
+            'latitude'     => $alert['latitude'] ?? null,
+            'longitude'    => $alert['longitude'] ?? null,
+            'occurred_at'  => now(),
+        ]);
+
+        $this->line("[fuel]     {$imei} → {$fuelAlert->type} (code {$code})");
+
+        if (in_array($code, self::FUEL_LOSS_ALERT_CODES, true)) {
+            $this->sendFuelAlertEmail($turboHive, $fuelAlert);
+        }
+    }
+
+    /** Sent synchronously — see GeofenceAlertMail's docblock for why (no queue worker runs here). */
+    private function sendFuelAlertEmail(TurboHiveService $turboHive, FuelAlert $fuelAlert): void
+    {
+        $recipients = AlertRecipient::emailsFor('fuel_alert');
+        if (empty($recipients)) {
+            return;
+        }
+
+        try {
+            foreach ($recipients as $to) {
+                Mail::to($to)->send(new FuelAlertMail($fuelAlert, $this->resolveDeviceName($turboHive, $fuelAlert->imei)));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Fuel alert email failed to send', [
+                'to' => $recipients,
+                'fuel_alert_id' => $fuelAlert->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /** Same cache-by-IMEI lookup GeofenceMonitorService uses for its own alert emails. */
+    private function resolveDeviceName(TurboHiveService $turboHive, string $imei): ?string
+    {
+        if (array_key_exists($imei, $this->deviceNameCache)) {
+            return $this->deviceNameCache[$imei];
+        }
+
+        $name = null;
+        try {
+            $list = $turboHive->getDevices(['keyword' => $imei, 'size' => 5])['data'] ?? [];
+            $match = collect($list)->firstWhere('imei', $imei);
+            $name = $match['deviceName'] ?? null;
+        } catch (\Throwable $e) {
+            Log::warning('Failed to resolve device name for fuel alert email', [
+                'imei' => $imei,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $this->deviceNameCache[$imei] = $name;
     }
 
     /**

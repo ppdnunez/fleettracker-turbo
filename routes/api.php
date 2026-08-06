@@ -12,6 +12,7 @@ use App\Http\Controllers\DriverFaceController;
 use App\Http\Controllers\FaceRecognitionEventController;
 use App\Http\Controllers\FaceUploadController;
 use App\Http\Controllers\FuelAbnormalLossEventController;
+use App\Http\Controllers\FuelAlertController;
 use App\Http\Controllers\FuelIdleEventController;
 use App\Http\Controllers\FuelPriceController;
 use App\Http\Controllers\FuelRefuelEventController;
@@ -67,10 +68,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // Face recognition check history (alert.code 1823/1824, system-generated, read-only — see MqttWorker)
     Route::get('/face-recognition-events', [FaceRecognitionEventController::class, 'index']);
 
+    // Fuel-sensor alert history (alert.code 1222-1225, system-generated, read-only — see MqttWorker)
+    Route::get('/fuel-alerts', [FuelAlertController::class, 'index']);
+
     // Inbound log of our own /img/uploads/face/uploadPic webhook (see routes/web.php and
     // FaceUploadService) — system-generated, read-only.
     Route::get('/face-uploads',        [FaceUploadController::class, 'index']);
     Route::get('/face-upload-config',  [FaceUploadController::class, 'config']);
+    Route::get('/face-upload-log',     [FaceUploadController::class, 'rawLog']);
 
     // Petrol/diesel price history — see FuelPriceController
     Route::get('/fuel-prices', [FuelPriceController::class, 'index']);
@@ -177,11 +182,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/face/configure',  [DriverFaceController::class, 'configure']);
         Route::post('/face/enroll',     [DriverFaceController::class, 'enroll']);
         Route::post('/face/upload-photo', [DriverFaceController::class, 'uploadFromCamera']);
-        Route::post('/face/upload-turbohive', [DriverFaceController::class, 'uploadToTurboHive']);
+        Route::post('/face/capture', [DriverFaceController::class, 'captureFromCamera']);
         Route::post('/face/upload-turbohive-test', [DriverFaceController::class, 'testUploadToTurboHive']);
         Route::post('/face/test',       [DriverFaceController::class, 'test']);
         Route::post('/face/delete',     [DriverFaceController::class, 'destroy']);
         Route::post('/face/roster',     [DriverFaceController::class, 'roster']);
         Route::post('/face/upload-url', [DriverFaceController::class, 'setUploadUrl']);
+        Route::post('/face/fetch-photo', [DriverFaceController::class, 'fetchPhoto']);
+        Route::post('/face/batch-download', [DriverFaceController::class, 'downloadFaceBatch']);
     });
 });

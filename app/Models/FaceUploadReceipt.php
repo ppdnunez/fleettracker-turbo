@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class FaceUploadReceipt extends Model
 {
     protected $fillable = [
         'imei',
+        'driver_id',
         'instruction_id',
         'file_name',
         'stored_path',
@@ -24,5 +26,10 @@ class FaceUploadReceipt extends Model
             'signature_valid' => 'boolean',
             'response_code'   => 'integer',
         ];
+    }
+
+    public function driver(): BelongsTo
+    {
+        return $this->belongsTo(Driver::class);
     }
 }

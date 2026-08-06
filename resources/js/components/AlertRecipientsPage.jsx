@@ -11,6 +11,7 @@ const CATEGORIES = [
     ['vehicle_insurance_expiry', 'Vehicle Insurance Expiry'],
     ['vehicle_maintenance', 'Vehicle Maintenance Due'],
     ['sim_expiry', 'SIM Card Data/Load Expiry'],
+    ['fuel_alert', 'Abnormal Fuel Loss / Drop'],
 ];
 const CATEGORY_LABELS = Object.fromEntries(CATEGORIES);
 const categoryLabel = (key) => CATEGORY_LABELS[key] || key;
@@ -170,7 +171,7 @@ export default function AlertRecipientsPage({ dark }) {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: dark ? '#0b1220' : '#fff', position: 'relative' }}>
             <div style={{ padding: '14px 20px 12px', borderBottom: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, flexShrink: 0 }}>
                 <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: dark ? '#f1f5f9' : '#111827' }}>Alert Recipients</h2>
-                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: dark ? '#94a3b8' : '#6b7280' }}>Who gets emailed for geofence, driver check-in, license/sticker/SIM expiry, and maintenance alerts.</p>
+                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: dark ? '#94a3b8' : '#6b7280' }}>Who gets emailed for geofence, driver check-in, license/sticker/SIM expiry, maintenance, and fuel alerts.</p>
             </div>
 
             <div style={{ padding: '12px 20px', borderBottom: `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`, flexShrink: 0 }}>

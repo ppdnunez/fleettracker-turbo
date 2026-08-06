@@ -299,6 +299,13 @@ class TurboHiveService
                 'longitude'    => $a['gnss.lng'] ?? null,
                 'speed'        => $extra['gpsSpeed'] ?? null,
                 'attachments'  => $attachments,
+                // Raw filename(s) still sitting on-device, comma-separated — same field the live
+                // MQTT alert/# feed carries (see DeviceAlertReceived's docblock) and what
+                // MqttWorker::requestAlertFileUpload reads to fire UPLOADFILE. Distinct from
+                // 'attachments' above, which is already-uploaded/resolved media with real URLs —
+                // this can be non-empty even when attachments is still empty (upload not requested
+                // or not completed yet).
+                'file'         => $a['alert.file'] ?? null,
             ];
         }, $body['data']['list'] ?? []);
 

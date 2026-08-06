@@ -4340,10 +4340,10 @@ function OnlinePage() {
 const fmtCoords = (lat, lng) => (lat != null && lng != null) ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '—';
 
 function exportAlertsCsv(rows) {
-    const header = ['No.','Device Name','IMEI','Alert Type','Speed (km/h)','Alert Time','Coordinates'];
+    const header = ['No.','Device Name','IMEI','Alert Type','Speed (km/h)','Alert Time','Coordinates','Alert File'];
     const lines = [header.join(',')];
     rows.forEach((r, i) => {
-        const cells = [i + 1, r.deviceName ?? r.imei, r.imei, alertLabel(r), r.speed, fmtTime(r.time), fmtCoords(r.latitude, r.longitude)];
+        const cells = [i + 1, r.deviceName ?? r.imei, r.imei, alertLabel(r), r.speed, fmtTime(r.time), fmtCoords(r.latitude, r.longitude), r.file];
         lines.push(cells.map(c => `"${String(c ?? '—').replace(/"/g, '""')}"`).join(','));
     });
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
@@ -4354,11 +4354,13 @@ function exportAlertsCsv(rows) {
 }
 
 // Historical counterpart of the live feed's AlertRawDetailsModal (Driver Behavior's Evidence
-// column) — but this row's shape comes from TurboHive's REST alerts endpoint (already-uploaded
-// `attachments[]`, no raw alert.file on-device filenames), so a retry needs our own
-// alert_file_uploads tracking row (matched by imei + closest alert_time) to know what filenames to
-// re-request. If no tracking row exists at all (alert never had evidence requested), retry isn't
-// possible from here — only from the live feed at the moment the alert first arrives.
+// column) — this row's shape comes from TurboHive's REST alerts endpoint, which carries both
+// already-uploaded `attachments[]` (real URLs) and the raw on-device `alert.file` filename(s) (see
+// TurboHiveService::getAlerts's 'file' key) — but a retry still needs our own alert_file_uploads
+// tracking row (matched by imei + closest alert_time) to know what filenames to re-request, since
+// 'file' alone doesn't carry TurboHive's own cmd tracking. If no tracking row exists at all (alert
+// never had evidence requested), retry isn't possible from here — only from the live feed at the
+// moment the alert first arrives.
 function HistoricalAlertDetailsModal({ event, onClose }) {
     const [tracking, setTracking] = useState(null);
     const [loading, setLoading]   = useState(true);
@@ -4485,6 +4487,8 @@ function AlertDetails() {
     const [loading, setLoading]     = useState(false);
     const [error, setError]         = useState('');
     const [detailsFor, setDetailsFor] = useState(null); // alert row object, or null
+    const [uploading, setUploading] = useState({}); // row id -> true while an UPLOADFILE request is in flight
+    const [uploadMsg, setUploadMsg] = useState({});  // row id -> last result message ('' clears it)
 
     useEffect(() => {
         api.getTurboHiveTrackableDevices({ page: 1, size: 100 })
@@ -4523,9 +4527,38 @@ function AlertDetails() {
 
     const resolveDeviceName = (r) => r.deviceName || devices.find(d => d.imei === r.imei)?.deviceName || r.imei;
     const filtered = alertType ? rows.filter(r => r.name === alertType) : rows;
+
+    // Manual UPLOADFILE trigger — shown only on rows where TurboHive reports files still sitting
+    // on-device (r.file, see TurboHiveService::getAlerts) but nothing has actually uploaded yet
+    // (r.attachments empty). Doesn't require an existing alert_file_uploads tracking row the way
+    // HistoricalAlertDetailsModal's "Retry" does — file_names come straight from r.file, so this
+    // works even for alert.codes MqttWorker's ALERT_FILE_UPLOAD_CODES never auto-requested.
+    const manualUpload = async (r, id) => {
+        const fileNames = (r.file || '').split(',').map(f => f.trim()).filter(Boolean);
+        if (fileNames.length === 0) return;
+
+        setUploading(u => ({ ...u, [id]: true }));
+        setUploadMsg(m => ({ ...m, [id]: '' }));
+        try {
+            await api.requestAlertFileUpload({
+                imei: r.imei,
+                file_names: fileNames,
+                alert_time: r.time,
+                alert_type: r.type,
+                alert_code: r.code,
+                longitude: r.longitude,
+                latitude: r.latitude,
+            });
+            setUploadMsg(m => ({ ...m, [id]: 'Requested — check Fleet > Capture History.' }));
+        } catch (e) {
+            setUploadMsg(m => ({ ...m, [id]: e.response?.data?.message || 'Failed to request upload.' }));
+        } finally {
+            setUploading(u => ({ ...u, [id]: false }));
+        }
+    };
     const alertTypeOptions = ALERT_TYPE_NAMES.map(n => ({ value: n, label: n }));
     const deviceOptions = devices.map(d => ({ value: d.imei, label: d.deviceName ?? d.imei }));
-    const COLS = ['No.','Device Name','IMEI','Alert Type','Speed (km/h)','Alert Time','Coordinates','Evidence'];
+    const COLS = ['No.','Device Name','IMEI','Alert Type','Speed (km/h)','Alert Time','Coordinates','Alert File','Evidence'];
 
     return (
         <div>
@@ -4582,10 +4615,24 @@ function AlertDetails() {
                                 <td style={TD}>{r.speed ?? '—'}</td>
                                 <td style={TD}>{fmtTime(r.time)}</td>
                                 <td style={TD}><LocationLink lat={r.latitude} lon={r.longitude} /></td>
+                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 11.5, color: '#6b7280' }}>
+                                    {r.file ? r.file.split(',').map(f => f.trim()).filter(Boolean).join(', ') : '—'}
+                                </td>
                                 <td style={TD}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <AttachmentLinks attachments={r.attachments} />
-                                        <button onClick={() => setDetailsFor(r)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12, fontWeight: 600 }}>Details</button>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <AttachmentLinks attachments={r.attachments} />
+                                            <button onClick={() => setDetailsFor(r)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12, fontWeight: 600 }}>Details</button>
+                                        </div>
+                                        {r.file && (!r.attachments || r.attachments.length === 0) && (
+                                            <button onClick={() => manualUpload(r, r.id ?? i)} disabled={uploading[r.id ?? i]}
+                                                style={{ alignSelf: 'flex-start', padding: '3px 10px', background: '#fff', color: '#b45309', border: '1px solid #fde68a', borderRadius: 5, fontSize: 11.5, fontWeight: 600, cursor: uploading[r.id ?? i] ? 'not-allowed' : 'pointer' }}>
+                                                {uploading[r.id ?? i] ? 'Requesting…' : 'Upload Evidence'}
+                                            </button>
+                                        )}
+                                        {uploadMsg[r.id ?? i] && (
+                                            <span style={{ fontSize: 11, color: uploadMsg[r.id ?? i].startsWith('Requested') ? '#166534' : '#991b1b' }}>{uploadMsg[r.id ?? i]}</span>
+                                        )}
                                     </div>
                                 </td>
                             </tr>

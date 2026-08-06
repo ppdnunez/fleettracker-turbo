@@ -59,6 +59,11 @@ function UploadLogTab({ dark, devices, devicesByImei }) {
     const [pushing, setPushing]       = useState(false);
     const [pushResult, setPushResult] = useState(null);
 
+    const [showRawLog, setShowRawLog]   = useState(false);
+    const [rawLines, setRawLines]       = useState([]);
+    const [rawLoading, setRawLoading]   = useState(false);
+    const [autoRefresh, setAutoRefresh] = useState(true);
+
     const load = async () => {
         setLoading(true);
         setError('');
@@ -75,6 +80,30 @@ function UploadLogTab({ dark, devices, devicesByImei }) {
     };
 
     useEffect(() => { load(); }, [search]);
+
+    // Raw request log — the web-UI equivalent of `tail -f storage/logs/laravel.log` for
+    // uploadPic()'s own Log::info() entry (see FaceUploadController), so a device that's failing
+    // (or not reaching us at all) can be diagnosed without cPanel Terminal/SSH access. Only polled
+    // while the panel is open.
+    const loadRawLog = async () => {
+        setRawLoading(true);
+        try {
+            const res = await api.getFaceUploadRawLog({ limit: 100 });
+            setRawLines(res.data?.lines ?? []);
+        } catch (e) {
+            // leave last successful snapshot on a failed poll
+        } finally {
+            setRawLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!showRawLog) return;
+        loadRawLog();
+        if (!autoRefresh) return;
+        const t = setInterval(loadRawLog, 5000);
+        return () => clearInterval(t);
+    }, [showRawLog, autoRefresh]);
 
     useEffect(() => {
         api.getFaceUploadConfig().then(res => {
@@ -142,7 +171,38 @@ function UploadLogTab({ dark, devices, devicesByImei }) {
                         style={{ width: 220, boxSizing: 'border-box', padding: '7px 10px', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, outline: 'none', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#0f172a' }} />
                 </div>
                 <button onClick={load} style={{ padding: '7px 14px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Refresh</button>
+                <button onClick={() => setShowRawLog(v => !v)} style={{ padding: '7px 14px', background: showRawLog ? '#3b82f6' : (dark ? '#1e293b' : '#fff'), color: showRawLog ? '#fff' : (dark ? '#e2e8f0' : '#374151'), border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    {showRawLog ? 'Hide Raw Log' : 'Show Raw Log'}
+                </button>
             </div>
+
+            {showRawLog && (
+                <div style={{ margin: '0 20px 14px', border: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}`, borderRadius: 8, overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: dark ? '#111827' : '#f9fafb', borderBottom: `1px solid ${dark ? '#1e293b' : '#e5e7eb'}` }}>
+                        <span style={{ fontSize: 12, color: dark ? '#94a3b8' : '#6b7280' }}>
+                            Live tail of <code>storage/logs/laravel.log</code> — every raw request to <code>face/uploadPic</code>, logged before validation.
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: dark ? '#94a3b8' : '#6b7280', cursor: 'pointer' }}>
+                                <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} />
+                                Auto-refresh
+                            </label>
+                            <button onClick={loadRawLog} disabled={rawLoading} style={{ padding: '4px 10px', background: dark ? '#1e293b' : '#fff', color: dark ? '#e2e8f0' : '#374151', border: `1px solid ${dark ? '#334155' : '#d1d5db'}`, borderRadius: 5, fontSize: 12, cursor: rawLoading ? 'default' : 'pointer' }}>
+                                {rawLoading ? 'Loading…' : 'Refresh'}
+                            </button>
+                        </div>
+                    </div>
+                    <div style={{ maxHeight: 280, overflow: 'auto', padding: '10px 12px', background: dark ? '#0b1220' : '#0f172a', fontFamily: 'monospace', fontSize: 11.5, lineHeight: 1.6 }}>
+                        {rawLines.length === 0 ? (
+                            <div style={{ color: '#64748b' }}>{rawLoading ? 'Loading…' : 'No matching log entries yet — trigger the device and hit Refresh.'}</div>
+                        ) : rawLines.map((line, i) => (
+                            <div key={i} style={{ color: '#cbd5e1', whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: 6, paddingBottom: 6, borderBottom: i < rawLines.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+                                {line}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {error && (
                 <div style={{ margin: '12px 20px 0', padding: '8px 12px', background: dark ? 'rgba(239,68,68,0.15)' : '#fef2f2', border: `1px solid ${dark ? '#7f1d1d' : '#fecaca'}`, borderRadius: 6, fontSize: 12, color: dark ? '#fca5a5' : '#991b1b' }}>

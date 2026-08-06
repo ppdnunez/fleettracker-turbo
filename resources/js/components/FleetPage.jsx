@@ -5,7 +5,7 @@ import ReportPage from './ReportPage.jsx';
 import GeofenceManagementPage from './GeofencePage.jsx';
 import FaceRecognitionPage from './FaceRecognitionPage.jsx';
 import FuelPricePage from './FuelPricePage.jsx';
-import { turboHiveEnabled, connectTurboHiveMqtt, applyTurboHivePosition } from '../turbohive-mqtt.js';
+import { turboHiveEnabled, applyTurboHivePosition } from '../turbohive-mqtt.js';
 import { VEHICLE_TYPES } from '../vehicleIcons.js';
 import { FUEL_TYPES } from '../fuelTypes.js';
 
@@ -620,9 +620,9 @@ function DriverFormModal({ driver, onClose, onSaved }) {
 // photo locally on-device) — there's no local photo preview here, just the command trigger and
 // FleetTrack's own tracking of what we last asked the device to do (see DriverFaceController).
 // Captures a still photo via the office/laptop webcam (getUserMedia + a canvas snapshot) as an
-// alternative to EVENTSET,FACE,SHOT for drivers who aren't near their vehicle yet. The photo is
-// uploaded to our own server and pushed to the device via EVENTSET,FACE,DOWN (bulk-import from a
-// URL) — see DriverFaceController::uploadFromCamera for the unconfirmed zip-vs-single-file caveat.
+// alternative to EVENTSET,FACE,SHOT for drivers who aren't near their vehicle yet. Only stores the
+// photo locally (DriverFaceController::captureFromCamera) — pushing it to a device is a separate
+// step, done in bulk (up to 5 drivers at a time) from the Driver page's "Face Photos" tab.
 function FaceCameraCapture({ onCancel, onCaptured }) {
     const videoRef  = useRef(null);
     const canvasRef = useRef(null);
@@ -783,6 +783,13 @@ function FacePhotoPicker({ imei, onCancel }) {
     );
 }
 
+// FaceUploadService (device-facing /img/uploads/face/uploadPic webhook) stores directly under
+// public/img/uploads — reachable straight off the docroot. Older capture paths (webcam upload,
+// browser->TurboHive push) go through the 'public' Storage disk instead, under /storage/driver-faces.
+function facePhotoUrl(photoPath) {
+    return photoPath.startsWith('img/uploads/') ? `/${photoPath}` : `/storage/${photoPath}`;
+}
+
 function DriverFaceModal({ driver, onClose }) {
     const imeis = driver.imeis || [];
     const [imei, setImei]       = useState(imeis[0] || '');
@@ -835,7 +842,7 @@ function DriverFaceModal({ driver, onClose }) {
     const handleCaptured = async (blob) => {
         setCameraOpen(false);
         setPickerOpen(false);
-        await run(() => api.uploadDriverFaceToTurboHive(driver.id, imei, blob), 'Photo uploaded to TurboHive.');
+        await run(() => api.captureDriverFacePhoto(driver.id, imei, blob), 'Photo captured and saved — use it from the Driver → Face Photos tab to push it to a device.');
     };
 
     const current = faces.find(f => f.imei === imei);
@@ -879,9 +886,15 @@ function DriverFaceModal({ driver, onClose }) {
                             </div>
 
                             {current?.status === 'enrolled' && (
-                                <div style={{ marginBottom: 14, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                                    <span>✓</span>
-                                    <span>Already enrolled{current.enrolled_at ? ` on ${new Date(current.enrolled_at).toLocaleString()}` : ''} — re-enrolling will replace the current face data on the device.</span>
+                                <div style={{ marginBottom: 14, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                    {current.photo_path && (
+                                        <img src={facePhotoUrl(current.photo_path)} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover', flexShrink: 0, border: '1px solid #bbf7d0' }} />
+                                    )}
+                                    <span>
+                                        <span>✓ Already enrolled{current.enrolled_at ? ` on ${new Date(current.enrolled_at).toLocaleString()}` : ''}</span>
+                                        <br />
+                                        <span>Re-enrolling will replace the current face data on the device.</span>
+                                    </span>
                                 </div>
                             )}
 
@@ -898,6 +911,12 @@ function DriverFaceModal({ driver, onClose }) {
                                     style={{ padding: '9px 14px', borderRadius: 7, border: '1.5px solid #3b82f6', background: '#fff', color: '#3b82f6', fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>
                                     Upload Photo (Test by File Name)
                                 </button>
+                                {current?.status === 'enrolled' && (
+                                    <button disabled={busy} onClick={() => run(() => api.fetchDriverFacePhoto(driver.id, imei), "Requested the device re-send this driver's photo — it'll appear here shortly.")}
+                                        style={{ padding: '9px 14px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontSize: 13, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                                        Refresh Photo From Device
+                                    </button>
+                                )}
                                 <button disabled={busy} onClick={() => run(() => api.testDriverFace(imei), 'Recognition test triggered.')}
                                     style={{ padding: '9px 14px', borderRadius: 7, border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontSize: 13, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}>
                                     Test Recognition Now
@@ -1033,7 +1052,7 @@ function DriverDetailPanel({ driver, onEdit, onManageFace }) {
                                 {faces.map(f => (
                                     <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}>
                                         {f.photo_path ? (
-                                            <img src={`/storage/${f.photo_path}`} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+                                            <img src={facePhotoUrl(f.photo_path)} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
                                         ) : (
                                             <div style={{ width: 36, height: 36, borderRadius: 6, background: '#1e293b', flexShrink: 0 }} />
                                         )}
@@ -1098,6 +1117,142 @@ function LicenseExpiryAlertCard({ drivers }) {
     );
 }
 
+const MAX_FACE_BATCH = 5;
+
+// "Download Face Photos to Device" (Face_Photo_Upload_Download_Integration_Guide.md §2) — pick up
+// to 5 drivers who already have a captured photo on file (device SHOT/GET capture or laptop-camera
+// upload — either source, see facePhotoUrl()), zip them server-side (DriverFaceController::
+// downloadFaceBatch), and push the zip to a chosen device via EVENTSET,FACE,DOWN. Distinct from the
+// per-driver "Enroll Face" flows in DriverFaceModal: this is a bulk import onto one device's face
+// database, e.g. seeding a shared/depot vehicle with a whole driver roster at once.
+function FacePhotosTab() {
+    const [faces, setFaces]     = useState([]); // one row per driver with a usable photo (deduped)
+    const [devices, setDevices] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError]     = useState('');
+    const [selected, setSelected] = useState([]); // driver ids
+    const [imei, setImei]       = useState('');
+    const [sending, setSending] = useState(false);
+    const [result, setResult]   = useState(null);
+
+    const load = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const [faceRes, devRes] = await Promise.all([
+                api.getDriverFaces(),
+                api.getTurboHiveTrackableDevices({ page: 1, size: 100 }).catch(() => ({ data: { data: [] } })),
+            ]);
+
+            // Dedupe to one row per driver (a driver can have a DriverFace row per IMEI) — keep the
+            // most recently updated row that actually has a photo.
+            const byDriver = {};
+            (faceRes.data ?? []).forEach(f => {
+                if (!f.photo_path || !f.driver) return;
+                const existing = byDriver[f.driver_id];
+                if (!existing || new Date(f.updated_at) > new Date(existing.updated_at)) {
+                    byDriver[f.driver_id] = f;
+                }
+            });
+            setFaces(Object.values(byDriver).sort((a, b) => a.driver.name.localeCompare(b.driver.name)));
+            setDevices(Array.isArray(devRes.data?.data) ? devRes.data.data : []);
+        } catch (e) {
+            setError('Failed to load enrolled face photos.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const toggle = (driverId) => {
+        setSelected(sel => {
+            if (sel.includes(driverId)) return sel.filter(id => id !== driverId);
+            if (sel.length >= MAX_FACE_BATCH) return sel;
+            return [...sel, driverId];
+        });
+    };
+
+    const submit = async () => {
+        if (!imei || selected.length === 0) return;
+        setSending(true);
+        setError('');
+        setResult(null);
+        try {
+            const res = await api.downloadFaceBatch(imei, selected);
+            setResult(res.data);
+            setSelected([]);
+        } catch (e) {
+            setError(e.response?.data?.message || 'Failed to push photos to device.');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    return (
+        <div>
+            <p style={{ margin: '0 0 14px', fontSize: 12.5, color: '#6b7280' }}>
+                Select up to {MAX_FACE_BATCH} drivers with a photo already on file, choose a target device, and push them
+                as a batch via EVENTSET,FACE,DOWN. Verify the import on-device afterward with Test Recognition / FACE,CHECK.
+            </p>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Target Device</label>
+                    <select value={imei} onChange={e => setImei(e.target.value)}
+                        style={{ width: 260, padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
+                        <option value="">Select device…</option>
+                        {devices.map(d => <option key={d.imei} value={d.imei}>{d.deviceName || d.imei}</option>)}
+                    </select>
+                </div>
+                <button disabled={sending || !imei || selected.length === 0} onClick={submit}
+                    style={{ padding: '8px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: (sending || !imei || selected.length === 0) ? 'not-allowed' : 'pointer', opacity: (sending || !imei || selected.length === 0) ? 0.6 : 1 }}>
+                    {sending ? 'Uploading…' : `Zip & Push to Device (${selected.length}/${MAX_FACE_BATCH})`}
+                </button>
+            </div>
+
+            {error && <div style={{ marginBottom: 14, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+            {result && (
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 8, border: `1px solid ${result.command?.code === 1000 ? '#bbf7d0' : '#fecaca'}`, background: result.command?.code === 1000 ? '#f0fdf4' : '#fef2f2' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: result.command?.code === 1000 ? '#166534' : '#991b1b', marginBottom: 4 }}>
+                        {result.command?.code === 1000 ? 'Command queued' : 'Command failed'} — {result.command?.message}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>Zip: <span style={{ fontFamily: 'monospace' }}>{result.zip_url}</span></div>
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>Drivers: {(result.drivers || []).join(', ')}</div>
+                </div>
+            )}
+
+            {loading ? (
+                <p style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', padding: 40 }}>Loading…</p>
+            ) : faces.length === 0 ? (
+                <p style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', padding: 40 }}>No drivers have a captured face photo yet.</p>
+            ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+                    {faces.map(f => {
+                        const isSelected = selected.includes(f.driver_id);
+                        const disabled = !isSelected && selected.length >= MAX_FACE_BATCH;
+                        return (
+                            <div key={f.driver_id} onClick={() => !disabled && toggle(f.driver_id)}
+                                style={{
+                                    border: `2px solid ${isSelected ? '#3b82f6' : '#e5e7eb'}`, borderRadius: 10, padding: 10,
+                                    cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
+                                    background: isSelected ? '#eff6ff' : '#fff', textAlign: 'center', position: 'relative',
+                                }}>
+                                <input type="checkbox" checked={isSelected} disabled={disabled} onChange={() => toggle(f.driver_id)}
+                                    style={{ position: 'absolute', top: 8, left: 8, accentColor: '#3b82f6', width: 15, height: 15 }} />
+                                <img src={facePhotoUrl(f.photo_path)} alt="" style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover', borderRadius: 8, marginBottom: 8 }} />
+                                <div style={{ fontSize: 12.5, fontWeight: 600, color: '#111827' }}>{f.driver.name}</div>
+                                <div style={{ fontSize: 11, color: '#9ca3af', fontFamily: 'monospace' }}>{f.driver.badge_no}</div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function DriverPage() {
     const [drivers, setDrivers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -1109,6 +1264,7 @@ function DriverPage() {
     const [pendingDeleteId, setPendingDeleteId] = useState(null);
     const [faceDriver, setFaceDriver] = useState(null); // driver object, or null
     const [selectedId, setSelectedId] = useState(null); // driver id shown in the detail panel
+    const [tab, setTab] = useState('Driver information');
 
     const fetchDrivers = async () => {
         setLoading(true);
@@ -1173,50 +1329,57 @@ function DriverPage() {
                 <DriverStatCard label="Expiring Licenses (30 Days)" value={expiringSoonCount} color="#f59e0b" />
             </div>
 
-            <TabBar tabs={['Driver information']} active="Driver information" onChange={() => {}} />
-            <FilterBar>
-                <FInput placeholder="Driver No./Driver Name" style={{ width: 200 }} value={search} onChange={e => setSearch(e.target.value)} />
-                <FInput placeholder="Register Place" style={{ width: 160 }} value={place} onChange={e => setPlace(e.target.value)} />
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer', paddingBottom: 1 }}>
-                    <input type="checkbox" checked={expiredOnly} onChange={e => setExpiredOnly(e.target.checked)} style={{ accentColor: '#3b82f6' }} />License Expired
-                </label>
-                <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
-            </FilterBar>
-            <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add Driver</Btn>]} hideExport />
+            <TabBar tabs={['Driver information', 'Face Photos']} active={tab} onChange={setTab} />
 
-            {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+            {tab === 'Driver information' && (
+                <>
+                    <FilterBar>
+                        <FInput placeholder="Driver No./Driver Name" style={{ width: 200 }} value={search} onChange={e => setSearch(e.target.value)} />
+                        <FInput placeholder="Register Place" style={{ width: 160 }} value={place} onChange={e => setPlace(e.target.value)} />
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer', paddingBottom: 1 }}>
+                            <input type="checkbox" checked={expiredOnly} onChange={e => setExpiredOnly(e.target.checked)} style={{ accentColor: '#3b82f6' }} />License Expired
+                        </label>
+                        <button onClick={reset} style={{ padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Reset</button>
+                    </FilterBar>
+                    <ActionRow left={[<Btn key="add" primary onClick={() => setEditing('new')}>Add Driver</Btn>]} hideExport />
 
-            <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
-                        <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
-                        <tbody>
-                            {loading ? (
-                                <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
-                            ) : filtered.length === 0 ? (
-                                <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
-                            ) : filtered.map((d, i) => {
-                                const lStatus = licenseStatus(d.license_expiry);
-                                const lReminder = expiryReminder(d.license_expiry, d.notify_days_before);
-                                return (
-                                    <tr key={d.id} onClick={() => setSelectedId(d.id)}
-                                        style={{ cursor: 'pointer', background: selectedId === d.id ? '#eff6ff' : undefined }}>
-                                        <td style={TD}>{i + 1}</td>
-                                        <td style={{ ...TD, fontWeight: 500 }}>{d.name}</td>
-                                        <td style={TD}><Badge text={lStatus} color={STATUS_COLOR[lStatus]} /></td>
-                                        <td style={TD}>{d.license_expiry ? d.license_expiry.slice(0, 10) : '—'}</td>
-                                        <td style={TD}><Badge text={lReminder} color={REMINDER_COLOR[lReminder]} /></td>
-                                        <td style={TD}>{d.status}</td>
-                                        <td style={{ ...TD, whiteSpace: 'nowrap' }} onClick={stopRowClick}>
-                                            <button onClick={() => setEditing(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Edit</button>
-                                            <button onClick={() => setFaceDriver(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Face</button>
-                                            <button onClick={() => setPendingDeleteId(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Delete</button>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-            </div>
+                    {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+                                <thead><tr>{COLS.map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                                <tbody>
+                                    {loading ? (
+                                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                                    ) : filtered.length === 0 ? (
+                                        <tr><td colSpan={COLS.length} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No data</td></tr>
+                                    ) : filtered.map((d, i) => {
+                                        const lStatus = licenseStatus(d.license_expiry);
+                                        const lReminder = expiryReminder(d.license_expiry, d.notify_days_before);
+                                        return (
+                                            <tr key={d.id} onClick={() => setSelectedId(d.id)}
+                                                style={{ cursor: 'pointer', background: selectedId === d.id ? '#eff6ff' : undefined }}>
+                                                <td style={TD}>{i + 1}</td>
+                                                <td style={{ ...TD, fontWeight: 500 }}>{d.name}</td>
+                                                <td style={TD}><Badge text={lStatus} color={STATUS_COLOR[lStatus]} /></td>
+                                                <td style={TD}>{d.license_expiry ? d.license_expiry.slice(0, 10) : '—'}</td>
+                                                <td style={TD}><Badge text={lReminder} color={REMINDER_COLOR[lReminder]} /></td>
+                                                <td style={TD}>{d.status}</td>
+                                                <td style={{ ...TD, whiteSpace: 'nowrap' }} onClick={stopRowClick}>
+                                                    <button onClick={() => setEditing(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Edit</button>
+                                                    <button onClick={() => setFaceDriver(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', fontSize: 12.5, fontWeight: 600, marginRight: 10 }}>Face</button>
+                                                    <button onClick={() => setPendingDeleteId(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Delete</button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                    </div>
+                </>
+            )}
+
+            {tab === 'Face Photos' && <FacePhotosTab />}
 
             {selectedDriver && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 90 }}>
@@ -1784,23 +1947,75 @@ function liveTrackDeviceShape(device, positionsByDeviceId, vehicleTypesByImei = 
     };
 }
 
+// TurboHive's device-list endpoint (/v3/devices/page) carries no position fields — lat/lng only
+// exist on the separate /v3/track/location snapshot, keyed by "device.imei". Mirrors Dashboard.jsx's
+// normalizeTurboHiveDevice (kept separate rather than imported to avoid a circular import, since
+// Dashboard.jsx already imports FleetPage.jsx).
+function turboHiveLiveDeviceShape(device, positionsByImei = {}, vehicleTypesByImei = {}) {
+    const imei = String(device.imei ?? device.deviceId ?? device.uniqueId ?? device.id ?? '');
+    const pos = positionsByImei[imei];
+    return {
+        id:     imei || String(device.id ?? ''),
+        name:   device.name ?? device.deviceName ?? device.label ?? imei ?? 'Unknown',
+        tracker: imei,
+        imei,
+        status: (device.onlineStatus === 1 || device.online === true || device.status === 'ONLINE' || device.status === 'online') ? 'ONLINE' : 'OFFLINE',
+        lat:      pos ? pos['gnss.lat'] ?? null : device.lat ?? device.latitude ?? null,
+        lng:      pos ? pos['gnss.lng'] ?? null : device.lng ?? device.longitude ?? null,
+        speed:    pos?.['gnss.speed']     ?? null,
+        heading:  pos?.['gnss.course']    ?? null,
+        acc:      pos?.['status.acc']     ?? null,
+        altitude: pos?.['gnss.altitude']  ?? null,
+        lastUpdate: pos?.['server.time']  ?? null,
+        signal: device.batteryLevel ?? device.battery ?? device.signal ?? 0,
+        vehicleType: vehicleTypesByImei[imei] ?? null,
+    };
+}
+
+// How often the map re-polls the device list (covers both devices and their locations) to catch
+// devices going offline, which the live push alone can't express — same interval/reasoning as
+// Dashboard.jsx's own DEVICE_POLL_SECONDS.
+const VEHICLE_TRACK_POLL_SECONDS = 30;
+
 function LiveLocationTab() {
     const [devices, setDevices]   = useState([]);
     const [selected, setSelected] = useState(null);
     const [loading, setLoading]   = useState(true);
+    const [mqttConnected, setMqttConnected] = useState(false);
+    const [nextRefreshIn, setNextRefreshIn] = useState(VEHICLE_TRACK_POLL_SECONDS);
 
     const load = async () => {
         try {
-            const deviceRequest = turboHiveEnabled ? api.getDevices() : api.getTraccarDevices();
-            const positionRequest = turboHiveEnabled ? Promise.resolve({ data: [] }) : api.getLatestPositions();
-            const [devRes, posRes, settingsRes] = await Promise.all([
-                deviceRequest, positionRequest, api.getVehicleSettings().catch(() => ({ data: [] })),
-            ]);
-            const positionsByDeviceId = {};
-            posRes.data.forEach(p => { positionsByDeviceId[p.deviceId] = p; });
-            const vehicleTypesByImei = {};
-            (settingsRes.data ?? []).forEach(s => { if (s.imei && s.vehicle_type) vehicleTypesByImei[s.imei] = s.vehicle_type; });
-            setDevices(devRes.data.map(d => liveTrackDeviceShape(d, positionsByDeviceId, vehicleTypesByImei)));
+            if (turboHiveEnabled) {
+                const vehicleTypesByImei = {};
+                try {
+                    const settingsRes = await api.getVehicleSettings();
+                    for (const s of settingsRes.data ?? []) {
+                        if (s.imei && s.vehicle_type) vehicleTypesByImei[s.imei] = s.vehicle_type;
+                    }
+                } catch (e) { /* icons fall back to default */ }
+
+                const [{ data }, locationsRes] = await Promise.all([
+                    api.getTurboHiveTrackableDevices(),
+                    api.getTurboHiveAllLocations().catch(() => ({ data: [] })),
+                ]);
+                const rawList = Array.isArray(data) ? data : (data?.list ?? data?.data ?? []);
+                const positionsByImei = {};
+                for (const loc of locationsRes.data ?? []) {
+                    const imei = loc['device.imei'];
+                    if (imei) positionsByImei[imei] = loc;
+                }
+                setDevices(rawList.map(d => turboHiveLiveDeviceShape(d, positionsByImei, vehicleTypesByImei)));
+            } else {
+                const [devRes, posRes, settingsRes] = await Promise.all([
+                    api.getTraccarDevices(), api.getLatestPositions(), api.getVehicleSettings().catch(() => ({ data: [] })),
+                ]);
+                const positionsByDeviceId = {};
+                posRes.data.forEach(p => { positionsByDeviceId[p.deviceId] = p; });
+                const vehicleTypesByImei = {};
+                (settingsRes.data ?? []).forEach(s => { if (s.imei && s.vehicle_type) vehicleTypesByImei[s.imei] = s.vehicle_type; });
+                setDevices(devRes.data.map(d => liveTrackDeviceShape(d, positionsByDeviceId, vehicleTypesByImei)));
+            }
         } catch (e) {
             // keep showing the last successful snapshot if a poll fails
         } finally {
@@ -1810,34 +2025,84 @@ function LiveLocationTab() {
 
     useEffect(() => {
         load();
-        const t = setInterval(load, 10000);
-        return () => clearInterval(t);
+        if (!turboHiveEnabled) return;
+
+        setNextRefreshIn(VEHICLE_TRACK_POLL_SECONDS);
+        const tick = setInterval(() => {
+            setNextRefreshIn(s => {
+                if (s <= 1) {
+                    load();
+                    return VEHICLE_TRACK_POLL_SECONDS;
+                }
+                return s - 1;
+            });
+        }, 1000);
+
+        return () => clearInterval(tick);
     }, []);
 
+    // Live position push via Laravel Reverb — MqttWorker broadcasts every TurboHive GNSS message
+    // it receives to the 'fleet' channel (see DevicePositionUpdated), the same one Dashboard.jsx
+    // listens on. A direct browser-side MQTT connection isn't used here: it would mean shipping
+    // the TurboHive broker credentials to every client.
     useEffect(() => {
-        if (!turboHiveEnabled) {
-            return;
-        }
+        if (!turboHiveEnabled || !window.Echo) return;
 
-        const client = connectTurboHiveMqtt((location) => {
-            setDevices(ds => applyTurboHivePosition(ds, location));
-        }, (error) => {
-            console.error('TurboHive MQTT error:', error);
+        const channel = window.Echo.channel('fleet');
+        channel.subscribed(() => setMqttConnected(true));
+
+        channel.listen('.position.updated', (data) => {
+            setDevices(ds => applyTurboHivePosition(ds, {
+                deviceKey:  data.imei,
+                latitude:   data.lat,
+                longitude:  data.lng,
+                speed:      data.speed,
+                heading:    data.heading,
+                acc:        data.acc,
+                altitude:   data.altitude,
+                deviceTime: data.timestamp,
+                signal:     data.signal,
+            }));
         });
 
+        channel.error(() => setMqttConnected(false));
+
         return () => {
-            client?.end(true);
+            window.Echo.leaveChannel('fleet');
+            setMqttConnected(false);
         };
     }, []);
 
     const selectedDevice = devices.find(d => d.id === selected) || null;
+    const onlineCount    = devices.filter(d => d.status === 'ONLINE').length;
+
+    const refreshNow = () => { setNextRefreshIn(VEHICLE_TRACK_POLL_SECONDS); load(); };
 
     return (
-        <div style={{ height: 600, borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e7eb', position: 'relative' }}>
-            {loading && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13, zIndex: 500, background: '#fff' }}>Loading…</div>
-            )}
-            <MapCanvas devices={devices} selected={selected} onSelect={setSelected} selectedDevice={selectedDevice} />
+        <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
+                <div className="mine-map-legend">
+                    <span><i className="online" />Online ({onlineCount})</span>
+                    <span><i className="offline" />Offline ({devices.length - onlineCount})</span>
+                    <span><i className="selected" />Selected</span>
+                </div>
+                <button onClick={refreshNow} style={{ padding: '6px 14px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    ⟳ Refresh
+                </button>
+            </div>
+            <div style={{ height: 600, borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e7eb', position: 'relative' }}>
+                {loading && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13, zIndex: 500, background: '#fff' }}>Loading…</div>
+                )}
+                <MapCanvas
+                    devices={devices}
+                    selected={selected}
+                    onSelect={setSelected}
+                    selectedDevice={selectedDevice}
+                    mqttConnected={turboHiveEnabled ? mqttConnected : undefined}
+                    nextRefreshIn={turboHiveEnabled ? nextRefreshIn : undefined}
+                />
+            </div>
         </div>
     );
 }
@@ -1900,7 +2165,7 @@ function VehicleTrackPage() {
 // Ranking) since the spec calls it out as a distinct analytics capability.
 // "Ranking" and "Tonne-Km" hidden from the tab bar temporarily per request — their report
 // components/routes are untouched, so re-add the two entries below to bring them back.
-const FUEL_MANAGEMENT_TABS = ['Fuel Curve', 'Consumption', 'Consumption Per Distance Travelled', 'Consumption (Trips)', 'Current Fuel', 'Refuelling', 'Idle Fuel', 'Abnormal Loss', 'Fuel Price' /*, 'Ranking', 'Tonne-Km' */];
+const FUEL_MANAGEMENT_TABS = ['Fuel Curve', 'Consumption', 'Consumption Per Distance Travelled', 'Consumption (Trips)', 'Current Fuel', 'Refuelling', 'Idle Fuel', 'Abnormal Loss', 'Fuel Alerts', 'Fuel Price' /*, 'Ranking', 'Tonne-Km' */];
 
 function FuelManagementPage() {
     const [tab, setTab] = useState(FUEL_MANAGEMENT_TABS[0]);
@@ -1917,6 +2182,7 @@ function FuelManagementPage() {
             {tab === 'Refuelling'          && <EmbeddedReport section="Refuelling" />}
             {tab === 'Idle Fuel'           && <EmbeddedReport section="Idle Fuel" />}
             {tab === 'Abnormal Loss'       && <EmbeddedReport section="Abnormal Fuel Loss" />}
+            {tab === 'Fuel Alerts'         && <FuelAlertsTab />}
             {tab === 'Fuel Price' && (
                 <div style={{ height: 640, display: 'flex', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
                     <FuelPricePage />
@@ -1925,6 +2191,128 @@ function FuelManagementPage() {
             {tab === 'Ranking'             && <EmbeddedReport section="Fuel Ranking" height={720} />}
             {tab === 'Tonne-Km'            && <EmbeddedReport section="Tonne-Km Fuel Analytics" height={720} />}
         </PageShell>
+    );
+}
+
+// Persisted history of TurboHive fuel-sensor alerts (alert.code 1222-1225 — Low Fuel/Abnormal
+// Level/Increased/Dropped), captured live by MqttWorker::recordFuelAlert into fuel_alerts. Distinct
+// from the Refuelling/Idle Fuel/Abnormal Loss tabs above (those are derived from raw OBD readings
+// crossing a threshold, computed by MqttWorker itself) — this is TurboHive's own alert feed for the
+// same general concern, kept as its own persisted table+tab per the codes given.
+const FUEL_ALERT_SEVERITY_COLOR = { low: '#0891b2', medium: '#f59e0b', high: '#ef4444' };
+const FUEL_ALERT_CODES_LIVE = ['1222', '1223', '1224', '1225'];
+
+function FuelAlertsTab() {
+    const [alerts, setAlerts]   = useState([]);
+    const [devices, setDevices] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError]     = useState('');
+    const [search, setSearch]   = useState('');
+    const [severity, setSeverity] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate]     = useState('');
+
+    const load = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const params = {};
+            if (severity) params.severity = severity;
+            if (startDate) params.startDate = startDate;
+            if (endDate) params.endDate = `${endDate} 23:59:59`;
+            const [alertRes, devRes] = await Promise.all([
+                api.getFuelAlerts(params),
+                api.getTurboHiveTrackableDevices({ page: 1, size: 100 }).catch(() => ({ data: { data: [] } })),
+            ]);
+            setAlerts(Array.isArray(alertRes.data) ? alertRes.data : []);
+            setDevices(Array.isArray(devRes.data?.data) ? devRes.data.data : []);
+        } catch (e) {
+            setError('Failed to load fuel alerts.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, [severity, startDate, endDate]);
+
+    // Live top-up — MqttWorker persists a row the moment one of these codes arrives, so a fresh
+    // alert is already safe to show without waiting for the next poll/refresh.
+    useEffect(() => {
+        if (!window.Echo) return;
+        const channel = window.Echo.channel('fleet');
+        channel.listen('.alert.received', (data) => {
+            if (!FUEL_ALERT_CODES_LIVE.includes(String(data.code))) return;
+            setAlerts(as => [{
+                id: `live-${Date.now()}`,
+                imei: data.imei,
+                code: data.code,
+                type: data.name,
+                trigger_type: data.triggerType,
+                severity: data.severity,
+                description: data.description,
+                latitude: data.latitude,
+                longitude: data.longitude,
+                occurred_at: new Date().toISOString(),
+            }, ...as]);
+        });
+        return () => window.Echo.leaveChannel('fleet');
+    }, []);
+
+    const devicesByImei = {};
+    devices.forEach(d => { devicesByImei[d.imei] = d; });
+
+    const filtered = alerts.filter(a => {
+        if (!search) return true;
+        const name = devicesByImei[a.imei]?.deviceName || '';
+        const q = search.toLowerCase();
+        return a.imei.toLowerCase().includes(q) || name.toLowerCase().includes(q) || (a.type || '').toLowerCase().includes(q);
+    });
+
+    return (
+        <>
+            <FilterBar>
+                <FInput placeholder="Vehicle name, IMEI, or type" style={{ width: 240 }} value={search} onChange={e => setSearch(e.target.value)} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Severity</label>
+                    <select value={severity} onChange={e => setSeverity(e.target.value)}
+                        style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
+                        <option value="">All</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+                <FInput label="From" type="date" style={{ width: 160 }} value={startDate} onChange={e => setStartDate(e.target.value)} />
+                <FInput label="To" type="date" style={{ width: 160 }} value={endDate} onChange={e => setEndDate(e.target.value)} />
+                <button onClick={load} style={{ padding: '7px 20px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+            </FilterBar>
+
+            {error && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>{error}</div>}
+
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+                    <thead><tr>{['No.', 'Time', 'Vehicle', 'IMEI', 'Type', 'Trigger Type', 'Severity', 'Description'].map(c => <th key={c} style={TH}>{c}</th>)}</tr></thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td colSpan={8} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</td></tr>
+                        ) : filtered.length === 0 ? (
+                            <tr><td colSpan={8} style={{ ...TD, textAlign: 'center', padding: 48, color: '#94a3b8' }}>No fuel alerts recorded yet.</td></tr>
+                        ) : filtered.map((a, i) => (
+                            <tr key={a.id}>
+                                <td style={TD}>{i + 1}</td>
+                                <td style={{ ...TD, whiteSpace: 'nowrap' }}>{new Date(a.occurred_at).toLocaleString()}</td>
+                                <td style={{ ...TD, fontWeight: 500 }}>{devicesByImei[a.imei]?.deviceName || '—'}</td>
+                                <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12 }}>{a.imei}</td>
+                                <td style={TD}>{a.type}</td>
+                                <td style={{ ...TD, textTransform: 'capitalize' }}>{a.trigger_type}</td>
+                                <td style={TD}><Badge text={a.severity} color={FUEL_ALERT_SEVERITY_COLOR[a.severity] || '#9ca3af'} /></td>
+                                <td style={{ ...TD, color: '#6b7280' }}>{a.description}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </>
     );
 }
 

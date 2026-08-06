@@ -67,6 +67,9 @@ export const api = {
     // ── Abnormal fuel loss history (leak/siphon, detected live via MqttWorker) ──
     getFuelAbnormalLossEvents: (params = {}) => axios.get('/api/fuel-abnormal-loss-events', { params }),
 
+    // ── Fuel-sensor alert history (alert.code 1222-1225, captured live via MqttWorker) ──
+    getFuelAlerts: (params = {}) => axios.get('/api/fuel-alerts', { params }),
+
     // ── Idle-run fuel consumption history (detected live via MqttWorker) ──
     getFuelIdleEvents: (params = {}) => axios.get('/api/fuel-idle-events', { params }),
 
@@ -151,22 +154,25 @@ export const api = {
         form.append('photo', photoBlob, 'capture.jpg');
         return axios.post('/api/turbohive/face/upload-photo', form, { headers: { 'Content-Type': 'multipart/form-data' } });
     },
-    uploadDriverFaceToTurboHive: (driverId, imei, photoBlob, filename = 'face.jpg') => {
+    captureDriverFacePhoto: (driverId, imei, photoBlob, filename = 'capture.jpg') => {
         const form = new FormData();
         form.append('driver_id', driverId);
         form.append('imei', imei);
         form.append('photo', photoBlob, filename);
-        return axios.post('/api/turbohive/face/upload-turbohive', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+        return axios.post('/api/turbohive/face/capture', form, { headers: { 'Content-Type': 'multipart/form-data' } });
     },
     testUploadFaceFileName: (imei, fileName) => axios.post('/api/turbohive/face/upload-turbohive-test', { imei, file_name: fileName }),
     testDriverFace:          (imei)                               => axios.post('/api/turbohive/face/test', { imei }),
     deleteDriverFace:        (driverId, imei)                     => axios.post('/api/turbohive/face/delete', { driver_id: driverId, imei }),
     checkFaceRoster:         (imei)                               => axios.post('/api/turbohive/face/roster', { imei }),
     setFaceUploadUrl:        (imei, url)                          => axios.post('/api/turbohive/face/upload-url', { imei, url }),
+    fetchDriverFacePhoto:    (driverId, imei)                     => axios.post('/api/turbohive/face/fetch-photo', { driver_id: driverId, imei }),
+    downloadFaceBatch:       (imei, driverIds)                    => axios.post('/api/turbohive/face/batch-download', { imei, driver_ids: driverIds }),
 
     // ── Our own /face/uploadPic webhook — inbound log + configured host ─────
     getFaceUploads:       (params = {}) => axios.get('/api/face-uploads', { params }),
     getFaceUploadConfig:  ()            => axios.get('/api/face-upload-config'),
+    getFaceUploadRawLog:  (params = {}) => axios.get('/api/face-upload-log', { params }),
 
     // ── Stubs — Traccar-only features removed; return empty so UI won't crash ──
     getTraccarGroups:             empty,

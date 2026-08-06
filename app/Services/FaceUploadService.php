@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Driver;
+use App\Models\DriverFace;
 use App\Models\FaceUploadReceipt;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -29,8 +31,17 @@ class FaceUploadService
 
         $result = $this->validateAndStore($imei, $instructionId, $timestamp, $sign, $file);
 
+        $driver = null;
+        if ($result['code'] === 200 && $file) {
+            $driver = $this->resolveDriver($file->getClientOriginalName());
+            if ($driver) {
+                $this->linkToDriver($driver, $imei, $result['stored_path']);
+            }
+        }
+
         FaceUploadReceipt::create([
             'imei'              => $imei ?: null,
+            'driver_id'         => $driver?->id,
             'instruction_id'    => $instructionId ?: null,
             'file_name'         => $file?->getClientOriginalName(),
             'stored_path'       => $result['stored_path'] ?? null,
@@ -108,5 +119,32 @@ class FaceUploadService
         $file->move($dir, $name);
 
         return $name;
+    }
+
+    /**
+     * Filenames follow the JC171 EVENTSET,FACE,SHOT/GET convention: "<driver badge_no>-<name>.jpg"
+     * (see TurboHiveService's Face Recognition section — e.g. "22222-Jerome.jpg"). badge_no is
+     * always everything before the FIRST hyphen, so this still resolves correctly even when our
+     * own duplicate-filename suffix gets appended after it (e.g. "22222-Jerome-a1b2c3.jpg").
+     */
+    private function resolveDriver(string $originalFilename): ?Driver
+    {
+        $base    = pathinfo($originalFilename, PATHINFO_FILENAME);
+        $badgeNo = strstr($base, '-', true);
+
+        if ($badgeNo === false || $badgeNo === '') {
+            return null;
+        }
+
+        return Driver::where('badge_no', $badgeNo)->first();
+    }
+
+    /** Mirrors what DriverFaceController's own webhook does for a matched photo — see its docblock. */
+    private function linkToDriver(Driver $driver, string $imei, string $storedPath): void
+    {
+        DriverFace::updateOrCreate(
+            ['driver_id' => $driver->id, 'imei' => $imei],
+            ['status' => 'enrolled', 'photo_path' => $storedPath, 'enrolled_at' => now(), 'error' => null]
+        );
     }
 }

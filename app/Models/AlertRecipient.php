@@ -21,6 +21,7 @@ class AlertRecipient extends Model
         'vehicle_insurance_expiry' => 'Vehicle Insurance Expiry',
         'vehicle_maintenance' => 'Vehicle Maintenance Due',
         'sim_expiry'          => 'SIM Card Data/Load Expiry',
+        'fuel_alert'          => 'Abnormal Fuel Loss / Drop',
     ];
 
     protected $fillable = [

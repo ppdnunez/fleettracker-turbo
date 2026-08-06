@@ -17,11 +17,12 @@ const CENTER = [14.5995, 120.9842];
 
 // Pin color per state — 3 fixed states, so a shared gradient id per state (e.g. "pinGrad-on")
 // is safe to reuse across every marker in that state without an SVG id collision, rather than
-// needing a globally-unique id per marker instance.
+// needing a globally-unique id per marker instance. Matches the .mine-map-legend swatches in
+// app.css (online/offline/selected) — keep these two in sync.
 const PIN_COLORS = {
-    sel: { top: '#334155', bottom: '#0f172a', border: '#0f172a' },
-    on:  { top: '#60a5fa', bottom: '#1d4ed8', border: '#1d4ed8' },
-    off: { top: '#cbd5e1', bottom: '#64748b', border: '#64748b' },
+    sel: { top: '#60a5fa', bottom: '#4da8ff', border: '#2563eb' },
+    on:  { top: '#4ade80', bottom: '#3fc07a', border: '#16a34a' },
+    off: { top: '#94a3b8', bottom: '#5e7094', border: '#475569' },
 };
 
 function makeIcon(selected, online, heading, vehicleType) {
@@ -361,6 +362,9 @@ export default function MapCanvas({ devices, selected, onSelect, selectedDevice,
                                     )}
                                     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                                         <tbody>
+                                            {d.imei && (
+                                                <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>IMEI</td><td style={{ color: '#f1f5f9' }}>{d.imei}</td></tr>
+                                            )}
                                             <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>Lat</td><td style={{ color: '#f1f5f9' }}>{d.lat.toFixed(5)}</td></tr>
                                             <tr><td style={{ color: '#94a3b8', paddingRight: 8 }}>Lng</td><td style={{ color: '#f1f5f9' }}>{d.lng.toFixed(5)}</td></tr>
                                             {fmt(d.speed) != null && (

@@ -13,3 +13,4 @@ Schedule::command('vehicles:notify-sticker-expirations')->daily();
 Schedule::command('vehicles:notify-insurance-expirations')->daily();
 Schedule::command('vehicle-maintenance:notify-due')->daily();
 Schedule::command('sim:notify-expirations')->daily();
+Schedule::command('face-enrollments:expire-pending')->everyMinute();

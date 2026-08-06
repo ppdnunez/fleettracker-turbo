@@ -1,6 +1,6 @@
 export default function LogoutModal({ onCancel, onConfirm, dark }) {
     return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5000 }}>
             <div style={{ background: dark ? '#111827' : '#fff', borderRadius: 16, padding: '32px 36px', width: 320, boxShadow: '0 24px 64px rgba(0,0,0,0.3)', textAlign: 'center' }}>
                 <div style={{ fontSize: 36, marginBottom: 12 }}>👋</div>
                 <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: dark ? '#f1f5f9' : '#0f172a' }}>Sign Out?</h2>
